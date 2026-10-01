@@ -36,6 +36,7 @@ yarn-error.log*
 # local file storage (test media, not committed)
 /storage/files/*
 !/storage/files/.gitkeep
+/storage/personnel.json
 
 # vercel
 .vercel

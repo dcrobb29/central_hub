@@ -1,0 +1,311 @@
+"use client";
+
+import { Fragment, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { Plus, Trash2 } from "lucide-react";
+import {
+  calculateEstimate,
+  type EstimateMarkupMode,
+} from "@/app/lib/estimate-pricing";
+import type { EstimateDetails, EstimateLineInput, EstimateSummary } from "@/app/lib/estimates";
+
+const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const money = (value: number) => currency.format(value || 0);
+
+type EstimateLineDraft = EstimateLineInput;
+
+function newLine(): EstimateLineDraft {
+  return { description: "", quantity: 1, unitName: "", unitCost: 0, lineMarkupPercent: 0 };
+}
+
+function asNumber(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export default function EstimateWorkspace({ estimates }: { estimates: EstimateSummary[] }) {
+  const router = useRouter();
+  const [isCreating, setIsCreating] = useState(false);
+  const [estimateName, setEstimateName] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [markupMode, setMarkupMode] = useState<EstimateMarkupMode>("perLine");
+  const [estimateMarkupPercent, setEstimateMarkupPercent] = useState(0);
+  const [taxAmount, setTaxAmount] = useState(0);
+  const [freightAmount, setFreightAmount] = useState(0);
+  const [roundingIncrement, setRoundingIncrement] = useState(0);
+  const [lines, setLines] = useState<EstimateLineDraft[]>([newLine()]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [busyEstimateId, setBusyEstimateId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedEstimateId, setExpandedEstimateId] = useState<number | null>(null);
+  const [detailsById, setDetailsById] = useState<Record<number, EstimateDetails>>({});
+  const [loadingEstimateId, setLoadingEstimateId] = useState<number | null>(null);
+
+  const pricing = calculateEstimate({
+    markupMode,
+    estimateMarkupPercent,
+    taxAmount,
+    freightAmount,
+    roundingIncrement,
+    lines,
+  });
+
+  function resetForm() {
+    setEstimateName("");
+    setCustomerName("");
+    setMarkupMode("perLine");
+    setEstimateMarkupPercent(0);
+    setTaxAmount(0);
+    setFreightAmount(0);
+    setRoundingIncrement(0);
+    setLines([newLine()]);
+    setError(null);
+  }
+
+  function closeForm() {
+    if (isSaving) return;
+    setIsCreating(false);
+    resetForm();
+  }
+
+  function updateLine(index: number, patch: Partial<EstimateLineDraft>) {
+    setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, ...patch } : line));
+  }
+
+  async function submitEstimate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSaving(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/sales/estimates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          estimateName,
+          customerName,
+          markupMode,
+          estimateMarkupPercent,
+          taxAmount,
+          freightAmount,
+          roundingIncrement,
+          lines: lines.map((line) => ({
+            ...line,
+            quantity: Number(line.quantity),
+            unitCost: Number(line.unitCost),
+            lineMarkupPercent: Number(line.lineMarkupPercent),
+            unitName: line.unitName || null,
+          })),
+        }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "Unable to save estimate");
+      setIsCreating(false);
+      resetForm();
+      router.refresh();
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Unable to save estimate");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function toggleDetails(estimateId: number) {
+    if (expandedEstimateId === estimateId) {
+      setExpandedEstimateId(null);
+      return;
+    }
+    setExpandedEstimateId(estimateId);
+    if (detailsById[estimateId]) return;
+    setLoadingEstimateId(estimateId);
+    try {
+      const response = await fetch(`/api/sales/estimates?estimateId=${estimateId}`);
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "Unable to load estimate details");
+      setDetailsById((current) => ({ ...current, [estimateId]: result as EstimateDetails }));
+    } catch (detailError) {
+      setError(detailError instanceof Error ? detailError.message : "Unable to load estimate details");
+    } finally {
+      setLoadingEstimateId(null);
+    }
+  }
+
+  async function markWon(estimate: EstimateSummary) {
+    setBusyEstimateId(estimate.estimateId);
+    setError(null);
+    try {
+      const response = await fetch("/api/sales/estimates", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark-won", estimateId: estimate.estimateId }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "Unable to convert estimate");
+      router.refresh();
+      router.push(`/projects?created=${result.projectId}`);
+    } catch (winError) {
+      setError(winError instanceof Error ? winError.message : "Unable to convert estimate");
+    } finally {
+      setBusyEstimateId(null);
+    }
+  }
+
+  return (
+    <section className="salesWorkspace">
+      <header className="salesToolbar">
+        <div>
+          <p className="salesEyebrow">SALES</p>
+          <h1>Leads &amp; Estimates</h1>
+        </div>
+        <button className="financeImportButton" type="button" onClick={() => { resetForm(); setIsCreating(true); }}>
+          <Plus size={15} aria-hidden="true" />
+          New estimate
+        </button>
+      </header>
+
+      <p className="salesWorkflowNote">Draft estimates retain their pricing inputs and line items. Marking one won creates a project from that saved scope.</p>
+      {error && <p className="financeImportError" role="alert">{error}</p>}
+
+      <div className="invoiceTableWrapper salesEstimateTableWrapper">
+        <table className="invoiceTable salesEstimateTable">
+          <thead>
+            <tr>
+              <th>Estimate</th>
+              <th>Customer</th>
+              <th>Status</th>
+              <th>Revision</th>
+              <th>Lines</th>
+              <th>Total</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {estimates.length === 0 ? (
+              <tr><td colSpan={7} className="invoiceNoResults">No estimates yet.</td></tr>
+            ) : estimates.map((estimate) => (
+              <Fragment key={estimate.estimateId}>
+                <tr key={estimate.estimateId}>
+                  <td>{estimate.estimateName}</td>
+                  <td>{estimate.customerName ?? "—"}</td>
+                  <td><span className={`estimateStatus estimateStatus${estimate.status}`}>{estimate.status}</span></td>
+                  <td>{estimate.revisionNumber ? `R${estimate.revisionNumber}` : "—"}</td>
+                  <td>{estimate.lineCount}</td>
+                  <td>{money(estimate.quotedTotal ?? 0)}</td>
+                  <td className="estimateActionCell">
+                    <button type="button" className="estimateTextAction" onClick={() => void toggleDetails(estimate.estimateId)}>
+                      {expandedEstimateId === estimate.estimateId ? "Hide scope" : "View scope"}
+                    </button>
+                    {estimate.status === "Draft" && (
+                      <button type="button" className="estimateWinAction" onClick={() => void markWon(estimate)} disabled={busyEstimateId === estimate.estimateId}>
+                        {busyEstimateId === estimate.estimateId ? "Converting..." : "Mark won"}
+                      </button>
+                    )}
+                    {estimate.projectId && <a className="estimateTextAction" href={`/projects?created=${estimate.projectId}`}>Open project</a>}
+                  </td>
+                </tr>
+                {expandedEstimateId === estimate.estimateId && (
+                  <tr key={`${estimate.estimateId}-scope`}>
+                    <td colSpan={7} className="estimateScopeCell">
+                      {loadingEstimateId === estimate.estimateId ? <p>Loading estimate scope...</p> : detailsById[estimate.estimateId] ? (
+                        <div className="estimateScope">
+                          <div className="estimateScopeSummary">
+                            <span>Markup: {detailsById[estimate.estimateId].markupMode === "perLine" ? "Per line" : `${detailsById[estimate.estimateId].estimateMarkupPercent}% on estimate`}</span>
+                            <span>Tax: {money(detailsById[estimate.estimateId].taxAmount)}</span>
+                            <span>Freight: {money(detailsById[estimate.estimateId].freightAmount)}</span>
+                            <span>Round to: {detailsById[estimate.estimateId].roundingIncrement ? money(detailsById[estimate.estimateId].roundingIncrement) : "No rounding"}</span>
+                          </div>
+                          <ol>
+                            {detailsById[estimate.estimateId].lines.map((line) => (
+                              <li key={line.estimateLineItemId}>
+                                <span>{line.description}</span>
+                                <span>{line.quantity} {line.unitName}</span>
+                                <span>{money(line.unitCost)} / unit</span>
+                                {detailsById[estimate.estimateId].markupMode === "perLine" && <span>{line.lineMarkupPercent}% markup</span>}
+                              </li>
+                            ))}
+                          </ol>
+                        </div>
+                      ) : <p>Could not load this estimate’s scope.</p>}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {isCreating && (
+        <div className="financeImportBackdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeForm(); }}>
+          <section className="financeImportDialog estimateDialog" role="dialog" aria-modal="true" aria-labelledby="newEstimateTitle">
+            <header className="financeImportDialogHeader">
+              <div>
+                <p className="financeImportEyebrow">LEADS &amp; ESTIMATES</p>
+                <h2 id="newEstimateTitle">New estimate</h2>
+              </div>
+              <button type="button" className="financeImportClose" onClick={closeForm} aria-label="Close estimate form" disabled={isSaving}>×</button>
+            </header>
+            <form onSubmit={submitEstimate}>
+              <fieldset className="financeImportGroup">
+                <legend>Quote</legend>
+                <div className="financeImportFields">
+                  <label className="financeImportField">Estimate name *<input value={estimateName} onChange={(event) => setEstimateName(event.target.value)} maxLength={150} required /></label>
+                  <label className="financeImportField">Customer name<input value={customerName} onChange={(event) => setCustomerName(event.target.value)} maxLength={150} /></label>
+                </div>
+              </fieldset>
+
+              <fieldset className="financeImportGroup">
+                <legend>Pricing rules</legend>
+                <div className="financeImportFields">
+                  <label className="financeImportField">Markup method
+                    <select value={markupMode} onChange={(event) => setMarkupMode(event.target.value as EstimateMarkupMode)}>
+                      <option value="perLine">Markup per line</option>
+                      <option value="estimate">Markup on estimate subtotal</option>
+                    </select>
+                  </label>
+                  {markupMode === "estimate" && <label className="financeImportField">Estimate markup %<input type="number" min="0" max="1000" step="0.01" value={estimateMarkupPercent} onChange={(event) => setEstimateMarkupPercent(asNumber(event.target.value))} /></label>}
+                  <label className="financeImportField">Tax amount<input type="number" min="0" step="0.01" value={taxAmount} onChange={(event) => setTaxAmount(asNumber(event.target.value))} /></label>
+                  <label className="financeImportField">Freight amount<input type="number" min="0" step="0.01" value={freightAmount} onChange={(event) => setFreightAmount(asNumber(event.target.value))} /></label>
+                  <label className="financeImportField">Final rounding
+                    <select value={roundingIncrement} onChange={(event) => setRoundingIncrement(Number(event.target.value))}>
+                      <option value={0}>No rounding</option>
+                      <option value={1}>Nearest dollar</option>
+                      <option value={10}>Nearest $10</option>
+                      <option value={100}>Nearest $100</option>
+                    </select>
+                  </label>
+                </div>
+              </fieldset>
+
+              <fieldset className="financeImportGroup">
+                <legend>Line items</legend>
+                <div className="estimateLinesHeader"><span>Description</span><span>Qty</span><span>Unit</span><span>Unit cost</span><span>Markup %</span><span /></div>
+                {lines.map((line, index) => (
+                  <div className="estimateLineEditor" key={index}>
+                    <input aria-label={`Line ${index + 1} description`} placeholder="Description" value={line.description} maxLength={300} onChange={(event) => updateLine(index, { description: event.target.value })} required />
+                    <input aria-label={`Line ${index + 1} quantity`} type="number" min="0.0001" step="0.0001" value={line.quantity} onChange={(event) => updateLine(index, { quantity: asNumber(event.target.value) })} required />
+                    <input aria-label={`Line ${index + 1} unit`} placeholder="ea, hr, ft" value={line.unitName ?? ""} maxLength={30} onChange={(event) => updateLine(index, { unitName: event.target.value })} />
+                    <input aria-label={`Line ${index + 1} unit cost`} type="number" min="0" step="0.0001" value={line.unitCost} onChange={(event) => updateLine(index, { unitCost: asNumber(event.target.value) })} required />
+                    <input aria-label={`Line ${index + 1} markup percent`} type="number" min="0" max="1000" step="0.01" value={line.lineMarkupPercent} disabled={markupMode === "estimate"} onChange={(event) => updateLine(index, { lineMarkupPercent: asNumber(event.target.value) })} />
+                    <button type="button" className="estimateRemoveLine" aria-label={`Remove line ${index + 1}`} disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}><Trash2 size={15} /></button>
+                  </div>
+                ))}
+                <button type="button" className="estimateAddLine" onClick={() => setLines((current) => [...current, newLine()])}><Plus size={14} /> Add line</button>
+              </fieldset>
+
+              <div className="estimatePreviewTotal">
+                <span>Estimated quote total</span>
+                <strong>{money(pricing.quotedTotal)}</strong>
+                <small>Base {money(pricing.baseSubtotal)} · Markup {money(pricing.markupAmount)} · Tax {money(pricing.taxAmount)} · Freight {money(pricing.freightAmount)}</small>
+              </div>
+              {error && <p className="financeImportError" role="alert">{error}</p>}
+              <div className="financeImportActions">
+                <button type="button" className="financeImportCancel" onClick={closeForm} disabled={isSaving}>Cancel</button>
+                <button type="submit" className="financeImportSubmit" disabled={isSaving}>{isSaving ? "Saving..." : "Save draft estimate"}</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+    </section>
+  );
+}

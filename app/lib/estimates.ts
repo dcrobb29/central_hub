@@ -1,0 +1,312 @@
+import { getPool, sql } from "@/app/lib/db";
+import {
+  calculateEstimate,
+  type EstimateMarkupMode,
+  type EstimatePricingLine,
+} from "@/app/lib/estimate-pricing";
+
+export type EstimateLineInput = EstimatePricingLine & {
+  description: string;
+  unitName: string | null;
+};
+
+export type CreateEstimateInput = {
+  estimateName: string;
+  customerName: string | null;
+  markupMode: EstimateMarkupMode;
+  estimateMarkupPercent: number;
+  taxAmount: number;
+  freightAmount: number;
+  roundingIncrement: number;
+  lines: EstimateLineInput[];
+};
+
+export type EstimateSummary = {
+  estimateId: number;
+  estimateName: string;
+  customerName: string | null;
+  status: "Draft" | "Won" | "Lost";
+  createdAt: string;
+  revisionId: number;
+  revisionNumber: number;
+  markupMode: EstimateMarkupMode;
+  estimateMarkupPercent: number;
+  taxAmount: number;
+  freightAmount: number;
+  roundingIncrement: number;
+  quotedTotal: number;
+  lineCount: number;
+  projectId: number | null;
+};
+
+export type EstimateLine = EstimateLineInput & {
+  estimateLineItemId: number;
+  lineNumber: number;
+};
+
+export type EstimateDetails = EstimateSummary & { lines: EstimateLine[] };
+
+export type ProjectScopeLine = {
+  lineNumber: number;
+  description: string;
+  quantity: number;
+  unitName: string | null;
+  unitCost: number;
+  lineMarkupPercent: number;
+};
+
+export type ProjectWithEstimate = {
+  projectId: number;
+  projectName: string;
+  projectStatus: string;
+  estimateName: string | null;
+  customerName: string | null;
+  estimateRevisionNumber: number | null;
+  quotedTotal: number | null;
+  lines: ProjectScopeLine[];
+};
+
+export async function getEstimates(): Promise<EstimateSummary[]> {
+  const pool = await getPool();
+  const result = await pool.request().query<EstimateSummary>(`
+    SELECT
+      e.EstimateID AS estimateId,
+      e.EstimateName AS estimateName,
+      e.CustomerName AS customerName,
+      e.EstimateStatus AS status,
+      CONVERT(varchar(19), e.CreatedAt, 126) AS createdAt,
+      r.EstimateRevisionID AS revisionId,
+      r.RevisionNumber AS revisionNumber,
+      r.MarkupMode AS markupMode,
+      r.EstimateMarkupPercent AS estimateMarkupPercent,
+      r.TaxAmount AS taxAmount,
+      r.FreightAmount AS freightAmount,
+      r.RoundingIncrement AS roundingIncrement,
+      r.QuotedTotal AS quotedTotal,
+      COALESCE(lines.LineCount, 0) AS lineCount,
+      p.ProjectID AS projectId
+    FROM dbo.Estimates e
+    OUTER APPLY (
+      SELECT TOP (1) r.*
+      FROM dbo.EstimateRevisions r
+      WHERE r.EstimateID = e.EstimateID
+      ORDER BY r.RevisionNumber DESC
+    ) r
+    OUTER APPLY (
+      SELECT COUNT(*) AS LineCount
+      FROM dbo.EstimateLineItems li
+      WHERE li.EstimateRevisionID = r.EstimateRevisionID
+    ) lines
+    LEFT JOIN dbo.Projects p ON p.AcceptedEstimateRevisionID = r.EstimateRevisionID
+    ORDER BY e.CreatedAt DESC, e.EstimateID DESC
+  `);
+  return result.recordset;
+}
+
+export async function getEstimateDetails(estimateId: number): Promise<EstimateDetails | null> {
+  const pool = await getPool();
+  const estimate = await pool.request()
+    .input("estimateId", sql.Int, estimateId)
+    .query<EstimateSummary>(`
+      SELECT TOP (1)
+        e.EstimateID AS estimateId,
+        e.EstimateName AS estimateName,
+        e.CustomerName AS customerName,
+        e.EstimateStatus AS status,
+        CONVERT(varchar(19), e.CreatedAt, 126) AS createdAt,
+        r.EstimateRevisionID AS revisionId,
+        r.RevisionNumber AS revisionNumber,
+        r.MarkupMode AS markupMode,
+        r.EstimateMarkupPercent AS estimateMarkupPercent,
+        r.TaxAmount AS taxAmount,
+        r.FreightAmount AS freightAmount,
+        r.RoundingIncrement AS roundingIncrement,
+        r.QuotedTotal AS quotedTotal,
+        (SELECT COUNT(*) FROM dbo.EstimateLineItems li WHERE li.EstimateRevisionID = r.EstimateRevisionID) AS lineCount,
+        p.ProjectID AS projectId
+      FROM dbo.Estimates e
+      LEFT JOIN dbo.EstimateRevisions r ON r.EstimateID = e.EstimateID
+      LEFT JOIN dbo.Projects p ON p.AcceptedEstimateRevisionID = r.EstimateRevisionID
+      WHERE e.EstimateID = @estimateId
+      ORDER BY r.RevisionNumber DESC
+    `);
+  const summary = estimate.recordset[0];
+  if (!summary) return null;
+  const lines = await pool.request()
+    .input("revisionId", sql.Int, summary.revisionId)
+    .query<EstimateLine>(`
+      SELECT
+        EstimateLineItemID AS estimateLineItemId,
+        LineNumber AS lineNumber,
+        Description AS description,
+        Quantity AS quantity,
+        UnitName AS unitName,
+        UnitCost AS unitCost,
+        LineMarkupPercent AS lineMarkupPercent
+      FROM dbo.EstimateLineItems
+      WHERE EstimateRevisionID = @revisionId
+      ORDER BY LineNumber
+    `);
+  return { ...summary, lines: lines.recordset };
+}
+
+export async function createEstimate(input: CreateEstimateInput): Promise<number> {
+  const pricing = calculateEstimate(input);
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+
+  try {
+    const estimateResult = await transaction.request()
+      .input("estimateName", sql.NVarChar(150), input.estimateName)
+      .input("customerName", sql.NVarChar(150), input.customerName)
+      .query<{ EstimateID: number }>(`
+        INSERT INTO dbo.Estimates (EstimateName, CustomerName)
+        OUTPUT inserted.EstimateID
+        VALUES (@estimateName, @customerName)
+      `);
+    const estimateId = estimateResult.recordset[0].EstimateID;
+
+    const revisionResult = await transaction.request()
+      .input("estimateId", sql.Int, estimateId)
+      .input("markupMode", sql.VarChar(16), input.markupMode)
+      .input("estimateMarkupPercent", sql.Decimal(9, 4), input.estimateMarkupPercent)
+      .input("taxAmount", sql.Decimal(19, 2), pricing.taxAmount)
+      .input("freightAmount", sql.Decimal(19, 2), pricing.freightAmount)
+      .input("roundingIncrement", sql.Decimal(19, 2), input.roundingIncrement)
+      .input("quotedTotal", sql.Decimal(19, 2), pricing.quotedTotal)
+      .query<{ EstimateRevisionID: number }>(`
+        INSERT INTO dbo.EstimateRevisions (
+          EstimateID, RevisionNumber, MarkupMode, EstimateMarkupPercent,
+          TaxAmount, FreightAmount, RoundingIncrement, QuotedTotal
+        )
+        OUTPUT inserted.EstimateRevisionID
+        VALUES (@estimateId, 1, @markupMode, @estimateMarkupPercent,
+          @taxAmount, @freightAmount, @roundingIncrement, @quotedTotal)
+      `);
+    const revisionId = revisionResult.recordset[0].EstimateRevisionID;
+
+    for (const [index, line] of input.lines.entries()) {
+      await transaction.request()
+        .input("revisionId", sql.Int, revisionId)
+        .input("lineNumber", sql.Int, index + 1)
+        .input("description", sql.NVarChar(300), line.description)
+        .input("quantity", sql.Decimal(19, 4), line.quantity)
+        .input("unitName", sql.NVarChar(30), line.unitName)
+        .input("unitCost", sql.Decimal(19, 4), line.unitCost)
+        .input("lineMarkupPercent", sql.Decimal(9, 4), line.lineMarkupPercent)
+        .query(`
+          INSERT INTO dbo.EstimateLineItems (
+            EstimateRevisionID, LineNumber, Description, Quantity, UnitName, UnitCost, LineMarkupPercent
+          )
+          VALUES (@revisionId, @lineNumber, @description, @quantity, @unitName, @unitCost, @lineMarkupPercent)
+        `);
+    }
+
+    await transaction.commit();
+    return estimateId;
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+}
+
+export async function winEstimate(estimateId: number): Promise<number> {
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+
+  try {
+    const estimateResult = await transaction.request()
+      .input("estimateId", sql.Int, estimateId)
+      .query<{ EstimateName: string; EstimateStatus: string; EstimateRevisionID: number | null }>(`
+        SELECT e.EstimateName, e.EstimateStatus, r.EstimateRevisionID
+        FROM dbo.Estimates e WITH (UPDLOCK, HOLDLOCK)
+        OUTER APPLY (
+          SELECT TOP (1) EstimateRevisionID
+          FROM dbo.EstimateRevisions
+          WHERE EstimateID = e.EstimateID
+          ORDER BY RevisionNumber DESC
+        ) r
+        WHERE e.EstimateID = @estimateId
+      `);
+    const estimate = estimateResult.recordset[0];
+    if (!estimate) throw new Error("not-found");
+    if (estimate.EstimateStatus !== "Draft") throw new Error("not-draft");
+    if (!estimate.EstimateRevisionID) throw new Error("no-revision");
+
+    const projectResult = await transaction.request()
+      .input("projectName", sql.NVarChar(150), estimate.EstimateName)
+      .input("revisionId", sql.Int, estimate.EstimateRevisionID)
+      .query<{ ProjectID: number }>(`
+        INSERT INTO dbo.Projects (ProjectName, ProjectStatus, AcceptedEstimateRevisionID)
+        OUTPUT inserted.ProjectID
+        VALUES (@projectName, 'Planning', @revisionId)
+      `);
+    const projectId = projectResult.recordset[0].ProjectID;
+
+    await transaction.request()
+      .input("estimateId", sql.Int, estimateId)
+      .query("UPDATE dbo.Estimates SET EstimateStatus = 'Won' WHERE EstimateID = @estimateId");
+
+    await transaction.commit();
+    return projectId;
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+}
+
+export async function getProjectsWithEstimates(): Promise<ProjectWithEstimate[]> {
+  const pool = await getPool();
+  const result = await pool.request().query<ProjectWithEstimate & { lineNumber: number | null; description: string | null; quantity: number | null; unitName: string | null; unitCost: number | null; lineMarkupPercent: number | null }>(`
+    SELECT
+      p.ProjectID AS projectId,
+      p.ProjectName AS projectName,
+      p.ProjectStatus AS projectStatus,
+      e.EstimateName AS estimateName,
+      e.CustomerName AS customerName,
+      r.RevisionNumber AS estimateRevisionNumber,
+      r.QuotedTotal AS quotedTotal,
+      li.LineNumber AS lineNumber,
+      li.Description AS description,
+      li.Quantity AS quantity,
+      li.UnitName AS unitName,
+      li.UnitCost AS unitCost,
+      li.LineMarkupPercent AS lineMarkupPercent
+    FROM dbo.Projects p
+    LEFT JOIN dbo.EstimateRevisions r ON r.EstimateRevisionID = p.AcceptedEstimateRevisionID
+    LEFT JOIN dbo.Estimates e ON e.EstimateID = r.EstimateID
+    LEFT JOIN dbo.EstimateLineItems li ON li.EstimateRevisionID = r.EstimateRevisionID
+    ORDER BY p.ProjectID DESC, li.LineNumber
+  `);
+
+  const projects = new Map<number, ProjectWithEstimate>();
+  for (const row of result.recordset) {
+    let project = projects.get(row.projectId);
+    if (!project) {
+      project = {
+        projectId: row.projectId,
+        projectName: row.projectName,
+        projectStatus: row.projectStatus,
+        estimateName: row.estimateName,
+        customerName: row.customerName,
+        estimateRevisionNumber: row.estimateRevisionNumber,
+        quotedTotal: row.quotedTotal,
+        lines: [],
+      };
+      projects.set(row.projectId, project);
+    }
+    if (row.lineNumber !== null && row.description !== null && row.quantity !== null && row.unitCost !== null) {
+      project.lines.push({
+        lineNumber: row.lineNumber,
+        description: row.description,
+        quantity: row.quantity,
+        unitName: row.unitName,
+        unitCost: row.unitCost,
+        lineMarkupPercent: row.lineMarkupPercent ?? 0,
+      });
+    }
+  }
+  return Array.from(projects.values());
+}

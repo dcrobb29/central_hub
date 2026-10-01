@@ -1,7 +1,9 @@
+import PersonnelWorkspace from "./personnel-workspace";
+
 export default function PersonnelPage() {
   return (
-    <div className="body">
-      <h1>Personnel</h1>
+    <div className="body personnelPage">
+      <PersonnelWorkspace />
     </div>
   );
 }

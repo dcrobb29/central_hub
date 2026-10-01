@@ -1,24 +1,28 @@
 import { getPool } from "@/app/lib/db";
+import type { ProjectOption } from "@/app/lib/projects";
 
 export type Invoice = {
   id: number;
+  projectId: number | null;
+  projectName: string | null;
   invoiceNo: string;
   invoiceDate: string;
   invoiceDueDate: string;
-  invoiceAmount: string;
-  firstName: string;
-  lastName: string;
-  companyName: string;
-  billingAddressLine1: string;
-  billingAddressLine2: string;
-  billingAddressCity: string;
-  billingAddressState: string;
-  billingAddressZip: string;
-  shippingAddressLine1: string;
-  shippingAddressLine2: string;
-  shippingAddressCity: string;
-  shippingAddressState: string;
-  shippingAddressZip: string;
+  invoicePaidDate: string | null;
+  invoiceAmount: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  companyName: string | null;
+  billingAddressLine1: string | null;
+  billingAddressLine2: string | null;
+  billingAddressCity: string | null;
+  billingAddressState: string | null;
+  billingAddressZip: string | null;
+  shippingAddressLine1: string | null;
+  shippingAddressLine2: string | null;
+  shippingAddressCity: string | null;
+  shippingAddressState: string | null;
+  shippingAddressZip: string | null;
 };
 
 export async function getInvoices(): Promise<Invoice[]> {
@@ -26,9 +30,12 @@ export async function getInvoices(): Promise<Invoice[]> {
   const result = await pool.request().query<Invoice>(`
     SELECT
       [id],
+      i.ProjectID AS projectId,
+      p.ProjectName AS projectName,
       [Invoice No]              AS invoiceNo,
-      [Invoice Date]            AS invoiceDate,
-      [Invoice Due Date]        AS invoiceDueDate,
+      CONVERT(char(10), [Invoice Date], 23) AS invoiceDate,
+      CONVERT(char(10), [Invoice Due Date], 23) AS invoiceDueDate,
+      CONVERT(char(10), [Invoice Paid Date], 23) AS invoicePaidDate,
       [Invoice Amount]          AS invoiceAmount,
       [First Name]              AS firstName,
       [Last Name]               AS lastName,
@@ -43,8 +50,19 @@ export async function getInvoices(): Promise<Invoice[]> {
       [Shipping Address City]   AS shippingAddressCity,
       [Shipping Address State]  AS shippingAddressState,
       [Shipping Address Zip]    AS shippingAddressZip
-    FROM [dbo].[Invoices]
-    ORDER BY [Invoice Date] DESC
+    FROM dbo.Invoices i
+    LEFT JOIN dbo.Projects p ON p.ProjectID = i.ProjectID
+    ORDER BY i.[Invoice Date] DESC
+  `);
+  return result.recordset;
+}
+
+export async function getInvoiceProjectOptions(): Promise<ProjectOption[]> {
+  const pool = await getPool();
+  const result = await pool.request().query<ProjectOption>(`
+    SELECT ProjectID AS projectId, ProjectName AS projectName
+    FROM dbo.Projects
+    ORDER BY ProjectName, ProjectID
   `);
   return result.recordset;
 }

@@ -1,8 +1,13 @@
-import { getInvoices } from "@/app/lib/invoices";
+import { getInvoiceProjectOptions, getInvoices } from "@/app/lib/invoices";
 import InvoiceTable from "../invoice-table";
 
-export default async function InvoicesPage() {
-  const invoices = await getInvoices();
+export const dynamic = "force-dynamic";
 
-  return <InvoiceTable className="invoiceTable" invoices={invoices} />;
+export default async function InvoicesPage() {
+  const [invoices, projectOptions] = await Promise.all([
+    getInvoices(),
+    getInvoiceProjectOptions(),
+  ]);
+
+  return <InvoiceTable className="invoiceTable" invoices={invoices} projectOptions={projectOptions} />;
 }

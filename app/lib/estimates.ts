@@ -8,6 +8,9 @@ import {
 export type EstimateLineInput = EstimatePricingLine & {
   description: string;
   unitName: string | null;
+  materialId: number | null;
+  catalogUnitCostAtEntry: number | null;
+  catalogPriceDate: string | null;
 };
 
 export type CreateEstimateInput = {
@@ -142,7 +145,10 @@ export async function getEstimateDetails(estimateId: number): Promise<EstimateDe
         UnitName AS unitName,
         UnitCost AS unitCost,
         FreightAmount AS freightAmount,
-        LineMarkupPercent AS lineMarkupPercent
+        LineMarkupPercent AS lineMarkupPercent,
+        MaterialID AS materialId,
+        CatalogUnitCostAtEntry AS catalogUnitCostAtEntry,
+        CONVERT(char(10), CatalogPriceDate, 23) AS catalogPriceDate
       FROM dbo.EstimateLineItems
       WHERE EstimateRevisionID = @revisionId
       ORDER BY LineNumber
@@ -195,11 +201,16 @@ export async function createEstimate(input: CreateEstimateInput): Promise<number
         .input("unitCost", sql.Decimal(19, 4), line.unitCost)
         .input("freightAmount", sql.Decimal(19, 4), line.freightAmount)
         .input("lineMarkupPercent", sql.Decimal(9, 4), line.lineMarkupPercent)
+        .input("materialId", sql.Int, line.materialId)
+        .input("catalogUnitCostAtEntry", sql.Decimal(19, 4), line.catalogUnitCostAtEntry)
+        .input("catalogPriceDate", sql.Date, line.catalogPriceDate ? new Date(`${line.catalogPriceDate}T00:00:00.000Z`) : null)
         .query(`
           INSERT INTO dbo.EstimateLineItems (
-            EstimateRevisionID, LineNumber, Description, Quantity, UnitName, UnitCost, FreightAmount, LineMarkupPercent
+            EstimateRevisionID, LineNumber, Description, Quantity, UnitName, UnitCost, FreightAmount, LineMarkupPercent,
+            MaterialID, CatalogUnitCostAtEntry, CatalogPriceDate
           )
-          VALUES (@revisionId, @lineNumber, @description, @quantity, @unitName, @unitCost, @freightAmount, @lineMarkupPercent)
+          VALUES (@revisionId, @lineNumber, @description, @quantity, @unitName, @unitCost, @freightAmount, @lineMarkupPercent,
+            @materialId, @catalogUnitCostAtEntry, @catalogPriceDate)
         `);
     }
 

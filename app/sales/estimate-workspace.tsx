@@ -2,12 +2,13 @@
 
 import { Fragment, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { FileDown, Plus, Trash2 } from "lucide-react";
+import { FileDown, Library, Plus, Trash2 } from "lucide-react";
 import {
   calculateEstimate,
   type EstimateMarkupMode,
 } from "@/app/lib/estimate-pricing";
 import type { EstimateDetails, EstimateLineInput, EstimateSummary } from "@/app/lib/estimates";
+import type { MaterialWithLatestPrice } from "@/app/lib/materials";
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const money = (value: number) => currency.format(value || 0);
@@ -18,7 +19,7 @@ type EngagementType = "Project" | "Service";
 type RecurrenceFrequency = "Weekly" | "Biweekly" | "Monthly";
 
 function newLine(): EstimateLineDraft {
-  return { description: "", quantity: 1, unitName: "", unitCost: 0, freightAmount: 0, lineMarkupPercent: 0 };
+  return { description: "", quantity: 1, unitName: "", unitCost: 0, freightAmount: 0, lineMarkupPercent: 0, materialId: null, catalogUnitCostAtEntry: null, catalogPriceDate: null };
 }
 
 function asNumber(value: string) {
@@ -50,6 +51,11 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
   const [winRecurrence, setWinRecurrence] = useState<RecurrenceFrequency>("Weekly");
   const [isWinning, setIsWinning] = useState(false);
   const [winError, setWinError] = useState<string | null>(null);
+
+  // catalog picker: which line is currently choosing a material, plus the lazily-fetched list
+  const [catalogPickerLine, setCatalogPickerLine] = useState<number | null>(null);
+  const [catalogMaterials, setCatalogMaterials] = useState<MaterialWithLatestPrice[] | null>(null);
+  const [catalogSearch, setCatalogSearch] = useState("");
 
   const pricing = calculateEstimate({
     markupMode,
@@ -102,6 +108,9 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
             freightAmount: Number(line.freightAmount),
             lineMarkupPercent: Number(line.lineMarkupPercent),
             unitName: line.unitName || null,
+            materialId: line.materialId,
+            catalogUnitCostAtEntry: line.catalogUnitCostAtEntry,
+            catalogPriceDate: line.catalogPriceDate,
           })),
         }),
       });
@@ -163,6 +172,32 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
     setWinError(null);
   }
 
+  async function openCatalogPicker(lineIndex: number) {
+    setCatalogPickerLine(lineIndex);
+    setCatalogSearch("");
+    if (catalogMaterials) return;
+    try {
+      const response = await fetch("/api/sales/materials");
+      const result = await response.json().catch(() => null);
+      if (response.ok) setCatalogMaterials(result.materials ?? []);
+    } catch {
+      setCatalogMaterials([]);
+    }
+  }
+
+  function pickMaterial(material: MaterialWithLatestPrice) {
+    if (catalogPickerLine == null) return;
+    updateLine(catalogPickerLine, {
+      description: material.materialName,
+      unitName: material.unitName ?? "",
+      unitCost: material.latestUnitCost ?? 0,
+      materialId: material.materialId,
+      catalogUnitCostAtEntry: material.latestUnitCost,
+      catalogPriceDate: material.latestQuotedDate,
+    });
+    setCatalogPickerLine(null);
+  }
+
   async function confirmWin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!winningEstimate) return;
@@ -203,6 +238,10 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
           New estimate
         </button>
       </header>
+
+      <div className="estimateActionsInner">
+        <a className="estimateTextAction" href="/sales/catalog">Material Catalog</a>
+      </div>
 
       <p className="salesWorkflowNote">Draft estimates retain their pricing inputs and line items. Marking one won lets you choose a one-time project or a recurring/one-off service job, then creates it in Projects &amp; Jobs.</p>
       {error && <p className="financeImportError" role="alert">{error}</p>}
@@ -338,17 +377,23 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
 
               <fieldset className="financeImportGroup">
                 <legend>Line items</legend>
-                <div className="estimateLinesHeader"><span>Description</span><span>Qty</span><span>Unit</span><span>Unit cost</span><span>Freight $ (internal)</span><span>Markup %</span><span /></div>
+                <div className="estimateLinesHeader"><span>Description</span><span>Qty</span><span>Unit</span><span>Unit cost</span><span>Freight $ (internal)</span><span>Markup %</span><span /><span /></div>
                 {lines.map((line, index) => (
-                  <div className="estimateLineEditor" key={index}>
-                    <input aria-label={`Line ${index + 1} description`} placeholder="Description" value={line.description} maxLength={300} onChange={(event) => updateLine(index, { description: event.target.value })} required />
-                    <input aria-label={`Line ${index + 1} quantity`} type="number" min="0.0001" step="0.0001" value={line.quantity} onChange={(event) => updateLine(index, { quantity: asNumber(event.target.value) })} required />
-                    <input aria-label={`Line ${index + 1} unit`} placeholder="ea, hr, ft" value={line.unitName ?? ""} maxLength={30} onChange={(event) => updateLine(index, { unitName: event.target.value })} />
-                    <input aria-label={`Line ${index + 1} unit cost`} type="number" min="0" step="0.0001" value={line.unitCost} onChange={(event) => updateLine(index, { unitCost: asNumber(event.target.value) })} required />
-                    <input aria-label={`Line ${index + 1} freight`} type="number" min="0" step="0.0001" value={line.freightAmount} onChange={(event) => updateLine(index, { freightAmount: asNumber(event.target.value) })} />
-                    <input aria-label={`Line ${index + 1} markup percent`} type="number" min="0" max="1000" step="0.01" value={line.lineMarkupPercent} disabled={markupMode === "estimate"} onChange={(event) => updateLine(index, { lineMarkupPercent: asNumber(event.target.value) })} />
-                    <button type="button" className="estimateRemoveLine" aria-label={`Remove line ${index + 1}`} disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}><Trash2 size={15} /></button>
-                  </div>
+                  <Fragment key={index}>
+                    <div className="estimateLineEditor">
+                      <input aria-label={`Line ${index + 1} description`} placeholder="Description" value={line.description} maxLength={300} onChange={(event) => updateLine(index, { description: event.target.value })} required />
+                      <input aria-label={`Line ${index + 1} quantity`} type="number" min="0.0001" step="0.0001" value={line.quantity} onChange={(event) => updateLine(index, { quantity: asNumber(event.target.value) })} required />
+                      <input aria-label={`Line ${index + 1} unit`} placeholder="ea, hr, ft" value={line.unitName ?? ""} maxLength={30} onChange={(event) => updateLine(index, { unitName: event.target.value })} />
+                      <input aria-label={`Line ${index + 1} unit cost`} type="number" min="0" step="0.0001" value={line.unitCost} onChange={(event) => updateLine(index, { unitCost: asNumber(event.target.value) })} required />
+                      <input aria-label={`Line ${index + 1} freight`} type="number" min="0" step="0.0001" value={line.freightAmount} onChange={(event) => updateLine(index, { freightAmount: asNumber(event.target.value) })} />
+                      <input aria-label={`Line ${index + 1} markup percent`} type="number" min="0" max="1000" step="0.01" value={line.lineMarkupPercent} disabled={markupMode === "estimate"} onChange={(event) => updateLine(index, { lineMarkupPercent: asNumber(event.target.value) })} />
+                      <button type="button" className="estimateCatalogLine" aria-label={`Pick line ${index + 1} from catalog`} title="Pick from catalog" onClick={() => void openCatalogPicker(index)}><Library size={15} /></button>
+                      <button type="button" className="estimateRemoveLine" aria-label={`Remove line ${index + 1}`} disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}><Trash2 size={15} /></button>
+                    </div>
+                    {line.materialId && (
+                      <p className="estimateInternalNote">From catalog — recorded at {money(line.catalogUnitCostAtEntry ?? 0)} as of {line.catalogPriceDate}. This line&apos;s cost can still be changed freely.</p>
+                    )}
+                  </Fragment>
                 ))}
                 <button type="button" className="estimateAddLine" onClick={() => setLines((current) => [...current, newLine()])}><Plus size={14} /> Add line</button>
               </fieldset>
@@ -400,6 +445,45 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
                 <button type="submit" className="financeImportSubmit" disabled={isWinning}>{isWinning ? "Converting..." : "Confirm"}</button>
               </div>
             </form>
+          </section>
+        </div>
+      )}
+
+      {catalogPickerLine != null && (
+        <div className="financeImportBackdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCatalogPickerLine(null); }}>
+          <section className="financeImportDialog financeProjectDialog" role="dialog" aria-modal="true" aria-labelledby="catalogPickerTitle">
+            <header className="financeImportDialogHeader">
+              <div>
+                <p className="financeImportEyebrow">MATERIAL CATALOG</p>
+                <h2 id="catalogPickerTitle">Pick a material</h2>
+              </div>
+              <button type="button" className="financeImportClose" onClick={() => setCatalogPickerLine(null)} aria-label="Close">×</button>
+            </header>
+            <input
+              autoFocus
+              className="invoiceSearchInput"
+              placeholder="Search materials..."
+              value={catalogSearch}
+              onChange={(event) => setCatalogSearch(event.target.value)}
+            />
+            <ol className="estimateScope">
+              {catalogMaterials == null ? (
+                <p>Loading catalog...</p>
+              ) : catalogMaterials.length === 0 ? (
+                <p>No materials in the catalog yet. Add some from the Material Catalog page.</p>
+              ) : (
+                catalogMaterials
+                  .filter((material) => material.materialName.toLowerCase().includes(catalogSearch.trim().toLowerCase()))
+                  .map((material) => (
+                    <li key={material.materialId}>
+                      <button type="button" className="estimateTextAction" onClick={() => pickMaterial(material)}>
+                        {material.materialName} — {money(material.latestUnitCost ?? 0)}{material.unitName ? ` / ${material.unitName}` : ""}
+                        {material.latestQuotedDate ? ` (as of ${material.latestQuotedDate})` : ""}
+                      </button>
+                    </li>
+                  ))
+              )}
+            </ol>
           </section>
         </div>
       )}

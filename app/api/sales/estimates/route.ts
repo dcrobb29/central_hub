@@ -59,7 +59,17 @@ function parseEstimate(body: Record<string, unknown>): CreateEstimateInput {
     if (![quantity, unitCost, freightAmount, lineMarkupPercent].every((value) => decimalPlaces(value, 4))) {
       throw new Error(`Line ${index + 1} supports up to four decimal places for quantity, cost, freight, and markup`);
     }
-    return { description, unitName: unitName || null, quantity, unitCost, freightAmount, lineMarkupPercent };
+    const materialId = rawLine.materialId == null ? null : numberValue(rawLine.materialId, `Line ${index + 1} material`, 1);
+    const catalogUnitCostAtEntry = rawLine.catalogUnitCostAtEntry == null
+      ? null
+      : numberValue(rawLine.catalogUnitCostAtEntry, `Line ${index + 1} catalog cost`, 0);
+    const catalogPriceDate = typeof rawLine.catalogPriceDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawLine.catalogPriceDate)
+      ? rawLine.catalogPriceDate
+      : null;
+    return {
+      description, unitName: unitName || null, quantity, unitCost, freightAmount, lineMarkupPercent,
+      materialId, catalogUnitCostAtEntry, catalogPriceDate,
+    };
   });
 
   return {

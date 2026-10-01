@@ -15,8 +15,7 @@ export type CreateEstimateInput = {
   customerName: string | null;
   markupMode: EstimateMarkupMode;
   estimateMarkupPercent: number;
-  taxAmount: number;
-  freightAmount: number;
+  taxPercent: number;
   roundingIncrement: number;
   lines: EstimateLineInput[];
 };
@@ -26,13 +25,13 @@ export type EstimateSummary = {
   estimateName: string;
   customerName: string | null;
   status: "Draft" | "Won" | "Lost";
+  exportDetailLevel: "Summary" | "Detail";
   createdAt: string;
   revisionId: number;
   revisionNumber: number;
   markupMode: EstimateMarkupMode;
   estimateMarkupPercent: number;
-  taxAmount: number;
-  freightAmount: number;
+  taxPercent: number;
   roundingIncrement: number;
   quotedTotal: number;
   lineCount: number;
@@ -74,13 +73,13 @@ export async function getEstimates(): Promise<EstimateSummary[]> {
       e.EstimateName AS estimateName,
       e.CustomerName AS customerName,
       e.EstimateStatus AS status,
+      e.ExportDetailLevel AS exportDetailLevel,
       CONVERT(varchar(19), e.CreatedAt, 126) AS createdAt,
       r.EstimateRevisionID AS revisionId,
       r.RevisionNumber AS revisionNumber,
       r.MarkupMode AS markupMode,
       r.EstimateMarkupPercent AS estimateMarkupPercent,
-      r.TaxAmount AS taxAmount,
-      r.FreightAmount AS freightAmount,
+      r.TaxPercent AS taxPercent,
       r.RoundingIncrement AS roundingIncrement,
       r.QuotedTotal AS quotedTotal,
       COALESCE(lines.LineCount, 0) AS lineCount,
@@ -113,13 +112,13 @@ export async function getEstimateDetails(estimateId: number): Promise<EstimateDe
         e.EstimateName AS estimateName,
         e.CustomerName AS customerName,
         e.EstimateStatus AS status,
+        e.ExportDetailLevel AS exportDetailLevel,
         CONVERT(varchar(19), e.CreatedAt, 126) AS createdAt,
         r.EstimateRevisionID AS revisionId,
         r.RevisionNumber AS revisionNumber,
         r.MarkupMode AS markupMode,
         r.EstimateMarkupPercent AS estimateMarkupPercent,
-        r.TaxAmount AS taxAmount,
-        r.FreightAmount AS freightAmount,
+        r.TaxPercent AS taxPercent,
         r.RoundingIncrement AS roundingIncrement,
         r.QuotedTotal AS quotedTotal,
         (SELECT COUNT(*) FROM dbo.EstimateLineItems li WHERE li.EstimateRevisionID = r.EstimateRevisionID) AS lineCount,
@@ -142,6 +141,7 @@ export async function getEstimateDetails(estimateId: number): Promise<EstimateDe
         Quantity AS quantity,
         UnitName AS unitName,
         UnitCost AS unitCost,
+        FreightAmount AS freightAmount,
         LineMarkupPercent AS lineMarkupPercent
       FROM dbo.EstimateLineItems
       WHERE EstimateRevisionID = @revisionId
@@ -171,18 +171,17 @@ export async function createEstimate(input: CreateEstimateInput): Promise<number
       .input("estimateId", sql.Int, estimateId)
       .input("markupMode", sql.VarChar(16), input.markupMode)
       .input("estimateMarkupPercent", sql.Decimal(9, 4), input.estimateMarkupPercent)
-      .input("taxAmount", sql.Decimal(19, 2), pricing.taxAmount)
-      .input("freightAmount", sql.Decimal(19, 2), pricing.freightAmount)
+      .input("taxPercent", sql.Decimal(9, 4), input.taxPercent)
       .input("roundingIncrement", sql.Decimal(19, 2), input.roundingIncrement)
       .input("quotedTotal", sql.Decimal(19, 2), pricing.quotedTotal)
       .query<{ EstimateRevisionID: number }>(`
         INSERT INTO dbo.EstimateRevisions (
           EstimateID, RevisionNumber, MarkupMode, EstimateMarkupPercent,
-          TaxAmount, FreightAmount, RoundingIncrement, QuotedTotal
+          TaxPercent, RoundingIncrement, QuotedTotal
         )
         OUTPUT inserted.EstimateRevisionID
         VALUES (@estimateId, 1, @markupMode, @estimateMarkupPercent,
-          @taxAmount, @freightAmount, @roundingIncrement, @quotedTotal)
+          @taxPercent, @roundingIncrement, @quotedTotal)
       `);
     const revisionId = revisionResult.recordset[0].EstimateRevisionID;
 
@@ -194,12 +193,13 @@ export async function createEstimate(input: CreateEstimateInput): Promise<number
         .input("quantity", sql.Decimal(19, 4), line.quantity)
         .input("unitName", sql.NVarChar(30), line.unitName)
         .input("unitCost", sql.Decimal(19, 4), line.unitCost)
+        .input("freightAmount", sql.Decimal(19, 4), line.freightAmount)
         .input("lineMarkupPercent", sql.Decimal(9, 4), line.lineMarkupPercent)
         .query(`
           INSERT INTO dbo.EstimateLineItems (
-            EstimateRevisionID, LineNumber, Description, Quantity, UnitName, UnitCost, LineMarkupPercent
+            EstimateRevisionID, LineNumber, Description, Quantity, UnitName, UnitCost, FreightAmount, LineMarkupPercent
           )
-          VALUES (@revisionId, @lineNumber, @description, @quantity, @unitName, @unitCost, @lineMarkupPercent)
+          VALUES (@revisionId, @lineNumber, @description, @quantity, @unitName, @unitCost, @freightAmount, @lineMarkupPercent)
         `);
     }
 
@@ -211,7 +211,14 @@ export async function createEstimate(input: CreateEstimateInput): Promise<number
   }
 }
 
-export async function winEstimate(estimateId: number): Promise<number> {
+export type EngagementType = "Project" | "Service";
+export type RecurrenceFrequency = "Weekly" | "Biweekly" | "Monthly" | null;
+
+export async function winEstimate(
+  estimateId: number,
+  engagementType: EngagementType,
+  recurrenceFrequency: RecurrenceFrequency,
+): Promise<number> {
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
   await transaction.begin();
@@ -238,10 +245,12 @@ export async function winEstimate(estimateId: number): Promise<number> {
     const projectResult = await transaction.request()
       .input("projectName", sql.NVarChar(150), estimate.EstimateName)
       .input("revisionId", sql.Int, estimate.EstimateRevisionID)
+      .input("engagementType", sql.VarChar(16), engagementType)
+      .input("recurrenceFrequency", sql.VarChar(16), recurrenceFrequency)
       .query<{ ProjectID: number }>(`
-        INSERT INTO dbo.Projects (ProjectName, ProjectStatus, AcceptedEstimateRevisionID)
+        INSERT INTO dbo.Projects (ProjectName, ProjectStatus, AcceptedEstimateRevisionID, EngagementType, RecurrenceFrequency)
         OUTPUT inserted.ProjectID
-        VALUES (@projectName, 'Planning', @revisionId)
+        VALUES (@projectName, 'Planning', @revisionId, @engagementType, @recurrenceFrequency)
       `);
     const projectId = projectResult.recordset[0].ProjectID;
 
@@ -255,6 +264,14 @@ export async function winEstimate(estimateId: number): Promise<number> {
     await transaction.rollback();
     throw error;
   }
+}
+
+export async function setEstimateExportDetailLevel(estimateId: number, level: "Summary" | "Detail"): Promise<void> {
+  const pool = await getPool();
+  await pool.request()
+    .input("estimateId", sql.Int, estimateId)
+    .input("level", sql.VarChar(10), level)
+    .query("UPDATE dbo.Estimates SET ExportDetailLevel = @level WHERE EstimateID = @estimateId");
 }
 
 export async function getProjectsWithEstimates(): Promise<ProjectWithEstimate[]> {

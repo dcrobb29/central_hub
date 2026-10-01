@@ -3,8 +3,11 @@ import {
   createEstimate,
   getEstimateDetails,
   getEstimates,
+  setEstimateExportDetailLevel,
   winEstimate,
   type CreateEstimateInput,
+  type EngagementType,
+  type RecurrenceFrequency,
 } from "@/app/lib/estimates";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,12 +39,11 @@ function parseEstimate(body: Record<string, unknown>): CreateEstimateInput {
   }
 
   const estimateMarkupPercent = numberValue(body.estimateMarkupPercent ?? 0, "Estimate markup", 0, 1000);
-  const taxAmount = numberValue(body.taxAmount ?? 0, "Tax amount", 0, 1_000_000_000);
-  const freightAmount = numberValue(body.freightAmount ?? 0, "Freight amount", 0, 1_000_000_000);
+  const taxPercent = numberValue(body.taxPercent ?? 0, "Tax percent", 0, 100);
   const roundingIncrement = numberValue(body.roundingIncrement ?? 0, "Rounding option", 0, 100);
   if (![0, 1, 10, 100].includes(roundingIncrement)) throw new Error("Choose no rounding, nearest dollar, $10, or $100");
-  if (![estimateMarkupPercent, taxAmount, freightAmount].every((value) => decimalPlaces(value, 2))) {
-    throw new Error("Markup, tax, and freight amounts support up to two decimal places");
+  if (![estimateMarkupPercent, taxPercent].every((value) => decimalPlaces(value, 2))) {
+    throw new Error("Markup and tax percentages support up to two decimal places");
   }
 
   const lines = body.lines.map((rawLine, index) => {
@@ -52,11 +54,12 @@ function parseEstimate(body: Record<string, unknown>): CreateEstimateInput {
     if (description.length > 300 || unitName.length > 30) throw new Error(`Line ${index + 1} exceeds a field length limit`);
     const quantity = numberValue(rawLine.quantity, `Line ${index + 1} quantity`, 0.0001);
     const unitCost = numberValue(rawLine.unitCost, `Line ${index + 1} unit cost`, 0);
+    const freightAmount = numberValue(rawLine.freightAmount ?? 0, `Line ${index + 1} freight`, 0, 1_000_000_000);
     const lineMarkupPercent = numberValue(rawLine.lineMarkupPercent ?? 0, `Line ${index + 1} markup`, 0, 1000);
-    if (![quantity, unitCost, lineMarkupPercent].every((value) => decimalPlaces(value, 4))) {
-      throw new Error(`Line ${index + 1} supports up to four decimal places for quantity, cost, and markup`);
+    if (![quantity, unitCost, freightAmount, lineMarkupPercent].every((value) => decimalPlaces(value, 4))) {
+      throw new Error(`Line ${index + 1} supports up to four decimal places for quantity, cost, freight, and markup`);
     }
-    return { description, unitName: unitName || null, quantity, unitCost, lineMarkupPercent };
+    return { description, unitName: unitName || null, quantity, unitCost, freightAmount, lineMarkupPercent };
   });
 
   return {
@@ -64,8 +67,7 @@ function parseEstimate(body: Record<string, unknown>): CreateEstimateInput {
     customerName: customerName || null,
     markupMode: body.markupMode,
     estimateMarkupPercent,
-    taxAmount,
-    freightAmount,
+    taxPercent,
     roundingIncrement,
     lines,
   };
@@ -113,20 +115,43 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const estimateId = Number(body?.estimateId);
-  if (body?.action !== "mark-won" || !Number.isInteger(estimateId) || estimateId < 1) {
-    return NextResponse.json({ error: "Invalid estimate action" }, { status: 400 });
+  if (!Number.isInteger(estimateId) || estimateId < 1) {
+    return NextResponse.json({ error: "Invalid estimate ID" }, { status: 400 });
   }
-  try {
-    const projectId = await winEstimate(estimateId);
-    return NextResponse.json({ estimateId, projectId }, { status: 201 });
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : "";
-    if (reason === "not-found") return NextResponse.json({ error: "Estimate not found" }, { status: 404 });
-    if (reason === "not-draft") return NextResponse.json({ error: "Only draft estimates can be marked as won" }, { status: 409 });
-    if (reason === "no-revision") return NextResponse.json({ error: "Estimate has no saved revision" }, { status: 400 });
-    if (typeof error === "object" && error !== null && "number" in error && [2601, 2627].includes(Number(error.number))) {
-      return NextResponse.json({ error: "This accepted estimate already has a project" }, { status: 409 });
+
+  if (body?.action === "set-export-detail") {
+    if (body.exportDetailLevel !== "Summary" && body.exportDetailLevel !== "Detail") {
+      return NextResponse.json({ error: "Choose Summary or Detail" }, { status: 400 });
     }
-    return NextResponse.json({ error: "Unable to convert estimate to project" }, { status: 500 });
+    try {
+      await setEstimateExportDetailLevel(estimateId, body.exportDetailLevel);
+      return NextResponse.json({ estimateId, exportDetailLevel: body.exportDetailLevel });
+    } catch {
+      return NextResponse.json({ error: "Unable to update export preference" }, { status: 500 });
+    }
   }
+
+  if (body?.action === "mark-won") {
+    const engagementType: EngagementType = body.engagementType === "Service" ? "Service" : "Project";
+    const recurrenceFrequency: RecurrenceFrequency =
+      engagementType === "Service" && ["Weekly", "Biweekly", "Monthly"].includes(body.recurrenceFrequency)
+        ? body.recurrenceFrequency
+        : null;
+    try {
+      const projectId = await winEstimate(estimateId, engagementType, recurrenceFrequency);
+      return NextResponse.json({ estimateId, projectId }, { status: 201 });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "";
+      if (reason === "not-found") return NextResponse.json({ error: "Estimate not found" }, { status: 404 });
+      if (reason === "not-draft") return NextResponse.json({ error: "Only draft estimates can be marked as won" }, { status: 409 });
+      if (reason === "no-revision") return NextResponse.json({ error: "Estimate has no saved revision" }, { status: 400 });
+      if (typeof error === "object" && error !== null && "number" in error && [2601, 2627].includes(Number(error.number))) {
+        return NextResponse.json({ error: "This accepted estimate already has a project" }, { status: 409 });
+      }
+      return NextResponse.json({ error: "Unable to convert estimate to project" }, { status: 500 });
+    }
+  }
+
+  return NextResponse.json({ error: "Invalid estimate action" }, { status: 400 });
 }
+

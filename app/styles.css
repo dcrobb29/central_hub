@@ -221,14 +221,33 @@
 .estimateStatusWon { background: #e0eee7; color: #176347; }
 .estimateStatusLost { background: #f5e4e2; color: #943b32; }
 
-.estimateActionCell {
+.estimateActionsInner {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
 
+.estimateExportSelect {
+  height: 30px;
+  padding: 3px 6px;
+  border: 1px solid #bdcbc3;
+  border-radius: 3px;
+  font: 12px Arial, sans-serif;
+}
+
+.estimateInternalNote {
+  margin: 6px 0 0;
+  color: #687a73;
+  font-size: 11px;
+  font-style: italic;
+}
+
 .estimateTextAction,
 .estimateWinAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -285,7 +304,7 @@
 .estimateLinesHeader,
 .estimateLineEditor {
   display: grid;
-  grid-template-columns: minmax(150px, 2fr) minmax(65px, .7fr) minmax(70px, .8fr) minmax(90px, 1fr) minmax(85px, .9fr) 32px;
+  grid-template-columns: minmax(140px, 2fr) minmax(60px, .6fr) minmax(65px, .7fr) minmax(85px, .9fr) minmax(95px, 1fr) minmax(80px, .85fr) 32px;
   align-items: center;
   gap: 6px;
 }
@@ -983,7 +1002,8 @@
   .estimateLineEditor input:nth-child(3) { grid-column: 2; }
   .estimateLineEditor input:nth-child(4) { grid-column: 1; }
   .estimateLineEditor input:nth-child(5) { grid-column: 2; }
-  .estimateRemoveLine { grid-column: 3; grid-row: 2 / span 2; }
+  .estimateLineEditor input:nth-child(6) { grid-column: 1; }
+  .estimateRemoveLine { grid-column: 3; grid-row: 2 / span 3; }
   .projectCard summary { grid-template-columns: minmax(0, 1fr) auto; }
   .projectCardMeta { display: none; }
 }

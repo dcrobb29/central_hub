@@ -195,6 +195,30 @@
   line-height: 1.45;
 }
 
+.engagementTabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid #dde3df;
+}
+
+.engagementTab {
+  padding: 8px 14px;
+  border: none;
+  background: none;
+  color: #687a73;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.engagementTab:hover { color: #20362d; }
+
+.engagementTabActive {
+  color: #176347;
+  border-bottom-color: #176347;
+}
+
 .salesEstimateTableWrapper {
   flex: 1;
   min-height: 0;

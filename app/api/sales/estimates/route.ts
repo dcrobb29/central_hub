@@ -11,6 +11,9 @@ import {
   type RecurrenceFrequency,
 } from "@/app/lib/estimates";
 
+const RECURRENCE_FREQUENCIES = ["Weekly", "Biweekly", "Monthly", "Quarterly", "SemiAnnually", "Annually"] as const;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -37,6 +40,33 @@ export function parseEstimate(body: Record<string, unknown>): CreateEstimateInpu
   }
   if (body.groupingMode !== "None" && body.groupingMode !== "Scope" && body.groupingMode !== "Type") {
     throw new Error("Choose a valid grouping mode");
+  }
+
+  if (body.engagementType !== "Project" && body.engagementType !== "Service") {
+    throw new Error("Choose whether this is a one-time project or recurring work");
+  }
+  const engagementType: EngagementType = body.engagementType;
+  let recurrenceFrequency: RecurrenceFrequency = null;
+  let expectedStartDate: string | null = null;
+  let expectedEndDate: string | null = null;
+  if (engagementType === "Service") {
+    if (!RECURRENCE_FREQUENCIES.includes(body.recurrenceFrequency as (typeof RECURRENCE_FREQUENCIES)[number])) {
+      throw new Error("Choose a valid recurrence frequency");
+    }
+    recurrenceFrequency = body.recurrenceFrequency as RecurrenceFrequency;
+    if (typeof body.expectedStartDate !== "string" || !DATE_PATTERN.test(body.expectedStartDate)) {
+      throw new Error("Enter an expected start date for recurring work");
+    }
+    expectedStartDate = body.expectedStartDate;
+    if (body.expectedEndDate != null && body.expectedEndDate !== "") {
+      if (typeof body.expectedEndDate !== "string" || !DATE_PATTERN.test(body.expectedEndDate)) {
+        throw new Error("Expected end date must be a valid date");
+      }
+      if (body.expectedEndDate < expectedStartDate) {
+        throw new Error("Expected end date can't be before the expected start date");
+      }
+      expectedEndDate = body.expectedEndDate;
+    }
   }
   if (!Array.isArray(body.lines) || body.lines.length === 0 || body.lines.length > 100) {
     throw new Error("Add between 1 and 100 estimate lines");
@@ -102,6 +132,10 @@ export function parseEstimate(body: Record<string, unknown>): CreateEstimateInpu
   return {
     estimateName,
     customerName: customerName || null,
+    engagementType,
+    recurrenceFrequency,
+    expectedStartDate,
+    expectedEndDate,
     markupMode: body.markupMode,
     estimateMarkupPercent,
     taxPercent,
@@ -182,13 +216,8 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (body?.action === "mark-won") {
-    const engagementType: EngagementType = body.engagementType === "Service" ? "Service" : "Project";
-    const recurrenceFrequency: RecurrenceFrequency =
-      engagementType === "Service" && ["Weekly", "Biweekly", "Monthly"].includes(body.recurrenceFrequency)
-        ? body.recurrenceFrequency
-        : null;
     try {
-      const projectId = await winEstimate(estimateId, engagementType, recurrenceFrequency);
+      const projectId = await winEstimate(estimateId);
       return NextResponse.json({ estimateId, projectId }, { status: 201 });
     } catch (error) {
       const reason = error instanceof Error ? error.message : "";

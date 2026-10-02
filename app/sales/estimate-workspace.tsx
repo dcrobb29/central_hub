@@ -8,14 +8,17 @@ import {
   type EstimateMarkupMode,
 } from "@/app/lib/estimate-pricing";
 import type {
+  EngagementType,
   EstimateDetails,
   EstimateGroupingMode,
   EstimateLineInput,
   EstimatePrintOptions,
   EstimateSummary,
   LineType,
+  RecurrenceFrequency,
 } from "@/app/lib/estimates";
 import type { MaterialWithLatestPrice } from "@/app/lib/materials";
+import type { ScopeTemplateDetails, ScopeTemplateSummary } from "@/app/lib/scope-templates";
 import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
 import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
 import Modal from "@/app/components/modal";
@@ -26,25 +29,47 @@ const money = (value: number) => currency.format(value || 0);
 
 type EstimateLineDraft = EstimateLineInput;
 
-type EngagementType = "Project" | "Service";
-type RecurrenceFrequency = "Weekly" | "Biweekly" | "Monthly";
+const FREQUENCY_LABELS: Record<string, string> = {
+  Weekly: "Weekly",
+  Biweekly: "Biweekly",
+  Monthly: "Monthly",
+  Quarterly: "Quarterly",
+  SemiAnnually: "Semi-annually",
+  Annually: "Annually",
+};
+
+function formatDate(value: string) {
+  return new Date(`${value}T00:00:00`).toLocaleDateString();
+}
 
 type Column = TableColumn<EstimateSummary>;
 
-const COLUMNS: Column[] = [
+const PROJECT_COLUMNS: Column[] = [
   { key: "estimateName", label: "Estimate" },
   { key: "customerName", label: "Customer" },
   { key: "status", label: "Status" },
-  { key: "revisionNumber", label: "Revision" },
+  { key: "lineCount", label: "Lines" },
+  { key: "quotedTotal", label: "Total" },
+];
+
+const RECURRING_COLUMNS: Column[] = [
+  { key: "estimateName", label: "Estimate" },
+  { key: "customerName", label: "Customer" },
+  { key: "status", label: "Status" },
+  { key: "recurrenceFrequency", label: "Frequency" },
+  { key: "expectedStartDate", label: "Start" },
+  { key: "expectedEndDate", label: "End" },
   { key: "lineCount", label: "Lines" },
   { key: "quotedTotal", label: "Total" },
 ];
 
 function formatValue(key: keyof EstimateSummary, value: EstimateSummary[keyof EstimateSummary]) {
   if (key === "customerName" && (value == null || value === "")) return "Unassigned";
+  if (key === "recurrenceFrequency") return value ? (FREQUENCY_LABELS[String(value)] ?? String(value)) : "—";
+  if (key === "expectedStartDate") return value ? formatDate(String(value)) : "—";
+  if (key === "expectedEndDate") return value ? formatDate(String(value)) : "Ongoing";
   if (value == null || value === "") return "—";
   if (key === "quotedTotal") return money(Number(value) || 0);
-  if (key === "revisionNumber") return value ? `R${value}` : "—";
   return String(value).trim();
 }
 
@@ -57,7 +82,7 @@ function searchableValue(key: keyof EstimateSummary, value: EstimateSummary[keyo
 function compareEstimates(left: EstimateSummary, right: EstimateSummary, key: keyof EstimateSummary) {
   const leftValue = left[key];
   const rightValue = right[key];
-  if (key === "quotedTotal" || key === "lineCount" || key === "revisionNumber") {
+  if (key === "quotedTotal" || key === "lineCount") {
     return (Number(leftValue) || 0) - (Number(rightValue) || 0);
   }
   return String(leftValue ?? "").trim().localeCompare(String(rightValue ?? "").trim(), undefined, {
@@ -88,6 +113,11 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
   const [taxPercent, setTaxPercent] = useState(0);
   const [roundingIncrement, setRoundingIncrement] = useState(0);
   const [groupingMode, setGroupingMode] = useState<EstimateGroupingMode>("None");
+  const [activeEngagementTab, setActiveEngagementTab] = useState<EngagementType>("Project");
+  const [engagementType, setEngagementType] = useState<EngagementType>("Project");
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState<RecurrenceFrequency>("Weekly");
+  const [expectedStartDate, setExpectedStartDate] = useState<string | null>(null);
+  const [expectedEndDate, setExpectedEndDate] = useState<string | null>(null);
   const [scopes, setScopes] = useState<string[]>([]);
   const [lines, setLines] = useState<EstimateLineDraft[]>([newLine()]);
   // Collapse state for the scope-of-work parent containers, keyed by scope name ("__ungrouped" for unassigned lines).
@@ -110,11 +140,9 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
   const [printOptionsSaving, setPrintOptionsSaving] = useState<number | null>(null);
   const [pdfPreviewVersion, setPdfPreviewVersion] = useState(0);
 
-  // win flow: picking engagement type (and recurrence, for Service) happens per-job, never
-  // locked to a company-wide setting
+  // win flow: a plain confirmation now, since engagement type/recurrence are decided at creation
+  // time and simply carry through onto the new Project row.
   const [winningEstimate, setWinningEstimate] = useState<EstimateSummary | null>(null);
-  const [winEngagementType, setWinEngagementType] = useState<EngagementType>("Project");
-  const [winRecurrence, setWinRecurrence] = useState<RecurrenceFrequency>("Weekly");
   const [isWinning, setIsWinning] = useState(false);
   const [winError, setWinError] = useState<string | null>(null);
 
@@ -132,6 +160,24 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
   const [catalogMaterials, setCatalogMaterials] = useState<MaterialWithLatestPrice[] | null>(null);
   const [catalogSearch, setCatalogSearch] = useState("");
 
+  // scope template picker: a two-step modal (pick a template, then enter its top quantity) that
+  // stamps a new scope + pre-scaled lines into the form. Once applied, the lines have no further
+  // link back to the template — editing them afterward is identical to editing any other line.
+  const [scopeTemplatePickerOpen, setScopeTemplatePickerOpen] = useState(false);
+  const [scopeTemplates, setScopeTemplates] = useState<ScopeTemplateSummary[] | null>(null);
+  const [scopeTemplateSearch, setScopeTemplateSearch] = useState("");
+  const [selectedScopeTemplate, setSelectedScopeTemplate] = useState<ScopeTemplateDetails | null>(null);
+  const [loadingScopeTemplateId, setLoadingScopeTemplateId] = useState<number | null>(null);
+  const [scopeTemplateQuantity, setScopeTemplateQuantity] = useState(1);
+  const [scopeTemplateError, setScopeTemplateError] = useState<string | null>(null);
+
+  const projectEstimates = estimates.filter((estimate) => estimate.engagementType === "Project");
+  const recurringEstimates = estimates.filter((estimate) => estimate.engagementType === "Service");
+
+  const projectTable = useFilterableTable(projectEstimates, PROJECT_COLUMNS, { searchableValue, compare: compareEstimates });
+  const recurringTable = useFilterableTable(recurringEstimates, RECURRING_COLUMNS, { searchableValue, compare: compareEstimates });
+
+  const activeColumns = activeEngagementTab === "Project" ? PROJECT_COLUMNS : RECURRING_COLUMNS;
   const {
     search,
     setSearch,
@@ -145,7 +191,7 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
     visibleRows: visibleEstimates,
     clearFilters,
     hasActiveFilters,
-  } = useFilterableTable(estimates, COLUMNS, { searchableValue, compare: compareEstimates });
+  } = activeEngagementTab === "Project" ? projectTable : recurringTable;
 
   const pricing = calculateEstimate({
     markupMode,
@@ -169,6 +215,10 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
     setPrintPdfPopupOpen(false);
     setCollapsedFormScopes({});
     setEditingEstimateId(null);
+    setEngagementType(activeEngagementTab);
+    setRecurrenceFrequency("Weekly");
+    setExpectedStartDate(null);
+    setExpectedEndDate(null);
   }
 
   function closeForm() {
@@ -194,6 +244,10 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
       setTaxPercent(details.taxPercent);
       setRoundingIncrement(details.roundingIncrement);
       setGroupingMode(details.groupingMode);
+      setEngagementType(details.engagementType);
+      setRecurrenceFrequency(details.recurrenceFrequency ?? "Weekly");
+      setExpectedStartDate(details.expectedStartDate);
+      setExpectedEndDate(details.expectedEndDate);
       setScopes([...details.scopes].sort((a, b) => a.sortOrder - b.sortOrder).map((scope) => scope.scopeName));
       setLines(details.lines.map((line) => ({
         description: line.description,
@@ -378,6 +432,10 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
           taxPercent,
           roundingIncrement,
           groupingMode,
+          engagementType,
+          recurrenceFrequency: engagementType === "Service" ? recurrenceFrequency : null,
+          expectedStartDate: engagementType === "Service" ? expectedStartDate : null,
+          expectedEndDate: engagementType === "Service" ? expectedEndDate : null,
           scopes: scopes.map((scope) => scope.trim()).filter((scope) => scope.length > 0),
           lines: lines.map((line) => ({
             ...line,
@@ -467,8 +525,6 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
 
   function openWinDialog(estimate: EstimateSummary) {
     setWinningEstimate(estimate);
-    setWinEngagementType("Project");
-    setWinRecurrence("Weekly");
     setWinError(null);
   }
 
@@ -498,6 +554,81 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
     setCatalogPickerLine(null);
   }
 
+  async function openScopeTemplatePicker() {
+    setScopeTemplatePickerOpen(true);
+    setSelectedScopeTemplate(null);
+    setScopeTemplateQuantity(1);
+    setScopeTemplateError(null);
+    setScopeTemplateSearch("");
+    if (scopeTemplates) return;
+    try {
+      const response = await fetch("/api/sales/scope-templates");
+      const result = await response.json().catch(() => null);
+      if (response.ok) setScopeTemplates(result.scopeTemplates ?? []);
+    } catch {
+      setScopeTemplates([]);
+    }
+  }
+
+  async function selectScopeTemplate(summary: ScopeTemplateSummary) {
+    setLoadingScopeTemplateId(summary.scopeTemplateId);
+    setScopeTemplateError(null);
+    try {
+      const response = await fetch(`/api/sales/scope-templates/${summary.scopeTemplateId}`);
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "Unable to load scope template");
+      setSelectedScopeTemplate(result.scopeTemplate as ScopeTemplateDetails);
+      setScopeTemplateQuantity(1);
+    } catch (loadError) {
+      setScopeTemplateError(loadError instanceof Error ? loadError.message : "Unable to load scope template");
+    } finally {
+      setLoadingScopeTemplateId(null);
+    }
+  }
+
+  // Picks a name for the new scope that doesn't collide with one already on the form, so applying
+  // the same template twice (e.g. two separate paver areas) doesn't silently merge their lines.
+  function uniqueScopeName(baseName: string) {
+    const existing = new Set(scopes.map((scope) => scope.trim()));
+    if (!existing.has(baseName)) return baseName;
+    let suffix = 2;
+    while (existing.has(`${baseName} (${suffix})`)) suffix += 1;
+    return `${baseName} (${suffix})`;
+  }
+
+  function applyScopeTemplate() {
+    if (!selectedScopeTemplate) return;
+    if (!(scopeTemplateQuantity > 0)) {
+      setScopeTemplateError(`Enter a ${selectedScopeTemplate.unitName} quantity greater than 0`);
+      return;
+    }
+    const scopeName = uniqueScopeName(selectedScopeTemplate.templateName);
+    const newLines: EstimateLineDraft[] = selectedScopeTemplate.components.map((component) => ({
+      description: component.description,
+      quantity: Number((component.quantityPerUnit * scopeTemplateQuantity).toFixed(6)),
+      unitName: component.unitName ?? "",
+      unitCost: component.unitCost,
+      freightAmount: 0,
+      lineMarkupPercent: 0,
+      materialId: component.materialId,
+      catalogUnitCostAtEntry: null,
+      catalogPriceDate: null,
+      lineType: component.lineType,
+      scopeName,
+    }));
+    setScopes((current) => [...current, scopeName]);
+    setLines((current) => {
+      // The lone placeholder blank line from a brand-new form is never worth keeping once real
+      // lines arrive, so drop it instead of leaving an empty required row behind.
+      const withoutEmptyPlaceholder = current.length === 1 && !current[0].description.trim() && !current[0].scopeName
+        ? []
+        : current;
+      return [...withoutEmptyPlaceholder, ...newLines];
+    });
+    setScopeTemplatePickerOpen(false);
+    setSelectedScopeTemplate(null);
+  }
+
   async function confirmWin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!winningEstimate) return;
@@ -510,8 +641,6 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
         body: JSON.stringify({
           action: "mark-won",
           estimateId: winningEstimate.estimateId,
-          engagementType: winEngagementType,
-          recurrenceFrequency: winEngagementType === "Service" ? winRecurrence : null,
         }),
       });
       const result = await response.json().catch(() => null);
@@ -541,9 +670,31 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
 
       <div className="estimateActionsInner">
         <a className="estimateTextAction" href="/sales/catalog">Material Catalog</a>
+        <a className="estimateTextAction" href="/sales/scope-templates">Scope Templates</a>
       </div>
 
-      <p className="salesWorkflowNote">Draft estimates retain their pricing inputs and line items. Marking one won lets you choose a one-time project or a recurring/one-off service job, then creates it in Projects &amp; Jobs.</p>
+      <div className="engagementTabs" role="tablist" aria-label="Estimate type">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeEngagementTab === "Project"}
+          className={`engagementTab${activeEngagementTab === "Project" ? " engagementTabActive" : ""}`}
+          onClick={() => setActiveEngagementTab("Project")}
+        >
+          Projects ({projectEstimates.length})
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeEngagementTab === "Service"}
+          className={`engagementTab${activeEngagementTab === "Service" ? " engagementTabActive" : ""}`}
+          onClick={() => setActiveEngagementTab("Service")}
+        >
+          Recurring ({recurringEstimates.length})
+        </button>
+      </div>
+
+      <p className="salesWorkflowNote">Draft estimates retain their pricing inputs and line items. Marking one won sends it straight to Projects &amp; Jobs using the engagement type chosen when it was created.</p>
       {error && <p className="financeImportError" role="alert">{error}</p>}
 
       <div className="invoiceTableTools">
@@ -558,7 +709,7 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
           />
         </label>
         <span className="invoiceResultCount" aria-live="polite">
-          {visibleEstimates.length} of {estimates.length} estimates
+          {visibleEstimates.length} of {activeEngagementTab === "Project" ? projectEstimates.length : recurringEstimates.length} estimates
         </span>
         {hasActiveFilters && (
           <button type="button" className="invoiceClearButton" onClick={clearFilters}>Clear</button>
@@ -569,12 +720,12 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
         <table className="invoiceTable salesEstimateTable">
           <thead>
             <tr>
-              {COLUMNS.map((column, index) => (
+              {activeColumns.map((column, index) => (
                 <FilterableTableHeaderCell
                   key={column.key}
                   column={column}
                   idPrefix="estimate"
-                  alignPopoverRight={index >= COLUMNS.length - 2}
+                  alignPopoverRight={index >= activeColumns.length - 2}
                   sortDirection={sort?.key === column.key ? sort.direction : null}
                   filterValue={columnFilters[column.key] ?? ""}
                   isFilterOpen={openFilter === column.key}
@@ -589,16 +740,19 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
           </thead>
           <tbody>
             {visibleEstimates.length === 0 ? (
-              <tr><td colSpan={COLUMNS.length + 1} className="invoiceNoResults">{estimates.length === 0 ? "No estimates yet." : "No estimates match these filters."}</td></tr>
+              <tr><td colSpan={activeColumns.length + 1} className="invoiceNoResults">{(activeEngagementTab === "Project" ? projectEstimates : recurringEstimates).length === 0 ? "No estimates yet." : "No estimates match these filters."}</td></tr>
             ) : visibleEstimates.map((estimate) => (
               <Fragment key={estimate.estimateId}>
                 <tr>
-                  <td>{estimate.estimateName}</td>
-                  <td>{estimate.customerName ?? "—"}</td>
-                  <td><span className={`estimateStatus estimateStatus${estimate.status}`}>{estimate.status}</span></td>
-                  <td>{estimate.revisionNumber ? `R${estimate.revisionNumber}` : "—"}</td>
-                  <td>{estimate.lineCount}</td>
-                  <td>{money(estimate.quotedTotal ?? 0)}</td>
+                  {activeColumns.map((column) => (
+                    column.key === "status" ? (
+                      <td key={column.key}><span className={`estimateStatus estimateStatus${estimate.status}`}>{estimate.status}</span></td>
+                    ) : column.key === "quotedTotal" ? (
+                      <td key={column.key}>{money(estimate.quotedTotal ?? 0)}</td>
+                    ) : (
+                      <td key={column.key}>{formatValue(column.key, estimate[column.key])}</td>
+                    )
+                  ))}
                   <td>
                     <div className="estimateActionsInner">
                       <button type="button" className="estimateTextAction" onClick={() => void toggleDetails(estimate.estimateId)}>
@@ -633,7 +787,7 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
                 </tr>
                 {expandedEstimateId === estimate.estimateId && (
                   <tr>
-                    <td colSpan={COLUMNS.length + 1} className="estimateScopeCell">
+                    <td colSpan={activeColumns.length + 1} className="estimateScopeCell">
                       {loadingEstimateId === estimate.estimateId ? <p>Loading estimate scope...</p> : detailsById[estimate.estimateId] ? (() => {
                         const details = detailsById[estimate.estimateId];
                         const lineItem = (line: EstimateDetails["lines"][number]) => (
@@ -727,6 +881,45 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
               </fieldset>
 
               <fieldset className="financeImportGroup">
+                <legend>Engagement</legend>
+                <div className="financeImportFields">
+                  <label className="financeImportField">Type of work
+                    <select
+                      value={engagementType}
+                      disabled={editingEstimateId != null}
+                      onChange={(event) => setEngagementType(event.target.value as EngagementType)}
+                    >
+                      <option value="Project">One-time project</option>
+                      <option value="Service">Recurring service</option>
+                    </select>
+                  </label>
+                  {engagementType === "Service" && (
+                    <>
+                      <label className="financeImportField">Recurrence
+                        <select value={recurrenceFrequency ?? "Weekly"} onChange={(event) => setRecurrenceFrequency(event.target.value as RecurrenceFrequency)}>
+                          <option value="Weekly">Weekly</option>
+                          <option value="Biweekly">Biweekly</option>
+                          <option value="Monthly">Monthly</option>
+                          <option value="Quarterly">Quarterly</option>
+                          <option value="SemiAnnually">Semi-annually</option>
+                          <option value="Annually">Annually</option>
+                        </select>
+                      </label>
+                      <label className="financeImportField">Expected start date *
+                        <input type="date" value={expectedStartDate ?? ""} onChange={(event) => setExpectedStartDate(event.target.value || null)} required />
+                      </label>
+                      <label className="financeImportField">Expected end date
+                        <input type="date" value={expectedEndDate ?? ""} min={expectedStartDate ?? undefined} onChange={(event) => setExpectedEndDate(event.target.value || null)} />
+                      </label>
+                    </>
+                  )}
+                </div>
+                {editingEstimateId != null && (
+                  <p className="estimateInternalNote">Type of work can&apos;t be changed after an estimate is created — delete and recreate it if the other type is needed.</p>
+                )}
+              </fieldset>
+
+              <fieldset className="financeImportGroup">
                 <legend>Pricing rules</legend>
                 <div className="financeImportFields">
                   <label className="financeImportField">Markup method
@@ -771,7 +964,10 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
                       <button type="button" className="estimateRemoveLine" aria-label={`Remove scope ${index + 1}`} onClick={() => removeScope(index)}><Trash2 size={15} /></button>
                     </div>
                   ))}
-                  <button type="button" className="estimateAddLine" onClick={addScope}><Plus size={14} /> Add scope</button>
+                  <div className="estimateActionsInner">
+                    <button type="button" className="estimateAddLine" onClick={addScope}><Plus size={14} /> Add scope</button>
+                    <button type="button" className="estimateAddLine" onClick={() => void openScopeTemplatePicker()}><Library size={14} /> Apply scope template</button>
+                  </div>
                 </fieldset>
               )}
 
@@ -884,21 +1080,11 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
       {winningEstimate && (
         <Modal titleId="winEstimateTitle" title={<>Send &quot;{winningEstimate.estimateName}&quot; to Projects &amp; Jobs</>} eyebrow="SALES & ESTIMATES" onClose={() => { if (!isWinning) setWinningEstimate(null); }} closeDisabled={isWinning} className="financeProjectDialog">
             <form onSubmit={confirmWin}>
-              <label className="financeImportField">What kind of work is this?
-                <select value={winEngagementType} onChange={(event) => setWinEngagementType(event.target.value as EngagementType)}>
-                  <option value="Project">Project (one-time, single team for its duration)</option>
-                  <option value="Service">Service (recurring maintenance or a one-off field visit)</option>
-                </select>
-              </label>
-              {winEngagementType === "Service" && (
-                <label className="financeImportField">Recurrence
-                  <select value={winRecurrence} onChange={(event) => setWinRecurrence(event.target.value as RecurrenceFrequency)}>
-                    <option value="Weekly">Weekly</option>
-                    <option value="Biweekly">Biweekly</option>
-                    <option value="Monthly">Monthly</option>
-                  </select>
-                </label>
-              )}
+              <p className="estimateInternalNote">
+                {winningEstimate.engagementType === "Service"
+                  ? <>This recurring estimate will become a project with {FREQUENCY_LABELS[String(winningEstimate.recurrenceFrequency)] ?? winningEstimate.recurrenceFrequency} recurrence{winningEstimate.expectedStartDate ? <> starting {formatDate(winningEstimate.expectedStartDate)}</> : null}{winningEstimate.expectedEndDate ? <> through {formatDate(winningEstimate.expectedEndDate)}</> : null}.</>
+                  : <>This one-time project estimate will become a project in Projects &amp; Jobs.</>}
+              </p>
               {winError && <p className="financeImportError" role="alert">{winError}</p>}
               <div className="financeImportActions">
                 <button type="button" className="financeImportCancel" onClick={() => setWinningEstimate(null)} disabled={isWinning}>Cancel</button>
@@ -928,6 +1114,84 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
               {isDeletingEstimate ? "Deleting..." : "Delete estimate"}
             </button>
           </div>
+        </Modal>
+      )}
+
+      {scopeTemplatePickerOpen && (
+        <Modal
+          titleId="scopeTemplatePickerTitle"
+          title={selectedScopeTemplate ? `Apply "${selectedScopeTemplate.templateName}"` : "Apply scope template"}
+          eyebrow="SCOPE TEMPLATES"
+          onClose={() => setScopeTemplatePickerOpen(false)}
+          className="financeProjectDialog"
+        >
+          {!selectedScopeTemplate ? (
+            <>
+              <input
+                autoFocus
+                className="invoiceSearchInput"
+                placeholder="Search scope templates..."
+                value={scopeTemplateSearch}
+                onChange={(event) => setScopeTemplateSearch(event.target.value)}
+              />
+              {scopeTemplateError && <p className="financeImportError" role="alert">{scopeTemplateError}</p>}
+              <ol className="estimateScope">
+                {scopeTemplates == null ? (
+                  <p>Loading scope templates...</p>
+                ) : scopeTemplates.length === 0 ? (
+                  <p>No scope templates yet. Add some from the Scope Templates page.</p>
+                ) : (
+                  scopeTemplates
+                    .filter((template) => template.templateName.toLowerCase().includes(scopeTemplateSearch.trim().toLowerCase()))
+                    .map((template) => (
+                      <li key={template.scopeTemplateId}>
+                        <button
+                          type="button"
+                          className="estimateTextAction"
+                          disabled={loadingScopeTemplateId === template.scopeTemplateId}
+                          onClick={() => void selectScopeTemplate(template)}
+                        >
+                          {loadingScopeTemplateId === template.scopeTemplateId
+                            ? "Loading..."
+                            : `${template.templateName} — ${template.componentCount} component${template.componentCount === 1 ? "" : "s"} per ${template.unitName}`}
+                        </button>
+                      </li>
+                    ))
+                )}
+              </ol>
+            </>
+          ) : (
+            <>
+              <label className="financeImportField">
+                {selectedScopeTemplate.unitName} quantity *
+                <input
+                  autoFocus
+                  type="number"
+                  min="0.0001"
+                  step="0.0001"
+                  value={scopeTemplateQuantity}
+                  onChange={(event) => setScopeTemplateQuantity(asNumber(event.target.value))}
+                />
+              </label>
+              <p className="estimateInternalNote">
+                This creates a new &quot;{selectedScopeTemplate.templateName}&quot; scope with the lines below, pre-scaled to
+                the quantity above. Once applied, every line can be freely edited like any other line.
+              </p>
+              <ol className="estimateScope">
+                {selectedScopeTemplate.components.map((component) => (
+                  <li key={component.scopeTemplateComponentId}>
+                    {component.description} — {Number((component.quantityPerUnit * scopeTemplateQuantity).toFixed(6))}
+                    {component.unitName ? ` ${component.unitName}` : ""} @ {money(component.unitCost)} ({component.lineType})
+                  </li>
+                ))}
+              </ol>
+              {scopeTemplateError && <p className="financeImportError" role="alert">{scopeTemplateError}</p>}
+              <div className="financeImportActions">
+                <button type="button" className="financeImportCancel" onClick={() => setSelectedScopeTemplate(null)}>Back</button>
+                <button type="button" className="financeImportSubmit" onClick={applyScopeTemplate}>Apply template</button>
+              </div>
+            </>
+          )}
         </Modal>
       )}
 

@@ -400,6 +400,118 @@
   font-weight: 700;
 }
 
+.estimateLineMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin: -2px 0 6px;
+  padding-left: 2px;
+}
+
+.estimateLineMetaField {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #53675c;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.estimateLineMetaField select {
+  height: 28px;
+  padding: 2px 6px;
+  border: 1px solid #bdcbc3;
+  border-radius: 3px;
+  font: 12px Arial, sans-serif;
+  font-weight: 400;
+  color: #263b31;
+}
+
+.estimateScopeEditor {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.estimateScopeEditor input {
+  flex: 1;
+  height: 34px;
+  padding: 5px 7px;
+  border: 1px solid #bdcbc3;
+  border-radius: 3px;
+  font: 12px Arial, sans-serif;
+}
+
+.estimateScopeGroup {
+  margin: 0 0 14px;
+}
+
+.estimateScopeGroup h4 {
+  margin: 0;
+  color: #176347;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+
+.estimateScopeToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: #eaf1ec;
+  color: #176347;
+  cursor: pointer;
+  text-align: left;
+}
+
+.estimateScopeToggle:hover {
+  background: #ddeae1;
+}
+
+.estimateScopeToggleIcon {
+  font-size: 10px;
+  color: #456357;
+}
+
+.estimateLineGroupCount {
+  margin-left: auto;
+  color: #63776b;
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: none;
+}
+
+.estimateLineGroup {
+  margin: 0 0 16px;
+}
+
+.estimateLineGroupBody {
+  padding-left: 14px;
+  border-left: 2px solid #d7e4db;
+}
+
+.estimateAddLineNested {
+  margin-left: 2px;
+}
+
+.estimateLineTypeBadge {
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: #e3ece4;
+  color: #456357;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+
 .estimatePreviewTotal {
   display: grid;
   grid-template-columns: 1fr auto;

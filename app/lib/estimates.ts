@@ -5,12 +5,17 @@ import {
   type EstimatePricingLine,
 } from "@/app/lib/estimate-pricing";
 
+export type LineType = "Material" | "Labor" | "Equipment";
+export type EstimateGroupingMode = "None" | "Scope" | "Type";
+
 export type EstimateLineInput = EstimatePricingLine & {
   description: string;
   unitName: string | null;
   materialId: number | null;
   catalogUnitCostAtEntry: number | null;
   catalogPriceDate: string | null;
+  lineType: LineType;
+  scopeName: string | null;
 };
 
 export type CreateEstimateInput = {
@@ -20,6 +25,8 @@ export type CreateEstimateInput = {
   estimateMarkupPercent: number;
   taxPercent: number;
   roundingIncrement: number;
+  groupingMode: EstimateGroupingMode;
+  scopes: string[];
   lines: EstimateLineInput[];
 };
 
@@ -27,6 +34,13 @@ export type EstimatePrintOptions = {
   showQuantities: boolean;
   showLineTotals: boolean;
   showSummaryTotal: boolean;
+  showScopesOfWork: boolean;
+};
+
+export type EstimateScope = {
+  estimateScopeOfWorkId: number;
+  scopeName: string;
+  sortOrder: number;
 };
 
 export type EstimateSummary = {
@@ -37,10 +51,12 @@ export type EstimateSummary = {
   showQuantities: boolean;
   showLineTotals: boolean;
   showSummaryTotal: boolean;
+  showScopesOfWork: boolean;
   createdAt: string;
   revisionId: number;
   revisionNumber: number;
   markupMode: EstimateMarkupMode;
+  groupingMode: EstimateGroupingMode;
   estimateMarkupPercent: number;
   taxPercent: number;
   roundingIncrement: number;
@@ -52,9 +68,13 @@ export type EstimateSummary = {
 export type EstimateLine = EstimateLineInput & {
   estimateLineItemId: number;
   lineNumber: number;
+  estimateScopeOfWorkId: number | null;
 };
 
-export type EstimateDetails = EstimateSummary & { lines: EstimateLine[] };
+export type EstimateDetails = EstimateSummary & {
+  lines: EstimateLine[];
+  scopes: EstimateScope[];
+};
 
 export type ProjectScopeLine = {
   lineNumber: number;
@@ -87,10 +107,12 @@ export async function getEstimates(): Promise<EstimateSummary[]> {
       e.ShowQuantities AS showQuantities,
       e.ShowLineTotals AS showLineTotals,
       e.ShowSummaryTotal AS showSummaryTotal,
+      e.ShowScopesOfWork AS showScopesOfWork,
       CONVERT(varchar(19), e.CreatedAt, 126) AS createdAt,
       r.EstimateRevisionID AS revisionId,
       r.RevisionNumber AS revisionNumber,
       r.MarkupMode AS markupMode,
+      r.GroupingMode AS groupingMode,
       r.EstimateMarkupPercent AS estimateMarkupPercent,
       r.TaxPercent AS taxPercent,
       r.RoundingIncrement AS roundingIncrement,
@@ -128,10 +150,12 @@ export async function getEstimateDetails(estimateId: number): Promise<EstimateDe
         e.ShowQuantities AS showQuantities,
         e.ShowLineTotals AS showLineTotals,
         e.ShowSummaryTotal AS showSummaryTotal,
+        e.ShowScopesOfWork AS showScopesOfWork,
         CONVERT(varchar(19), e.CreatedAt, 126) AS createdAt,
         r.EstimateRevisionID AS revisionId,
         r.RevisionNumber AS revisionNumber,
         r.MarkupMode AS markupMode,
+        r.GroupingMode AS groupingMode,
         r.EstimateMarkupPercent AS estimateMarkupPercent,
         r.TaxPercent AS taxPercent,
         r.RoundingIncrement AS roundingIncrement,
@@ -160,12 +184,31 @@ export async function getEstimateDetails(estimateId: number): Promise<EstimateDe
         LineMarkupPercent AS lineMarkupPercent,
         MaterialID AS materialId,
         CatalogUnitCostAtEntry AS catalogUnitCostAtEntry,
-        CONVERT(char(10), CatalogPriceDate, 23) AS catalogPriceDate
+        CONVERT(char(10), CatalogPriceDate, 23) AS catalogPriceDate,
+        LineType AS lineType,
+        EstimateScopeOfWorkID AS estimateScopeOfWorkId,
+        NULL AS scopeName
       FROM dbo.EstimateLineItems
       WHERE EstimateRevisionID = @revisionId
       ORDER BY LineNumber
     `);
-  return { ...summary, lines: lines.recordset };
+  const scopes = await pool.request()
+    .input("revisionId", sql.Int, summary.revisionId)
+    .query<EstimateScope>(`
+      SELECT
+        EstimateScopeOfWorkID AS estimateScopeOfWorkId,
+        ScopeName AS scopeName,
+        SortOrder AS sortOrder
+      FROM dbo.EstimateScopesOfWork
+      WHERE EstimateRevisionID = @revisionId
+      ORDER BY SortOrder, ScopeName
+    `);
+  const scopeNameById = new Map(scopes.recordset.map((scope) => [scope.estimateScopeOfWorkId, scope.scopeName]));
+  const linesWithScopeNames = lines.recordset.map((line) => ({
+    ...line,
+    scopeName: line.estimateScopeOfWorkId !== null ? scopeNameById.get(line.estimateScopeOfWorkId) ?? null : null,
+  }));
+  return { ...summary, lines: linesWithScopeNames, scopes: scopes.recordset };
 }
 
 export async function createEstimate(input: CreateEstimateInput): Promise<number> {
@@ -188,22 +231,38 @@ export async function createEstimate(input: CreateEstimateInput): Promise<number
     const revisionResult = await transaction.request()
       .input("estimateId", sql.Int, estimateId)
       .input("markupMode", sql.VarChar(16), input.markupMode)
+      .input("groupingMode", sql.VarChar(16), input.groupingMode)
       .input("estimateMarkupPercent", sql.Decimal(9, 4), input.estimateMarkupPercent)
       .input("taxPercent", sql.Decimal(9, 4), input.taxPercent)
       .input("roundingIncrement", sql.Decimal(19, 2), input.roundingIncrement)
       .input("quotedTotal", sql.Decimal(19, 2), pricing.quotedTotal)
       .query<{ EstimateRevisionID: number }>(`
         INSERT INTO dbo.EstimateRevisions (
-          EstimateID, RevisionNumber, MarkupMode, EstimateMarkupPercent,
+          EstimateID, RevisionNumber, MarkupMode, GroupingMode, EstimateMarkupPercent,
           TaxPercent, RoundingIncrement, QuotedTotal
         )
         OUTPUT inserted.EstimateRevisionID
-        VALUES (@estimateId, 1, @markupMode, @estimateMarkupPercent,
+        VALUES (@estimateId, 1, @markupMode, @groupingMode, @estimateMarkupPercent,
           @taxPercent, @roundingIncrement, @quotedTotal)
       `);
     const revisionId = revisionResult.recordset[0].EstimateRevisionID;
 
+    const scopeIdByName = new Map<string, number>();
+    for (const [index, scopeName] of input.scopes.entries()) {
+      const scopeResult = await transaction.request()
+        .input("revisionId", sql.Int, revisionId)
+        .input("scopeName", sql.NVarChar(150), scopeName)
+        .input("sortOrder", sql.Int, index)
+        .query<{ EstimateScopeOfWorkID: number }>(`
+          INSERT INTO dbo.EstimateScopesOfWork (EstimateRevisionID, ScopeName, SortOrder)
+          OUTPUT inserted.EstimateScopeOfWorkID
+          VALUES (@revisionId, @scopeName, @sortOrder)
+        `);
+      scopeIdByName.set(scopeName, scopeResult.recordset[0].EstimateScopeOfWorkID);
+    }
+
     for (const [index, line] of input.lines.entries()) {
+      const scopeOfWorkId = line.scopeName !== null ? scopeIdByName.get(line.scopeName) ?? null : null;
       await transaction.request()
         .input("revisionId", sql.Int, revisionId)
         .input("lineNumber", sql.Int, index + 1)
@@ -216,13 +275,15 @@ export async function createEstimate(input: CreateEstimateInput): Promise<number
         .input("materialId", sql.Int, line.materialId)
         .input("catalogUnitCostAtEntry", sql.Decimal(19, 4), line.catalogUnitCostAtEntry)
         .input("catalogPriceDate", sql.Date, line.catalogPriceDate ? new Date(`${line.catalogPriceDate}T00:00:00.000Z`) : null)
+        .input("lineType", sql.VarChar(16), line.lineType)
+        .input("estimateScopeOfWorkId", sql.Int, scopeOfWorkId)
         .query(`
           INSERT INTO dbo.EstimateLineItems (
             EstimateRevisionID, LineNumber, Description, Quantity, UnitName, UnitCost, FreightAmount, LineMarkupPercent,
-            MaterialID, CatalogUnitCostAtEntry, CatalogPriceDate
+            MaterialID, CatalogUnitCostAtEntry, CatalogPriceDate, LineType, EstimateScopeOfWorkID
           )
           VALUES (@revisionId, @lineNumber, @description, @quantity, @unitName, @unitCost, @freightAmount, @lineMarkupPercent,
-            @materialId, @catalogUnitCostAtEntry, @catalogPriceDate)
+            @materialId, @catalogUnitCostAtEntry, @catalogPriceDate, @lineType, @estimateScopeOfWorkId)
         `);
     }
 
@@ -296,9 +357,11 @@ export async function setEstimatePrintOptions(estimateId: number, options: Estim
     .input("showQuantities", sql.Bit, options.showQuantities)
     .input("showLineTotals", sql.Bit, options.showLineTotals)
     .input("showSummaryTotal", sql.Bit, options.showSummaryTotal)
+    .input("showScopesOfWork", sql.Bit, options.showScopesOfWork)
     .query(`
       UPDATE dbo.Estimates
-      SET ShowQuantities = @showQuantities, ShowLineTotals = @showLineTotals, ShowSummaryTotal = @showSummaryTotal
+      SET ShowQuantities = @showQuantities, ShowLineTotals = @showLineTotals, ShowSummaryTotal = @showSummaryTotal,
+        ShowScopesOfWork = @showScopesOfWork
       WHERE EstimateID = @estimateId
     `);
 }

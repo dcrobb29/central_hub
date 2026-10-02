@@ -7,6 +7,7 @@ import {
   winEstimate,
   type CreateEstimateInput,
   type EngagementType,
+  type LineType,
   type RecurrenceFrequency,
 } from "@/app/lib/estimates";
 
@@ -34,8 +35,25 @@ function parseEstimate(body: Record<string, unknown>): CreateEstimateInput {
   if (body.markupMode !== "perLine" && body.markupMode !== "estimate") {
     throw new Error("Choose line-level or estimate-level markup");
   }
+  if (body.groupingMode !== "None" && body.groupingMode !== "Scope" && body.groupingMode !== "Type") {
+    throw new Error("Choose a valid grouping mode");
+  }
   if (!Array.isArray(body.lines) || body.lines.length === 0 || body.lines.length > 100) {
     throw new Error("Add between 1 and 100 estimate lines");
+  }
+
+  if (!Array.isArray(body.scopes) || body.scopes.some((scope) => typeof scope !== "string")) {
+    throw new Error("Scopes of work must be a list of names");
+  }
+  const scopes = (body.scopes as string[]).map((scope) => scope.trim()).filter((scope) => scope.length > 0);
+  if (scopes.length > 50 || scopes.some((scope) => scope.length > 150)) {
+    throw new Error("Scope names must be 150 characters or fewer, up to 50 scopes");
+  }
+  if (new Set(scopes).size !== scopes.length) {
+    throw new Error("Scope names must be unique");
+  }
+  if (body.groupingMode === "Scope" && scopes.length === 0) {
+    throw new Error("Add at least one scope of work when grouping by scope");
   }
 
   const estimateMarkupPercent = numberValue(body.estimateMarkupPercent ?? 0, "Estimate markup", 0, 1000);
@@ -66,9 +84,18 @@ function parseEstimate(body: Record<string, unknown>): CreateEstimateInput {
     const catalogPriceDate = typeof rawLine.catalogPriceDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawLine.catalogPriceDate)
       ? rawLine.catalogPriceDate
       : null;
+    const rawLineType = rawLine.lineType;
+    const lineType: LineType =
+      rawLineType === "Material" || rawLineType === "Labor" || rawLineType === "Equipment"
+        ? rawLineType
+        : (() => { throw new Error(`Choose a valid line type (Material, Labor, or Equipment) for line ${index + 1}`); })();
+    const scopeName = typeof rawLine.scopeName === "string" && rawLine.scopeName.trim() ? rawLine.scopeName.trim() : null;
+    if (scopeName !== null && !scopes.includes(scopeName)) {
+      throw new Error(`Line ${index + 1} is assigned to a scope that was not defined`);
+    }
     return {
       description, unitName: unitName || null, quantity, unitCost, freightAmount, lineMarkupPercent,
-      materialId, catalogUnitCostAtEntry, catalogPriceDate,
+      materialId, catalogUnitCostAtEntry, catalogPriceDate, lineType, scopeName,
     };
   });
 
@@ -79,6 +106,8 @@ function parseEstimate(body: Record<string, unknown>): CreateEstimateInput {
     estimateMarkupPercent,
     taxPercent,
     roundingIncrement,
+    groupingMode: body.groupingMode,
+    scopes,
     lines,
   };
 }
@@ -130,13 +159,19 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (body?.action === "set-print-options") {
-    if (typeof body.showQuantities !== "boolean" || typeof body.showLineTotals !== "boolean" || typeof body.showSummaryTotal !== "boolean") {
+    if (
+      typeof body.showQuantities !== "boolean" ||
+      typeof body.showLineTotals !== "boolean" ||
+      typeof body.showSummaryTotal !== "boolean" ||
+      typeof body.showScopesOfWork !== "boolean"
+    ) {
       return NextResponse.json({ error: "Choose which PDF sections to include" }, { status: 400 });
     }
     const printOptions = {
       showQuantities: body.showQuantities,
       showLineTotals: body.showLineTotals,
       showSummaryTotal: body.showSummaryTotal,
+      showScopesOfWork: body.showScopesOfWork,
     };
     try {
       await setEstimatePrintOptions(estimateId, printOptions);

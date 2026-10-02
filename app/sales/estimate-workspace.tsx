@@ -1,25 +1,75 @@
 "use client";
 
-import { Fragment, useState, type FormEvent } from "react";
+import { Fragment, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { FileDown, Library, Plus, Trash2 } from "lucide-react";
 import {
   calculateEstimate,
   type EstimateMarkupMode,
 } from "@/app/lib/estimate-pricing";
-import type { EstimateDetails, EstimateLineInput, EstimatePrintOptions, EstimateSummary } from "@/app/lib/estimates";
+import type {
+  EstimateDetails,
+  EstimateGroupingMode,
+  EstimateLineInput,
+  EstimatePrintOptions,
+  EstimateSummary,
+  LineType,
+} from "@/app/lib/estimates";
 import type { MaterialWithLatestPrice } from "@/app/lib/materials";
+import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
+import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
 
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const money = (value: number) => currency.format(value || 0);
 
 type EstimateLineDraft = EstimateLineInput;
+
 type EngagementType = "Project" | "Service";
 type RecurrenceFrequency = "Weekly" | "Biweekly" | "Monthly";
 
+type Column = TableColumn<EstimateSummary>;
+
+const COLUMNS: Column[] = [
+  { key: "estimateName", label: "Estimate" },
+  { key: "customerName", label: "Customer" },
+  { key: "status", label: "Status" },
+  { key: "revisionNumber", label: "Revision" },
+  { key: "lineCount", label: "Lines" },
+  { key: "quotedTotal", label: "Total" },
+];
+
+function formatValue(key: keyof EstimateSummary, value: EstimateSummary[keyof EstimateSummary]) {
+  if (key === "customerName" && (value == null || value === "")) return "Unassigned";
+  if (value == null || value === "") return "—";
+  if (key === "quotedTotal") return money(Number(value) || 0);
+  if (key === "revisionNumber") return value ? `R${value}` : "—";
+  return String(value).trim();
+}
+
+function searchableValue(key: keyof EstimateSummary, value: EstimateSummary[keyof EstimateSummary]) {
+  const raw = String(value ?? "").trim();
+  const display = formatValue(key, value);
+  return `${raw} ${display}`.toLocaleLowerCase();
+}
+
+function compareEstimates(left: EstimateSummary, right: EstimateSummary, key: keyof EstimateSummary) {
+  const leftValue = left[key];
+  const rightValue = right[key];
+  if (key === "quotedTotal" || key === "lineCount" || key === "revisionNumber") {
+    return (Number(leftValue) || 0) - (Number(rightValue) || 0);
+  }
+  return String(leftValue ?? "").trim().localeCompare(String(rightValue ?? "").trim(), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
 function newLine(): EstimateLineDraft {
-  return { description: "", quantity: 1, unitName: "", unitCost: 0, freightAmount: 0, lineMarkupPercent: 0, materialId: null, catalogUnitCostAtEntry: null, catalogPriceDate: null };
+  return {
+    description: "", quantity: 1, unitName: "", unitCost: 0, freightAmount: 0, lineMarkupPercent: 0,
+    materialId: null, catalogUnitCostAtEntry: null, catalogPriceDate: null, lineType: "Material", scopeName: null,
+  };
 }
 
 function asNumber(value: string) {
@@ -36,7 +86,13 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
   const [estimateMarkupPercent, setEstimateMarkupPercent] = useState(0);
   const [taxPercent, setTaxPercent] = useState(0);
   const [roundingIncrement, setRoundingIncrement] = useState(0);
+  const [groupingMode, setGroupingMode] = useState<EstimateGroupingMode>("None");
+  const [scopes, setScopes] = useState<string[]>([]);
   const [lines, setLines] = useState<EstimateLineDraft[]>([newLine()]);
+  // Collapse state for the scope-of-work parent containers, keyed by scope name ("__ungrouped" for unassigned lines).
+  const [collapsedFormScopes, setCollapsedFormScopes] = useState<Record<string, boolean>>({});
+  // Collapse state for the read-only "View scope" detail panel, keyed by `${estimateId}:${groupKey}`.
+  const [collapsedDetailScopes, setCollapsedDetailScopes] = useState<Record<string, boolean>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedEstimateId, setExpandedEstimateId] = useState<number | null>(null);
@@ -48,6 +104,7 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
     showQuantities: false,
     showLineTotals: false,
     showSummaryTotal: true,
+    showScopesOfWork: false,
   });
   const [printOptionsSaving, setPrintOptionsSaving] = useState<number | null>(null);
   const [pdfPreviewVersion, setPdfPreviewVersion] = useState(0);
@@ -65,6 +122,21 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
   const [catalogMaterials, setCatalogMaterials] = useState<MaterialWithLatestPrice[] | null>(null);
   const [catalogSearch, setCatalogSearch] = useState("");
 
+  const {
+    search,
+    setSearch,
+    columnFilters,
+    setColumnFilters,
+    sort,
+    toggleSort,
+    openFilter,
+    setOpenFilter,
+    filterControlRoot,
+    visibleRows: visibleEstimates,
+    clearFilters,
+    hasActiveFilters,
+  } = useFilterableTable(estimates, COLUMNS, { searchableValue, compare: compareEstimates });
+
   const pricing = calculateEstimate({
     markupMode,
     estimateMarkupPercent,
@@ -79,10 +151,13 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
     setMarkupMode("perLine");
     setEstimateMarkupPercent(0);
     setTaxPercent(0);
+    setGroupingMode("None");
+    setScopes([]);
     setRoundingIncrement(0);
     setLines([newLine()]);
     setError(null);
     setPrintPdfPopupOpen(false);
+    setCollapsedFormScopes({});
   }
 
   function closeForm() {
@@ -93,6 +168,115 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
 
   function updateLine(index: number, patch: Partial<EstimateLineDraft>) {
     setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, ...patch } : line));
+  }
+
+  function renderLineEditor(index: number) {
+    const line = lines[index];
+    return (
+      <Fragment key={index}>
+        <div className="estimateLineEditor">
+          <input aria-label={`Line ${index + 1} description`} placeholder="Description" value={line.description} maxLength={300} onChange={(event) => updateLine(index, { description: event.target.value })} required />
+          <input aria-label={`Line ${index + 1} quantity`} type="number" min="0.0001" step="0.0001" value={line.quantity} onChange={(event) => updateLine(index, { quantity: asNumber(event.target.value) })} required />
+          <input aria-label={`Line ${index + 1} unit`} placeholder="ea, hr, ft" value={line.unitName ?? ""} maxLength={30} onChange={(event) => updateLine(index, { unitName: event.target.value })} />
+          <input aria-label={`Line ${index + 1} unit cost`} type="number" min="0" step="0.0001" value={line.unitCost} onChange={(event) => updateLine(index, { unitCost: asNumber(event.target.value) })} required />
+          <input aria-label={`Line ${index + 1} freight`} type="number" min="0" step="0.0001" value={line.freightAmount} onChange={(event) => updateLine(index, { freightAmount: asNumber(event.target.value) })} />
+          <input aria-label={`Line ${index + 1} markup percent`} type="number" min="0" max="1000" step="0.01" value={line.lineMarkupPercent} disabled={markupMode === "estimate"} onChange={(event) => updateLine(index, { lineMarkupPercent: asNumber(event.target.value) })} />
+          <button type="button" className="estimateCatalogLine" aria-label={`Pick line ${index + 1} from catalog`} title="Pick from catalog" onClick={() => void openCatalogPicker(index)}><Library size={15} /></button>
+          <button type="button" className="estimateRemoveLine" aria-label={`Remove line ${index + 1}`} disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}><Trash2 size={15} /></button>
+        </div>
+        <div className="estimateLineMeta">
+          <label className="estimateLineMetaField">Type
+            <select aria-label={`Line ${index + 1} type`} value={line.lineType} onChange={(event) => updateLine(index, { lineType: event.target.value as LineType })}>
+              <option value="Material">Material</option>
+              <option value="Labor">Labor</option>
+              <option value="Equipment">Equipment</option>
+            </select>
+          </label>
+          {groupingMode === "Scope" && (
+            <label className="estimateLineMetaField">Scope
+              <select aria-label={`Line ${index + 1} scope`} value={line.scopeName ?? ""} onChange={(event) => updateLine(index, { scopeName: event.target.value || null })}>
+                <option value="">Ungrouped</option>
+                {scopes.filter((scope) => scope.trim()).map((scope) => (
+                  <option key={scope} value={scope}>{scope}</option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+        {line.materialId && (
+          <p className="estimateInternalNote">From catalog — recorded at {money(line.catalogUnitCostAtEntry ?? 0)} as of {line.catalogPriceDate}. This line&apos;s cost can still be changed freely.</p>
+        )}
+      </Fragment>
+    );
+  }
+
+  function addScope() {
+    setScopes((current) => [...current, ""]);
+  }
+
+  function renameScope(index: number, value: string) {
+    setScopes((current) => {
+      const previousName = current[index];
+      const next = current.map((scope, scopeIndex) => scopeIndex === index ? value : scope);
+      // Keep any lines already assigned to this scope pointed at its new name.
+      if (previousName) {
+        setLines((currentLines) => currentLines.map((line) => line.scopeName === previousName ? { ...line, scopeName: value || null } : line));
+      }
+      return next;
+    });
+  }
+
+  function removeScope(index: number) {
+    setScopes((current) => {
+      const removedName = current[index];
+      if (removedName) {
+        setLines((currentLines) => currentLines.map((line) => line.scopeName === removedName ? { ...line, scopeName: null } : line));
+      }
+      return current.filter((_, scopeIndex) => scopeIndex !== index);
+    });
+  }
+
+  function changeGroupingMode(mode: EstimateGroupingMode) {
+    setGroupingMode(mode);
+    if (mode !== "Scope") {
+      // Scope assignments only make sense while grouping by scope is active.
+      setLines((current) => current.map((line) => ({ ...line, scopeName: null })));
+    }
+  }
+
+  const UNGROUPED_KEY = "__ungrouped";
+
+  // Builds the scope "parent containers" for the line-item editor: one group per defined scope
+  // (in order) plus a trailing "Ungrouped" group for lines with no scope (or a scope that was removed).
+  function lineGroupsForForm() {
+    const trimmedScopes = scopes.map((scope) => scope.trim()).filter((scope) => scope.length > 0);
+    const groups = trimmedScopes.map((name) => ({
+      key: name,
+      title: name,
+      indexes: lines.reduce<number[]>((acc, line, index) => {
+        if (line.scopeName === name) acc.push(index);
+        return acc;
+      }, []),
+    }));
+    const ungroupedIndexes = lines.reduce<number[]>((acc, line, index) => {
+      if (!line.scopeName || !trimmedScopes.includes(line.scopeName)) acc.push(index);
+      return acc;
+    }, []);
+    groups.push({ key: UNGROUPED_KEY, title: "Ungrouped", indexes: ungroupedIndexes });
+    return groups;
+  }
+
+  function toggleFormScopeCollapse(key: string) {
+    setCollapsedFormScopes((current) => ({ ...current, [key]: !current[key] }));
+  }
+
+  function addLineToGroup(key: string) {
+    const scopeName = key === UNGROUPED_KEY ? null : key;
+    setLines((current) => [...current, { ...newLine(), scopeName }]);
+  }
+
+  function toggleDetailScopeCollapse(key: string) {
+    setCollapsedDetailScopes((current) => ({ ...current, [key]: !current[key] }));
   }
 
   async function submitEstimate(event: FormEvent<HTMLFormElement>) {
@@ -110,6 +294,8 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
           estimateMarkupPercent,
           taxPercent,
           roundingIncrement,
+          groupingMode,
+          scopes: scopes.map((scope) => scope.trim()).filter((scope) => scope.length > 0),
           lines: lines.map((line) => ({
             ...line,
             quantity: Number(line.quantity),
@@ -120,6 +306,8 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
             materialId: line.materialId,
             catalogUnitCostAtEntry: line.catalogUnitCostAtEntry,
             catalogPriceDate: line.catalogPriceDate,
+            lineType: line.lineType,
+            scopeName: groupingMode === "Scope" ? line.scopeName : null,
           })),
         }),
       });
@@ -141,6 +329,7 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
       showQuantities: estimate.showQuantities,
       showLineTotals: estimate.showLineTotals,
       showSummaryTotal: estimate.showSummaryTotal,
+      showScopesOfWork: estimate.showScopesOfWork,
     });
     setPdfPreviewVersion((version) => version + 1);
     setPrintPdfPopupOpen(true);
@@ -255,11 +444,11 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
   }
 
   return (
-    <section className="salesWorkspace">
+    <section className="salesWorkspace" ref={filterControlRoot}>
       <header className="salesToolbar">
         <div>
           <p className="salesEyebrow">SALES</p>
-          <h1>Leads &amp; Estimates</h1>
+          <h1>Sales &amp; Estimates</h1>
         </div>
         <button className="financeImportButton" type="button" onClick={() => { resetForm(); setIsCreating(true); }}>
           <Plus size={15} aria-hidden="true" />
@@ -274,23 +463,51 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
       <p className="salesWorkflowNote">Draft estimates retain their pricing inputs and line items. Marking one won lets you choose a one-time project or a recurring/one-off service job, then creates it in Projects &amp; Jobs.</p>
       {error && <p className="financeImportError" role="alert">{error}</p>}
 
+      <div className="invoiceTableTools">
+        <label className="invoiceSearchLabel">
+          Search estimates
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search every column"
+            className="invoiceSearchInput"
+          />
+        </label>
+        <span className="invoiceResultCount" aria-live="polite">
+          {visibleEstimates.length} of {estimates.length} estimates
+        </span>
+        {hasActiveFilters && (
+          <button type="button" className="invoiceClearButton" onClick={clearFilters}>Clear</button>
+        )}
+      </div>
+
       <div className="invoiceTableWrapper salesEstimateTableWrapper">
         <table className="invoiceTable salesEstimateTable">
           <thead>
             <tr>
-              <th>Estimate</th>
-              <th>Customer</th>
-              <th>Status</th>
-              <th>Revision</th>
-              <th>Lines</th>
-              <th>Total</th>
+              {COLUMNS.map((column, index) => (
+                <FilterableTableHeaderCell
+                  key={column.key}
+                  column={column}
+                  idPrefix="estimate"
+                  alignPopoverRight={index >= COLUMNS.length - 2}
+                  sortDirection={sort?.key === column.key ? sort.direction : null}
+                  filterValue={columnFilters[column.key] ?? ""}
+                  isFilterOpen={openFilter === column.key}
+                  onToggleSort={() => toggleSort(column.key)}
+                  onToggleFilter={() => setOpenFilter((current) => current === column.key ? null : column.key)}
+                  onFilterChange={(value) => setColumnFilters((current) => ({ ...current, [column.key]: value }))}
+                  onClearFilter={() => setColumnFilters((current) => ({ ...current, [column.key]: "" }))}
+                />
+              ))}
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {estimates.length === 0 ? (
-              <tr><td colSpan={8} className="invoiceNoResults">No estimates yet.</td></tr>
-            ) : estimates.map((estimate) => (
+            {visibleEstimates.length === 0 ? (
+              <tr><td colSpan={COLUMNS.length + 1} className="invoiceNoResults">{estimates.length === 0 ? "No estimates yet." : "No estimates match these filters."}</td></tr>
+            ) : visibleEstimates.map((estimate) => (
               <Fragment key={estimate.estimateId}>
                 <tr>
                   <td>{estimate.estimateName}</td>
@@ -318,27 +535,79 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
                 </tr>
                 {expandedEstimateId === estimate.estimateId && (
                   <tr>
-                    <td colSpan={8} className="estimateScopeCell">
-                      {loadingEstimateId === estimate.estimateId ? <p>Loading estimate scope...</p> : detailsById[estimate.estimateId] ? (
-                        <div className="estimateScope">
-                          <div className="estimateScopeSummary">
-                            <span>Markup: {detailsById[estimate.estimateId].markupMode === "perLine" ? "Per line" : `${detailsById[estimate.estimateId].estimateMarkupPercent}% on estimate`}</span>
-                            <span>Tax: {detailsById[estimate.estimateId].taxPercent}% of cost (internal only)</span>
-                            <span>Round to: {detailsById[estimate.estimateId].roundingIncrement ? money(detailsById[estimate.estimateId].roundingIncrement) : "No rounding"}</span>
+                    <td colSpan={COLUMNS.length + 1} className="estimateScopeCell">
+                      {loadingEstimateId === estimate.estimateId ? <p>Loading estimate scope...</p> : detailsById[estimate.estimateId] ? (() => {
+                        const details = detailsById[estimate.estimateId];
+                        const lineItem = (line: EstimateDetails["lines"][number]) => (
+                          <li key={line.estimateLineItemId}>
+                            <span>{line.description}</span>
+                            <span>{line.quantity} {line.unitName}</span>
+                            <span>{money(line.unitCost)} / unit</span>
+                            <span>Freight {money(line.freightAmount)} (internal)</span>
+                            {details.markupMode === "perLine" && <span>{line.lineMarkupPercent}% markup</span>}
+                            <span className="estimateLineTypeBadge">{line.lineType}</span>
+                          </li>
+                        );
+                        // A scope (or type) group renders as a collapsible "parent row": its header toggles
+                        // whether the nested line items beneath it are shown, mirroring the View/Hide scope action.
+                        const groupSection = (key: string, title: string, groupLines: EstimateDetails["lines"]) => {
+                          const collapseKey = `${estimate.estimateId}:${key}`;
+                          const collapsed = collapsedDetailScopes[collapseKey];
+                          return (
+                            <div key={key} className="estimateScopeGroup">
+                              <button
+                                type="button"
+                                className="estimateScopeToggle"
+                                aria-expanded={!collapsed}
+                                onClick={() => toggleDetailScopeCollapse(collapseKey)}
+                              >
+                                <span className="estimateScopeToggleIcon">{collapsed ? "▸" : "▾"}</span>
+                                <h4>{title}</h4>
+                                <span className="estimateLineGroupCount">({groupLines.length} line{groupLines.length === 1 ? "" : "s"})</span>
+                              </button>
+                              {!collapsed && <ol>{groupLines.map(lineItem)}</ol>}
+                            </div>
+                          );
+                        };
+                        let groupedContent: ReactNode;
+                        if (details.groupingMode === "Scope") {
+                          const orderedScopes = [...details.scopes].sort((a, b) => a.sortOrder - b.sortOrder);
+                          const ungrouped = details.lines.filter((line) => line.estimateScopeOfWorkId === null);
+                          groupedContent = (
+                            <>
+                              {orderedScopes.map((scope) => {
+                                const scopeLines = details.lines.filter((line) => line.estimateScopeOfWorkId === scope.estimateScopeOfWorkId);
+                                if (scopeLines.length === 0) return null;
+                                return groupSection(`scope-${scope.estimateScopeOfWorkId}`, scope.scopeName, scopeLines);
+                              })}
+                              {ungrouped.length > 0 && groupSection("ungrouped", "Ungrouped", ungrouped)}
+                            </>
+                          );
+                        } else if (details.groupingMode === "Type") {
+                          groupedContent = (
+                            <>
+                              {(["Material", "Labor", "Equipment"] as const).map((lineType) => {
+                                const typeLines = details.lines.filter((line) => line.lineType === lineType);
+                                if (typeLines.length === 0) return null;
+                                return groupSection(`type-${lineType}`, lineType, typeLines);
+                              })}
+                            </>
+                          );
+                        } else {
+                          groupedContent = <ol>{details.lines.map(lineItem)}</ol>;
+                        }
+                        return (
+                          <div className="estimateScope">
+                            <div className="estimateScopeSummary">
+                              <span>Markup: {details.markupMode === "perLine" ? "Per line" : `${details.estimateMarkupPercent}% on estimate`}</span>
+                              <span>Tax: {details.taxPercent}% of cost (internal only)</span>
+                              <span>Round to: {details.roundingIncrement ? money(details.roundingIncrement) : "No rounding"}</span>
+                              <span>Grouping: {details.groupingMode === "None" ? "None" : details.groupingMode === "Scope" ? "By scope of work" : "By line type"}</span>
+                            </div>
+                            {groupedContent}
                           </div>
-                          <ol>
-                            {detailsById[estimate.estimateId].lines.map((line) => (
-                              <li key={line.estimateLineItemId}>
-                                <span>{line.description}</span>
-                                <span>{line.quantity} {line.unitName}</span>
-                                <span>{money(line.unitCost)} / unit</span>
-                                <span>Freight {money(line.freightAmount)} (internal)</span>
-                                {detailsById[estimate.estimateId].markupMode === "perLine" && <span>{line.lineMarkupPercent}% markup</span>}
-                              </li>
-                            ))}
-                          </ol>
-                        </div>
-                      ) : <p>Could not load this estimate&apos;s scope.</p>}
+                        );
+                      })() : <p>Could not load this estimate&apos;s scope.</p>}
                     </td>
                   </tr>
                 )}
@@ -353,7 +622,7 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
           <section className="financeImportDialog estimateDialog" role="dialog" aria-modal="true" aria-labelledby="newEstimateTitle">
             <header className="financeImportDialogHeader">
               <div>
-                <p className="financeImportEyebrow">LEADS &amp; ESTIMATES</p>
+                <p className="financeImportEyebrow">SALES &amp; ESTIMATES</p>
                 <h2 id="newEstimateTitle">New estimate</h2>
               </div>
               <button type="button" className="financeImportClose" onClick={closeForm} aria-label="Close estimate form" disabled={isSaving}>×</button>
@@ -386,35 +655,74 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
                       <option value={100}>Nearest $100</option>
                     </select>
                   </label>
+                  <label className="financeImportField">Group by
+                    <select value={groupingMode} onChange={(event) => changeGroupingMode(event.target.value as EstimateGroupingMode)}>
+                      <option value="None">No grouping</option>
+                      <option value="Scope">Group by Scope of work</option>
+                      <option value="Type">Group by Type (Material, Labor, Equipment)</option>
+                    </select>
+                  </label>
                 </div>
-                <p className="estimateInternalNote">Tax is never shown to the customer — it&apos;s folded into each line&apos;s cost, same as freight below.</p>
               </fieldset>
+
+              {groupingMode === "Scope" && (
+                <fieldset className="financeImportGroup">
+                  <legend>Scopes of work</legend>
+                  <p className="estimateInternalNote">Define the scopes of work for this project (e.g. &quot;Pavers&quot;, &quot;Irrigation&quot;). Each line item below can then be assigned to one of these, or left ungrouped.</p>
+                  {scopes.map((scope, index) => (
+                    <div key={index} className="estimateScopeEditor">
+                      <input
+                        aria-label={`Scope ${index + 1} name`}
+                        placeholder="Scope name (e.g. Pavers)"
+                        value={scope}
+                        maxLength={150}
+                        onChange={(event) => renameScope(index, event.target.value)}
+                      />
+                      <button type="button" className="estimateRemoveLine" aria-label={`Remove scope ${index + 1}`} onClick={() => removeScope(index)}><Trash2 size={15} /></button>
+                    </div>
+                  ))}
+                  <button type="button" className="estimateAddLine" onClick={addScope}><Plus size={14} /> Add scope</button>
+                </fieldset>
+              )}
 
               <fieldset className="financeImportGroup">
                 <legend>Line items</legend>
                 <div className="estimateLinesHeader"><span>Description</span><span>Qty</span><span>Unit</span><span>Unit cost</span><span>Freight $ (internal)</span><span>Markup %</span><span /><span /></div>
-                {lines.map((line, index) => (
-                  <Fragment key={index}>
-                    <div className="estimateLineEditor">
-                      <input aria-label={`Line ${index + 1} description`} placeholder="Description" value={line.description} maxLength={300} onChange={(event) => updateLine(index, { description: event.target.value })} required />
-                      <input aria-label={`Line ${index + 1} quantity`} type="number" min="0.0001" step="0.0001" value={line.quantity} onChange={(event) => updateLine(index, { quantity: asNumber(event.target.value) })} required />
-                      <input aria-label={`Line ${index + 1} unit`} placeholder="ea, hr, ft" value={line.unitName ?? ""} maxLength={30} onChange={(event) => updateLine(index, { unitName: event.target.value })} />
-                      <input aria-label={`Line ${index + 1} unit cost`} type="number" min="0" step="0.0001" value={line.unitCost} onChange={(event) => updateLine(index, { unitCost: asNumber(event.target.value) })} required />
-                      <input aria-label={`Line ${index + 1} freight`} type="number" min="0" step="0.0001" value={line.freightAmount} onChange={(event) => updateLine(index, { freightAmount: asNumber(event.target.value) })} />
-                      <input aria-label={`Line ${index + 1} markup percent`} type="number" min="0" max="1000" step="0.01" value={line.lineMarkupPercent} disabled={markupMode === "estimate"} onChange={(event) => updateLine(index, { lineMarkupPercent: asNumber(event.target.value) })} />
-                      <button type="button" className="estimateCatalogLine" aria-label={`Pick line ${index + 1} from catalog`} title="Pick from catalog" onClick={() => void openCatalogPicker(index)}><Library size={15} /></button>
-                      <button type="button" className="estimateRemoveLine" aria-label={`Remove line ${index + 1}`} disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}><Trash2 size={15} /></button>
-                    </div>
-                    {line.materialId && (
-                      <p className="estimateInternalNote">From catalog — recorded at {money(line.catalogUnitCostAtEntry ?? 0)} as of {line.catalogPriceDate}. This line&apos;s cost can still be changed freely.</p>
-                    )}
-                  </Fragment>
-                ))}
-                <button type="button" className="estimateAddLine" onClick={() => setLines((current) => [...current, newLine()])}><Plus size={14} /> Add line</button>
+                {groupingMode === "Scope" ? (
+                  lineGroupsForForm().map((group) => {
+                    const collapsed = collapsedFormScopes[group.key];
+                    return (
+                      <div key={group.key} className="estimateLineGroup">
+                        <button
+                          type="button"
+                          className="estimateScopeToggle"
+                          aria-expanded={!collapsed}
+                          onClick={() => toggleFormScopeCollapse(group.key)}
+                        >
+                          <span className="estimateScopeToggleIcon">{collapsed ? "▸" : "▾"}</span>
+                          <h4>{group.title}</h4>
+                          <span className="estimateLineGroupCount">({group.indexes.length} line{group.indexes.length === 1 ? "" : "s"})</span>
+                        </button>
+                        {!collapsed && (
+                          <div className="estimateLineGroupBody">
+                            {group.indexes.map((index) => renderLineEditor(index))}
+                            <button type="button" className="estimateAddLine estimateAddLineNested" onClick={() => addLineToGroup(group.key)}>
+                              <Plus size={14} /> Add line to {group.title}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <>
+                    {lines.map((_, index) => renderLineEditor(index))}
+                    <button type="button" className="estimateAddLine" onClick={() => setLines((current) => [...current, newLine()])}><Plus size={14} /> Add line</button>
+                  </>
+                )}
               </fieldset>
 
               <div className="estimatePreviewTotal">
-                <span>Estimated quote total (customer-facing)</span>
                 <strong>{money(pricing.quotedTotal)}</strong>
                 <small>Internal only — cost {money(pricing.baseSubtotal)} · freight {money(pricing.freightTotal)} · tax {money(pricing.taxTotal)} · markup {money(pricing.markupAmount)}</small>
               </div>
@@ -437,7 +745,7 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
             <section className="financeImportDialog estimatePdfDialog" role="dialog" aria-modal="true" aria-labelledby="printPdfTitle">
               <header className="financeImportDialogHeader">
                 <div>
-                  <p className="financeImportEyebrow">LEADS &amp; ESTIMATES</p>
+                  <p className="financeImportEyebrow">SALES &amp; ESTIMATES</p>
                   <h2 id="printPdfTitle">Print preview — {previewEstimate?.estimateName ?? "estimate"}</h2>
                 </div>
                 <button type="button" className="financeImportClose" onClick={() => setPrintPdfPopupOpen(false)} aria-label="Close print preview">×</button>
@@ -465,6 +773,15 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
                     onChange={(event) => void updatePrintOption(activeId, { showSummaryTotal: event.target.checked })}
                   /> Summary total
                 </label>
+                {previewEstimate?.groupingMode === "Scope" && (
+                  <label className="estimatePdfCheckbox">
+                    <input
+                      type="checkbox"
+                      checked={printOptions.showScopesOfWork}
+                      onChange={(event) => void updatePrintOption(activeId, { showScopesOfWork: event.target.checked })}
+                    /> Scopes of work
+                  </label>
+                )}
               </fieldset>
               <iframe
                 key={pdfPreviewVersion}
@@ -487,7 +804,7 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
           <section className="financeImportDialog financeProjectDialog" role="dialog" aria-modal="true" aria-labelledby="winEstimateTitle">
             <header className="financeImportDialogHeader">
               <div>
-                <p className="financeImportEyebrow">LEADS &amp; ESTIMATES</p>
+                <p className="financeImportEyebrow">SALES &amp; ESTIMATES</p>
                 <h2 id="winEstimateTitle">Send &quot;{winningEstimate.estimateName}&quot; to Projects &amp; Jobs</h2>
               </div>
               <button type="button" className="financeImportClose" onClick={() => setWinningEstimate(null)} aria-label="Close" disabled={isWinning}>×</button>

@@ -1,16 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Filter, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import type { FormEvent } from "react";
 import type { Invoice } from "@/app/lib/invoices";
 import type { ProjectOption } from "@/app/lib/projects";
+import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
+import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
 
-type Column = {
-  key: keyof Invoice;
-  label: string;
-};
+type Column = TableColumn<Invoice>;
 
 const COLUMNS: Column[] = [
   { key: "invoiceNo", label: "Invoice No" },
@@ -34,8 +33,6 @@ const COLUMNS: Column[] = [
   { key: "shippingAddressZip", label: "Shipping Zip" },
 ];
 
-type SortState = { key: keyof Invoice; direction: "asc" | "desc" } | null;
-type ColumnFilters = Partial<Record<keyof Invoice, string>>;
 type InvoiceDraft = Omit<Invoice, "id" | "projectId" | "projectName"> & { projectId: string };
 type InvoiceField = {
   key: Exclude<keyof InvoiceDraft, "projectId">;
@@ -148,71 +145,24 @@ function compareInvoices(left: Invoice, right: Invoice, key: keyof Invoice) {
 
 export default function InvoiceTable({ className, invoices, projectOptions }: { className?: string; invoices: Invoice[]; projectOptions: ProjectOption[] }) {
   const router = useRouter();
-  const [search, setSearch] = useState("");
-  const [columnFilters, setColumnFilters] = useState<ColumnFilters>({});
-  const [sort, setSort] = useState<SortState>(null);
-  const [openFilter, setOpenFilter] = useState<keyof Invoice | null>(null);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraft>(EMPTY_INVOICE);
   const [isSavingInvoice, setIsSavingInvoice] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
-  const filterControlRoot = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    if (!openFilter) return;
-    function dismissFilter(event: PointerEvent) {
-      if (event.target instanceof Node && !filterControlRoot.current?.contains(event.target)) {
-        setOpenFilter(null);
-      }
-    }
-    function dismissOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpenFilter(null);
-    }
-    document.addEventListener("pointerdown", dismissFilter);
-    document.addEventListener("keydown", dismissOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", dismissFilter);
-      document.removeEventListener("keydown", dismissOnEscape);
-    };
-  }, [openFilter]);
-
-  const filteredInvoices = invoices.filter((invoice) => {
-    if (search) {
-      const matchesSearch = COLUMNS.some((column) =>
-        searchableValue(column.key, invoice[column.key]).includes(search.trim().toLocaleLowerCase())
-      );
-      if (!matchesSearch) return false;
-    }
-    return COLUMNS.every((column) => {
-      const filter = columnFilters[column.key]?.trim().toLocaleLowerCase();
-      return !filter || searchableValue(column.key, invoice[column.key]).includes(filter);
-    });
-  });
-
-  const visibleInvoices = sort
-    ? [...filteredInvoices].sort((left, right) => {
-        const leftValue = left[sort.key];
-        const rightValue = right[sort.key];
-        const leftMissing = leftValue == null || leftValue === "";
-        const rightMissing = rightValue == null || rightValue === "";
-        if (leftMissing !== rightMissing) return leftMissing ? 1 : -1;
-        const comparison = compareInvoices(left, right, sort.key);
-        return sort.direction === "asc" ? comparison : -comparison;
-      })
-    : filteredInvoices;
-
-  function toggleSort(key: keyof Invoice) {
-    setSort((current) => current?.key === key
-      ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
-      : { key, direction: "asc" });
-  }
-
-  function clearFilters() {
-    setSearch("");
-    setColumnFilters({});
-    setSort(null);
-    setOpenFilter(null);
-  }
+  const {
+    search,
+    setSearch,
+    columnFilters,
+    setColumnFilters,
+    sort,
+    toggleSort,
+    openFilter,
+    setOpenFilter,
+    filterControlRoot,
+    visibleRows: visibleInvoices,
+    clearFilters,
+    hasActiveFilters,
+  } = useFilterableTable(invoices, COLUMNS, { searchableValue, compare: compareInvoices });
 
   async function submitInvoice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -262,7 +212,7 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
         <span className="invoiceResultCount" aria-live="polite">
           {visibleInvoices.length} of {invoices.length} invoices
         </span>
-        {(search || Object.values(columnFilters).some(Boolean) || sort) && (
+        {hasActiveFilters && (
           <button type="button" className="invoiceClearButton" onClick={clearFilters}>Clear</button>
         )}
       </div>
@@ -270,56 +220,20 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
         <table className={className}>
           <thead>
             <tr>
-              {COLUMNS.map((column) => (
-                <th key={column.key} aria-sort={sort?.key === column.key ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}>
-                  <div className="invoiceHeaderControls">
-                    <button type="button" className="invoiceSortButton" onClick={() => toggleSort(column.key)}>
-                      {column.label}
-                      <span aria-hidden="true">{sort?.key === column.key ? (sort.direction === "asc" ? " ↑" : " ↓") : " ↕"}</span>
-                    </button>
-                    <div className="invoiceFilterControl">
-                      <button
-                        type="button"
-                        className={`invoiceFilterButton${columnFilters[column.key]?.trim() ? " invoiceFilterButtonActive" : ""}`}
-                        aria-label={`Filter ${column.label}`}
-                        aria-expanded={openFilter === column.key}
-                        aria-controls={`invoice-filter-${column.key}`}
-                        title={`Filter ${column.label}`}
-                        onClick={() => setOpenFilter((current) => current === column.key ? null : column.key)}
-                      >
-                        <Filter size={14} aria-hidden="true" />
-                      </button>
-                      {openFilter === column.key && (
-                        <div
-                          id={`invoice-filter-${column.key}`}
-                          className={`invoiceFilterPopover${COLUMNS.indexOf(column) >= COLUMNS.length - 2 ? " invoiceFilterPopoverRight" : ""}`}
-                          onPointerDown={(event) => event.stopPropagation()}
-                        >
-                          <label>
-                            Filter {column.label}
-                            <input
-                              autoFocus
-                              type="search"
-                              value={columnFilters[column.key] ?? ""}
-                              onChange={(event) => setColumnFilters((current) => ({ ...current, [column.key]: event.target.value }))}
-                              placeholder={`Match ${column.label.toLowerCase()}`}
-                              className="invoicePopoverInput"
-                            />
-                          </label>
-                          {columnFilters[column.key] && (
-                            <button
-                              type="button"
-                              className="invoicePopoverClear"
-                              onClick={() => setColumnFilters((current) => ({ ...current, [column.key]: "" }))}
-                            >
-                              Clear this filter
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </th>
+              {COLUMNS.map((column, index) => (
+                <FilterableTableHeaderCell
+                  key={column.key}
+                  column={column}
+                  idPrefix="invoice"
+                  alignPopoverRight={index >= COLUMNS.length - 2}
+                  sortDirection={sort?.key === column.key ? sort.direction : null}
+                  filterValue={columnFilters[column.key] ?? ""}
+                  isFilterOpen={openFilter === column.key}
+                  onToggleSort={() => toggleSort(column.key)}
+                  onToggleFilter={() => setOpenFilter((current) => current === column.key ? null : column.key)}
+                  onFilterChange={(value) => setColumnFilters((current) => ({ ...current, [column.key]: value }))}
+                  onClearFilter={() => setColumnFilters((current) => ({ ...current, [column.key]: "" }))}
+                />
               ))}
             </tr>
           </thead>

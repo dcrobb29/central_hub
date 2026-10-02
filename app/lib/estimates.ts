@@ -23,12 +23,20 @@ export type CreateEstimateInput = {
   lines: EstimateLineInput[];
 };
 
+export type EstimatePrintOptions = {
+  showQuantities: boolean;
+  showLineTotals: boolean;
+  showSummaryTotal: boolean;
+};
+
 export type EstimateSummary = {
   estimateId: number;
   estimateName: string;
   customerName: string | null;
   status: "Draft" | "Won" | "Lost";
-  exportDetailLevel: "Summary" | "Detail";
+  showQuantities: boolean;
+  showLineTotals: boolean;
+  showSummaryTotal: boolean;
   createdAt: string;
   revisionId: number;
   revisionNumber: number;
@@ -76,7 +84,9 @@ export async function getEstimates(): Promise<EstimateSummary[]> {
       e.EstimateName AS estimateName,
       e.CustomerName AS customerName,
       e.EstimateStatus AS status,
-      e.ExportDetailLevel AS exportDetailLevel,
+      e.ShowQuantities AS showQuantities,
+      e.ShowLineTotals AS showLineTotals,
+      e.ShowSummaryTotal AS showSummaryTotal,
       CONVERT(varchar(19), e.CreatedAt, 126) AS createdAt,
       r.EstimateRevisionID AS revisionId,
       r.RevisionNumber AS revisionNumber,
@@ -115,7 +125,9 @@ export async function getEstimateDetails(estimateId: number): Promise<EstimateDe
         e.EstimateName AS estimateName,
         e.CustomerName AS customerName,
         e.EstimateStatus AS status,
-        e.ExportDetailLevel AS exportDetailLevel,
+        e.ShowQuantities AS showQuantities,
+        e.ShowLineTotals AS showLineTotals,
+        e.ShowSummaryTotal AS showSummaryTotal,
         CONVERT(varchar(19), e.CreatedAt, 126) AS createdAt,
         r.EstimateRevisionID AS revisionId,
         r.RevisionNumber AS revisionNumber,
@@ -277,12 +289,18 @@ export async function winEstimate(
   }
 }
 
-export async function setEstimateExportDetailLevel(estimateId: number, level: "Summary" | "Detail"): Promise<void> {
+export async function setEstimatePrintOptions(estimateId: number, options: EstimatePrintOptions): Promise<void> {
   const pool = await getPool();
   await pool.request()
     .input("estimateId", sql.Int, estimateId)
-    .input("level", sql.VarChar(10), level)
-    .query("UPDATE dbo.Estimates SET ExportDetailLevel = @level WHERE EstimateID = @estimateId");
+    .input("showQuantities", sql.Bit, options.showQuantities)
+    .input("showLineTotals", sql.Bit, options.showLineTotals)
+    .input("showSummaryTotal", sql.Bit, options.showSummaryTotal)
+    .query(`
+      UPDATE dbo.Estimates
+      SET ShowQuantities = @showQuantities, ShowLineTotals = @showLineTotals, ShowSummaryTotal = @showSummaryTotal
+      WHERE EstimateID = @estimateId
+    `);
 }
 
 export async function getProjectsWithEstimates(): Promise<ProjectWithEstimate[]> {

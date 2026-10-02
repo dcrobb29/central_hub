@@ -7,14 +7,14 @@ import {
   calculateEstimate,
   type EstimateMarkupMode,
 } from "@/app/lib/estimate-pricing";
-import type { EstimateDetails, EstimateLineInput, EstimateSummary } from "@/app/lib/estimates";
+import type { EstimateDetails, EstimateLineInput, EstimatePrintOptions, EstimateSummary } from "@/app/lib/estimates";
 import type { MaterialWithLatestPrice } from "@/app/lib/materials";
+
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const money = (value: number) => currency.format(value || 0);
 
 type EstimateLineDraft = EstimateLineInput;
-type ExportDetailLevel = "Summary" | "Detail";
 type EngagementType = "Project" | "Service";
 type RecurrenceFrequency = "Weekly" | "Biweekly" | "Monthly";
 
@@ -42,7 +42,15 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
   const [expandedEstimateId, setExpandedEstimateId] = useState<number | null>(null);
   const [detailsById, setDetailsById] = useState<Record<number, EstimateDetails>>({});
   const [loadingEstimateId, setLoadingEstimateId] = useState<number | null>(null);
-  const [exportLevelSaving, setExportLevelSaving] = useState<number | null>(null);
+  const [printPdfPopupOpen, setPrintPdfPopupOpen] = useState(false);
+  const [printPdfEstimateId, setPrintPdfEstimateId] = useState<number | null>(null);
+  const [printOptions, setPrintOptions] = useState<EstimatePrintOptions>({
+    showQuantities: false,
+    showLineTotals: false,
+    showSummaryTotal: true,
+  });
+  const [printOptionsSaving, setPrintOptionsSaving] = useState<number | null>(null);
+  const [pdfPreviewVersion, setPdfPreviewVersion] = useState(0);
 
   // win flow: picking engagement type (and recurrence, for Service) happens per-job, never
   // locked to a company-wide setting
@@ -74,6 +82,7 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
     setRoundingIncrement(0);
     setLines([newLine()]);
     setError(null);
+    setPrintPdfPopupOpen(false);
   }
 
   function closeForm() {
@@ -126,6 +135,44 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
     }
   }
 
+  function openPrintPdfPopup(estimate: EstimateSummary) {
+    setPrintPdfEstimateId(estimate.estimateId);
+    setPrintOptions({
+      showQuantities: estimate.showQuantities,
+      showLineTotals: estimate.showLineTotals,
+      showSummaryTotal: estimate.showSummaryTotal,
+    });
+    setPdfPreviewVersion((version) => version + 1);
+    setPrintPdfPopupOpen(true);
+  }
+
+  async function updatePrintOption(estimateId: number, patch: Partial<EstimatePrintOptions>) {
+    const nextOptions = { ...printOptions, ...patch };
+    setPrintOptions(nextOptions);
+    setPrintOptionsSaving(estimateId);
+    setError(null);
+    try {
+      const response = await fetch("/api/sales/estimates", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "set-print-options", estimateId, ...nextOptions }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "Unable to update print preferences");
+      router.refresh();
+    } catch (optionsError) {
+      setError(optionsError instanceof Error ? optionsError.message : "Unable to update print preferences");
+    } finally {
+      setPrintOptionsSaving(null);
+      setPdfPreviewVersion((version) => version + 1);
+    }
+  }
+
+  function confirmPrintPdf(estimateId: number) {
+    window.open(`/api/sales/estimates/${estimateId}/pdf`, "_blank", "noopener,noreferrer");
+    setPrintPdfPopupOpen(false);
+  }
+
   async function toggleDetails(estimateId: number) {
     if (expandedEstimateId === estimateId) {
       setExpandedEstimateId(null);
@@ -143,25 +190,6 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
       setError(detailError instanceof Error ? detailError.message : "Unable to load estimate details");
     } finally {
       setLoadingEstimateId(null);
-    }
-  }
-
-  async function changeExportDetailLevel(estimateId: number, level: ExportDetailLevel) {
-    setExportLevelSaving(estimateId);
-    setError(null);
-    try {
-      const response = await fetch("/api/sales/estimates", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "set-export-detail", estimateId, exportDetailLevel: level }),
-      });
-      const result = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(result?.error ?? "Unable to update export preference");
-      router.refresh();
-    } catch (levelError) {
-      setError(levelError instanceof Error ? levelError.message : "Unable to update export preference");
-    } finally {
-      setExportLevelSaving(null);
     }
   }
 
@@ -256,7 +284,6 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
               <th>Revision</th>
               <th>Lines</th>
               <th>Total</th>
-              <th>PDF shows</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -273,25 +300,13 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
                   <td>{estimate.lineCount}</td>
                   <td>{money(estimate.quotedTotal ?? 0)}</td>
                   <td>
-                    <select
-                      className="estimateExportSelect"
-                      value={estimate.exportDetailLevel}
-                      disabled={exportLevelSaving === estimate.estimateId}
-                      onChange={(event) => void changeExportDetailLevel(estimate.estimateId, event.target.value as ExportDetailLevel)}
-                      aria-label={`PDF detail level for ${estimate.estimateName}`}
-                    >
-                      <option value="Summary">Final total only</option>
-                      <option value="Detail">Line item totals</option>
-                    </select>
-                  </td>
-                  <td>
                     <div className="estimateActionsInner">
                       <button type="button" className="estimateTextAction" onClick={() => void toggleDetails(estimate.estimateId)}>
                         {expandedEstimateId === estimate.estimateId ? "Hide scope" : "View scope"}
                       </button>
-                      <a className="estimateTextAction" href={`/api/sales/estimates/${estimate.estimateId}/pdf`} target="_blank" rel="noreferrer">
+                      <button type="button" className="estimateTextAction" onClick={() => openPrintPdfPopup(estimate)}>
                         <FileDown size={13} aria-hidden="true" /> PDF
-                      </a>
+                      </button>
                       {estimate.status === "Draft" && (
                         <button type="button" className="estimateWinAction" onClick={() => openWinDialog(estimate)}>
                           Mark won
@@ -412,6 +427,60 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
           </section>
         </div>
       )}
+
+      {printPdfPopupOpen && printPdfEstimateId != null && (() => {
+        const activeId = printPdfEstimateId;
+        const previewEstimate = estimates.find((item) => item.estimateId === activeId);
+        const isSavingOptions = printOptionsSaving === activeId;
+        return (
+          <div className="financeImportBackdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setPrintPdfPopupOpen(false); }}>
+            <section className="financeImportDialog estimatePdfDialog" role="dialog" aria-modal="true" aria-labelledby="printPdfTitle">
+              <header className="financeImportDialogHeader">
+                <div>
+                  <p className="financeImportEyebrow">LEADS &amp; ESTIMATES</p>
+                  <h2 id="printPdfTitle">Print preview — {previewEstimate?.estimateName ?? "estimate"}</h2>
+                </div>
+                <button type="button" className="financeImportClose" onClick={() => setPrintPdfPopupOpen(false)} aria-label="Close print preview">×</button>
+              </header>
+              <fieldset className="estimatePdfOptions" disabled={isSavingOptions}>
+                <legend>What should this PDF include?</legend>
+                <label className="estimatePdfCheckbox">
+                  <input
+                    type="checkbox"
+                    checked={printOptions.showQuantities}
+                    onChange={(event) => void updatePrintOption(activeId, { showQuantities: event.target.checked })}
+                  /> Quantities &amp; units
+                </label>
+                <label className="estimatePdfCheckbox">
+                  <input
+                    type="checkbox"
+                    checked={printOptions.showLineTotals}
+                    onChange={(event) => void updatePrintOption(activeId, { showLineTotals: event.target.checked })}
+                  /> Line totals
+                </label>
+                <label className="estimatePdfCheckbox">
+                  <input
+                    type="checkbox"
+                    checked={printOptions.showSummaryTotal}
+                    onChange={(event) => void updatePrintOption(activeId, { showSummaryTotal: event.target.checked })}
+                  /> Summary total
+                </label>
+              </fieldset>
+              <iframe
+                key={pdfPreviewVersion}
+                className="estimatePdfPreview"
+                src={`/api/sales/estimates/${activeId}/pdf?v=${pdfPreviewVersion}`}
+                title={`${previewEstimate?.estimateName ?? "Estimate"} PDF preview`}
+              />
+              {error && <p className="financeImportError" role="alert">{error}</p>}
+              <div className="financeImportActions">
+                <button type="button" className="financeImportCancel" onClick={() => setPrintPdfPopupOpen(false)}>Cancel</button>
+                <button type="button" className="financeImportSubmit" disabled={isSavingOptions} onClick={() => confirmPrintPdf(activeId)}>Print PDF</button>
+              </div>
+            </section>
+          </div>
+        );
+      })()}
 
       {winningEstimate && (
         <div className="financeImportBackdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !isWinning) setWinningEstimate(null); }}>

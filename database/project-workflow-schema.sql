@@ -7,19 +7,45 @@ SET QUOTED_IDENTIFIER ON;
 SET NUMERIC_ROUNDABORT OFF;
 GO
 
--- PDF export preference: toggle between a one-line total or full line-item detail.
-IF COL_LENGTH(N'dbo.Estimates', N'ExportDetailLevel') IS NULL
+-- PDF export preferences: independently toggle quantities/units, line totals, and the summary total.
+IF COL_LENGTH(N'dbo.Estimates', N'ShowQuantities') IS NULL
 BEGIN
     ALTER TABLE dbo.Estimates
-        ADD ExportDetailLevel varchar(10) NOT NULL
-        CONSTRAINT DF_Estimates_ExportDetailLevel DEFAULT 'Summary' WITH VALUES;
+        ADD ShowQuantities bit NOT NULL
+        CONSTRAINT DF_Estimates_ShowQuantities DEFAULT 0 WITH VALUES;
 END;
 GO
 
-IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_Estimates_ExportDetailLevel')
+IF COL_LENGTH(N'dbo.Estimates', N'ShowLineTotals') IS NULL
 BEGIN
     ALTER TABLE dbo.Estimates
-        ADD CONSTRAINT CK_Estimates_ExportDetailLevel CHECK (ExportDetailLevel IN ('Summary', 'Detail'));
+        ADD ShowLineTotals bit NOT NULL
+        CONSTRAINT DF_Estimates_ShowLineTotals DEFAULT 0 WITH VALUES;
+END;
+GO
+
+IF COL_LENGTH(N'dbo.Estimates', N'ShowSummaryTotal') IS NULL
+BEGIN
+    ALTER TABLE dbo.Estimates
+        ADD ShowSummaryTotal bit NOT NULL
+        CONSTRAINT DF_Estimates_ShowSummaryTotal DEFAULT 1 WITH VALUES;
+END;
+GO
+
+-- Migrate any existing ExportDetailLevel preference ('Summary'/'Detail') onto the new flags, then
+-- drop the old column — it's fully superseded by the three independent toggles above.
+IF COL_LENGTH(N'dbo.Estimates', N'ExportDetailLevel') IS NOT NULL
+BEGIN
+    UPDATE dbo.Estimates
+        SET ShowQuantities = CASE WHEN ExportDetailLevel = 'Detail' THEN 1 ELSE 0 END,
+            ShowLineTotals = CASE WHEN ExportDetailLevel = 'Detail' THEN 1 ELSE 0 END,
+            ShowSummaryTotal = 1;
+
+    IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_Estimates_ExportDetailLevel')
+        ALTER TABLE dbo.Estimates DROP CONSTRAINT CK_Estimates_ExportDetailLevel;
+    IF EXISTS (SELECT 1 FROM sys.default_constraints WHERE name = N'DF_Estimates_ExportDetailLevel')
+        ALTER TABLE dbo.Estimates DROP CONSTRAINT DF_Estimates_ExportDetailLevel;
+    ALTER TABLE dbo.Estimates DROP COLUMN ExportDetailLevel;
 END;
 GO
 

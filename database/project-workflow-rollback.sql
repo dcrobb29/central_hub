@@ -11,9 +11,13 @@ IF OBJECT_ID(N'dbo.Equipment', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM dbo.E
 IF COL_LENGTH(N'dbo.Projects', N'ProjectManagerID') IS NOT NULL
    AND EXISTS (SELECT 1 FROM dbo.Projects WHERE ProjectManagerID IS NOT NULL)
     THROW 51000, 'Rollback stopped: projects have an assigned project manager.', 1;
-IF COL_LENGTH(N'dbo.Estimates', N'ExportDetailLevel') IS NOT NULL
-   AND EXISTS (SELECT 1 FROM dbo.Estimates WHERE ExportDetailLevel <> 'Summary')
-    THROW 51000, 'Rollback stopped: estimates have a non-default export preference.', 1;
+IF (COL_LENGTH(N'dbo.Estimates', N'ShowQuantities') IS NOT NULL
+      AND EXISTS (SELECT 1 FROM dbo.Estimates WHERE ShowQuantities <> 0))
+   OR (COL_LENGTH(N'dbo.Estimates', N'ShowLineTotals') IS NOT NULL
+      AND EXISTS (SELECT 1 FROM dbo.Estimates WHERE ShowLineTotals <> 0))
+   OR (COL_LENGTH(N'dbo.Estimates', N'ShowSummaryTotal') IS NOT NULL
+      AND EXISTS (SELECT 1 FROM dbo.Estimates WHERE ShowSummaryTotal <> 1))
+    THROW 51000, 'Rollback stopped: estimates have a non-default print preference.', 1;
 GO
 
 IF OBJECT_ID(N'dbo.ProjectBillingMilestones', N'U') IS NOT NULL DROP TABLE dbo.ProjectBillingMilestones;
@@ -31,12 +35,20 @@ IF COL_LENGTH(N'dbo.Projects', N'ProjectManagerID') IS NOT NULL
     ALTER TABLE dbo.Projects DROP COLUMN ProjectManagerID;
 GO
 
-IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_Estimates_ExportDetailLevel')
-    ALTER TABLE dbo.Estimates DROP CONSTRAINT CK_Estimates_ExportDetailLevel;
-IF EXISTS (SELECT 1 FROM sys.default_constraints WHERE name = N'DF_Estimates_ExportDetailLevel')
-    ALTER TABLE dbo.Estimates DROP CONSTRAINT DF_Estimates_ExportDetailLevel;
-IF COL_LENGTH(N'dbo.Estimates', N'ExportDetailLevel') IS NOT NULL
-    ALTER TABLE dbo.Estimates DROP COLUMN ExportDetailLevel;
+IF EXISTS (SELECT 1 FROM sys.default_constraints WHERE name = N'DF_Estimates_ShowQuantities')
+    ALTER TABLE dbo.Estimates DROP CONSTRAINT DF_Estimates_ShowQuantities;
+IF COL_LENGTH(N'dbo.Estimates', N'ShowQuantities') IS NOT NULL
+    ALTER TABLE dbo.Estimates DROP COLUMN ShowQuantities;
+
+IF EXISTS (SELECT 1 FROM sys.default_constraints WHERE name = N'DF_Estimates_ShowLineTotals')
+    ALTER TABLE dbo.Estimates DROP CONSTRAINT DF_Estimates_ShowLineTotals;
+IF COL_LENGTH(N'dbo.Estimates', N'ShowLineTotals') IS NOT NULL
+    ALTER TABLE dbo.Estimates DROP COLUMN ShowLineTotals;
+
+IF EXISTS (SELECT 1 FROM sys.default_constraints WHERE name = N'DF_Estimates_ShowSummaryTotal')
+    ALTER TABLE dbo.Estimates DROP CONSTRAINT DF_Estimates_ShowSummaryTotal;
+IF COL_LENGTH(N'dbo.Estimates', N'ShowSummaryTotal') IS NOT NULL
+    ALTER TABLE dbo.Estimates DROP COLUMN ShowSummaryTotal;
 GO
 
 IF DATABASE_PRINCIPAL_ID(N'applicationLogin') IS NOT NULL

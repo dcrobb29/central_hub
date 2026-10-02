@@ -3,7 +3,7 @@ import {
   createEstimate,
   getEstimateDetails,
   getEstimates,
-  setEstimateExportDetailLevel,
+  setEstimatePrintOptions,
   winEstimate,
   type CreateEstimateInput,
   type EngagementType,
@@ -129,15 +129,20 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Invalid estimate ID" }, { status: 400 });
   }
 
-  if (body?.action === "set-export-detail") {
-    if (body.exportDetailLevel !== "Summary" && body.exportDetailLevel !== "Detail") {
-      return NextResponse.json({ error: "Choose Summary or Detail" }, { status: 400 });
+  if (body?.action === "set-print-options") {
+    if (typeof body.showQuantities !== "boolean" || typeof body.showLineTotals !== "boolean" || typeof body.showSummaryTotal !== "boolean") {
+      return NextResponse.json({ error: "Choose which PDF sections to include" }, { status: 400 });
     }
+    const printOptions = {
+      showQuantities: body.showQuantities,
+      showLineTotals: body.showLineTotals,
+      showSummaryTotal: body.showSummaryTotal,
+    };
     try {
-      await setEstimateExportDetailLevel(estimateId, body.exportDetailLevel);
-      return NextResponse.json({ estimateId, exportDetailLevel: body.exportDetailLevel });
+      await setEstimatePrintOptions(estimateId, printOptions);
+      return NextResponse.json({ estimateId, ...printOptions });
     } catch {
-      return NextResponse.json({ error: "Unable to update export preference" }, { status: 500 });
+      return NextResponse.json({ error: "Unable to update print preferences" }, { status: 500 });
     }
   }
 

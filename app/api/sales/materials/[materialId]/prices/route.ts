@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { addMaterialPrice, getMaterialPriceHistory } from "@/app/lib/materials";
-
-function dateValue(value: unknown): string {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error("Enter a valid quoted date");
-  const date = new Date(`${value}T00:00:00.000Z`);
-  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) throw new Error("Enter a valid quoted date");
-  return value;
-}
+import { isoDateString, ValidationError } from "@/app/lib/validation";
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ materialId: string }> }) {
   const materialId = Number((await params).materialId);
@@ -43,9 +37,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   let quotedDate: string;
   try {
-    quotedDate = dateValue(body.quotedDate);
+    quotedDate = isoDateString(body.quotedDate);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid price data" }, { status: 400 });
+    const message = error instanceof ValidationError && error.message === "date"
+      ? "Enter a valid quoted date"
+      : error instanceof Error ? error.message : "Invalid price data";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
   try {

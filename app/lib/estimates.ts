@@ -247,48 +247,169 @@ export async function createEstimate(input: CreateEstimateInput): Promise<number
       `);
     const revisionId = revisionResult.recordset[0].EstimateRevisionID;
 
-    const scopeIdByName = new Map<string, number>();
-    for (const [index, scopeName] of input.scopes.entries()) {
-      const scopeResult = await transaction.request()
-        .input("revisionId", sql.Int, revisionId)
-        .input("scopeName", sql.NVarChar(150), scopeName)
-        .input("sortOrder", sql.Int, index)
-        .query<{ EstimateScopeOfWorkID: number }>(`
-          INSERT INTO dbo.EstimateScopesOfWork (EstimateRevisionID, ScopeName, SortOrder)
-          OUTPUT inserted.EstimateScopeOfWorkID
-          VALUES (@revisionId, @scopeName, @sortOrder)
-        `);
-      scopeIdByName.set(scopeName, scopeResult.recordset[0].EstimateScopeOfWorkID);
-    }
-
-    for (const [index, line] of input.lines.entries()) {
-      const scopeOfWorkId = line.scopeName !== null ? scopeIdByName.get(line.scopeName) ?? null : null;
-      await transaction.request()
-        .input("revisionId", sql.Int, revisionId)
-        .input("lineNumber", sql.Int, index + 1)
-        .input("description", sql.NVarChar(300), line.description)
-        .input("quantity", sql.Decimal(19, 4), line.quantity)
-        .input("unitName", sql.NVarChar(30), line.unitName)
-        .input("unitCost", sql.Decimal(19, 4), line.unitCost)
-        .input("freightAmount", sql.Decimal(19, 4), line.freightAmount)
-        .input("lineMarkupPercent", sql.Decimal(9, 4), line.lineMarkupPercent)
-        .input("materialId", sql.Int, line.materialId)
-        .input("catalogUnitCostAtEntry", sql.Decimal(19, 4), line.catalogUnitCostAtEntry)
-        .input("catalogPriceDate", sql.Date, line.catalogPriceDate ? new Date(`${line.catalogPriceDate}T00:00:00.000Z`) : null)
-        .input("lineType", sql.VarChar(16), line.lineType)
-        .input("estimateScopeOfWorkId", sql.Int, scopeOfWorkId)
-        .query(`
-          INSERT INTO dbo.EstimateLineItems (
-            EstimateRevisionID, LineNumber, Description, Quantity, UnitName, UnitCost, FreightAmount, LineMarkupPercent,
-            MaterialID, CatalogUnitCostAtEntry, CatalogPriceDate, LineType, EstimateScopeOfWorkID
-          )
-          VALUES (@revisionId, @lineNumber, @description, @quantity, @unitName, @unitCost, @freightAmount, @lineMarkupPercent,
-            @materialId, @catalogUnitCostAtEntry, @catalogPriceDate, @lineType, @estimateScopeOfWorkId)
-        `);
-    }
+    await insertScopesAndLines(transaction, revisionId, input);
 
     await transaction.commit();
     return estimateId;
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+}
+
+// Shared by createEstimate (fresh revision) and updateEstimate (replacing an existing revision's
+// scopes/lines in place), so the insert logic for a revision's children only lives in one place.
+async function insertScopesAndLines(transaction: sql.Transaction, revisionId: number, input: CreateEstimateInput) {
+  const scopeIdByName = new Map<string, number>();
+  for (const [index, scopeName] of input.scopes.entries()) {
+    const scopeResult = await transaction.request()
+      .input("revisionId", sql.Int, revisionId)
+      .input("scopeName", sql.NVarChar(150), scopeName)
+      .input("sortOrder", sql.Int, index)
+      .query<{ EstimateScopeOfWorkID: number }>(`
+        INSERT INTO dbo.EstimateScopesOfWork (EstimateRevisionID, ScopeName, SortOrder)
+        OUTPUT inserted.EstimateScopeOfWorkID
+        VALUES (@revisionId, @scopeName, @sortOrder)
+      `);
+    scopeIdByName.set(scopeName, scopeResult.recordset[0].EstimateScopeOfWorkID);
+  }
+
+  for (const [index, line] of input.lines.entries()) {
+    const scopeOfWorkId = line.scopeName !== null ? scopeIdByName.get(line.scopeName) ?? null : null;
+    await transaction.request()
+      .input("revisionId", sql.Int, revisionId)
+      .input("lineNumber", sql.Int, index + 1)
+      .input("description", sql.NVarChar(300), line.description)
+      .input("quantity", sql.Decimal(19, 4), line.quantity)
+      .input("unitName", sql.NVarChar(30), line.unitName)
+      .input("unitCost", sql.Decimal(19, 4), line.unitCost)
+      .input("freightAmount", sql.Decimal(19, 4), line.freightAmount)
+      .input("lineMarkupPercent", sql.Decimal(9, 4), line.lineMarkupPercent)
+      .input("materialId", sql.Int, line.materialId)
+      .input("catalogUnitCostAtEntry", sql.Decimal(19, 4), line.catalogUnitCostAtEntry)
+      .input("catalogPriceDate", sql.Date, line.catalogPriceDate ? new Date(`${line.catalogPriceDate}T00:00:00.000Z`) : null)
+      .input("lineType", sql.VarChar(16), line.lineType)
+      .input("estimateScopeOfWorkId", sql.Int, scopeOfWorkId)
+      .query(`
+        INSERT INTO dbo.EstimateLineItems (
+          EstimateRevisionID, LineNumber, Description, Quantity, UnitName, UnitCost, FreightAmount, LineMarkupPercent,
+          MaterialID, CatalogUnitCostAtEntry, CatalogPriceDate, LineType, EstimateScopeOfWorkID
+        )
+        VALUES (@revisionId, @lineNumber, @description, @quantity, @unitName, @unitCost, @freightAmount, @lineMarkupPercent,
+          @materialId, @catalogUnitCostAtEntry, @catalogPriceDate, @lineType, @estimateScopeOfWorkId)
+      `);
+  }
+}
+
+// Replaces a draft estimate's name/customer and its current revision's pricing rules, scopes, and
+// line items in place (no new revision number — revisioning only matters once an estimate is won).
+export async function updateEstimate(estimateId: number, input: CreateEstimateInput): Promise<void> {
+  const pricing = calculateEstimate(input);
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+
+  try {
+    const estimateResult = await transaction.request()
+      .input("estimateId", sql.Int, estimateId)
+      .query<{ EstimateStatus: string; EstimateRevisionID: number | null }>(`
+        SELECT e.EstimateStatus, r.EstimateRevisionID
+        FROM dbo.Estimates e WITH (UPDLOCK, HOLDLOCK)
+        OUTER APPLY (
+          SELECT TOP (1) EstimateRevisionID
+          FROM dbo.EstimateRevisions
+          WHERE EstimateID = e.EstimateID
+          ORDER BY RevisionNumber DESC
+        ) r
+        WHERE e.EstimateID = @estimateId
+      `);
+    const estimate = estimateResult.recordset[0];
+    if (!estimate) throw new Error("not-found");
+    if (estimate.EstimateStatus === "Won") throw new Error("not-editable");
+    if (!estimate.EstimateRevisionID) throw new Error("no-revision");
+    const revisionId = estimate.EstimateRevisionID;
+
+    await transaction.request()
+      .input("estimateId", sql.Int, estimateId)
+      .input("estimateName", sql.NVarChar(150), input.estimateName)
+      .input("customerName", sql.NVarChar(150), input.customerName)
+      .query(`
+        UPDATE dbo.Estimates SET EstimateName = @estimateName, CustomerName = @customerName
+        WHERE EstimateID = @estimateId
+      `);
+
+    await transaction.request()
+      .input("revisionId", sql.Int, revisionId)
+      .input("markupMode", sql.VarChar(16), input.markupMode)
+      .input("groupingMode", sql.VarChar(16), input.groupingMode)
+      .input("estimateMarkupPercent", sql.Decimal(9, 4), input.estimateMarkupPercent)
+      .input("taxPercent", sql.Decimal(9, 4), input.taxPercent)
+      .input("roundingIncrement", sql.Decimal(19, 2), input.roundingIncrement)
+      .input("quotedTotal", sql.Decimal(19, 2), pricing.quotedTotal)
+      .query(`
+        UPDATE dbo.EstimateRevisions
+        SET MarkupMode = @markupMode, GroupingMode = @groupingMode, EstimateMarkupPercent = @estimateMarkupPercent,
+          TaxPercent = @taxPercent, RoundingIncrement = @roundingIncrement, QuotedTotal = @quotedTotal
+        WHERE EstimateRevisionID = @revisionId
+      `);
+
+    // Replace the revision's line items and scopes wholesale rather than diffing them — simplest
+    // and matches how the create form hands the whole set back on every save.
+    await transaction.request()
+      .input("revisionId", sql.Int, revisionId)
+      .query("DELETE FROM dbo.EstimateLineItems WHERE EstimateRevisionID = @revisionId");
+    await transaction.request()
+      .input("revisionId", sql.Int, revisionId)
+      .query("DELETE FROM dbo.EstimateScopesOfWork WHERE EstimateRevisionID = @revisionId");
+
+    await insertScopesAndLines(transaction, revisionId, input);
+
+    await transaction.commit();
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+}
+
+// Only draft (never-won) estimates can be deleted. Children are removed in FK order since none of
+// the Estimate* tables cascade deletes.
+export async function deleteEstimate(estimateId: number): Promise<void> {
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+
+  try {
+    const estimateResult = await transaction.request()
+      .input("estimateId", sql.Int, estimateId)
+      .query<{ EstimateStatus: string }>(`
+        SELECT EstimateStatus FROM dbo.Estimates WITH (UPDLOCK, HOLDLOCK) WHERE EstimateID = @estimateId
+      `);
+    const estimate = estimateResult.recordset[0];
+    if (!estimate) throw new Error("not-found");
+    if (estimate.EstimateStatus === "Won") throw new Error("not-editable");
+
+    await transaction.request()
+      .input("estimateId", sql.Int, estimateId)
+      .query(`
+        DELETE li FROM dbo.EstimateLineItems li
+        JOIN dbo.EstimateRevisions r ON r.EstimateRevisionID = li.EstimateRevisionID
+        WHERE r.EstimateID = @estimateId
+      `);
+    await transaction.request()
+      .input("estimateId", sql.Int, estimateId)
+      .query(`
+        DELETE sw FROM dbo.EstimateScopesOfWork sw
+        JOIN dbo.EstimateRevisions r ON r.EstimateRevisionID = sw.EstimateRevisionID
+        WHERE r.EstimateID = @estimateId
+      `);
+    await transaction.request()
+      .input("estimateId", sql.Int, estimateId)
+      .query("DELETE FROM dbo.EstimateRevisions WHERE EstimateID = @estimateId");
+    await transaction.request()
+      .input("estimateId", sql.Int, estimateId)
+      .query("DELETE FROM dbo.Estimates WHERE EstimateID = @estimateId");
+
+    await transaction.commit();
   } catch (error) {
     await transaction.rollback();
     throw error;

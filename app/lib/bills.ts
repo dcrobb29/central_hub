@@ -1,4 +1,4 @@
-import { getPool } from "@/app/lib/db";
+import { getPool, sql } from "@/app/lib/db";
 import type { ProjectOption } from "@/app/lib/projects";
 
 export type Bill = {
@@ -52,4 +52,91 @@ export async function getBillProjectOptions(): Promise<ProjectOption[]> {
     ORDER BY ProjectName, ProjectID
   `);
   return result.recordset;
+}
+
+export async function addBill(input: {
+  id: string;
+  projectId: number | null;
+  billNo: string;
+  billDate: Date;
+  billDueDate: Date | null;
+  billPaidDate: Date | null;
+  billAmount: string;
+  companyName: string | null;
+  billingAddressLine1: string | null;
+  billingAddressLine2: string | null;
+  billingAddressCity: string | null;
+  billingAddressState: string | null;
+  billingAddressZip: string | null;
+}): Promise<void> {
+  const pool = await getPool();
+  await pool.request()
+    .input("id", sql.NChar(10), input.id)
+    .input("projectId", sql.Int, input.projectId)
+    .input("billNo", sql.NChar(10), input.billNo)
+    .input("billDate", sql.Date, input.billDate)
+    .input("billDueDate", sql.Date, input.billDueDate)
+    .input("billPaidDate", sql.Date, input.billPaidDate)
+    .input("billAmount", sql.NChar(10), input.billAmount)
+    .input("companyName", sql.NChar(10), input.companyName)
+    .input("billingAddressLine1", sql.NChar(50), input.billingAddressLine1)
+    .input("billingAddressLine2", sql.NChar(50), input.billingAddressLine2)
+    .input("billingAddressCity", sql.NChar(50), input.billingAddressCity)
+    .input("billingAddressState", sql.NChar(50), input.billingAddressState)
+    .input("billingAddressZip", sql.NChar(10), input.billingAddressZip)
+    .query(`
+      INSERT INTO dbo.Bills (
+        [id], [ProjectID], [Bill No], [Bill Date], [Bill Due Date], [Bill Paid Date], [Bill Amount],
+        [Company Name], [Billing Address Line 1], [Billing Address Line 2],
+        [Billing Address City], [Billing Address State], [Billing Address Zip]
+      )
+      VALUES (
+        @id, @projectId, @billNo, @billDate, @billDueDate, @billPaidDate, @billAmount,
+        @companyName, @billingAddressLine1, @billingAddressLine2,
+        @billingAddressCity, @billingAddressState, @billingAddressZip
+      )
+    `);
+}
+
+export type BillInput = Omit<Parameters<typeof addBill>[0], "id">;
+
+export async function updateBill(id: string, input: BillInput): Promise<void> {
+  const pool = await getPool();
+  await pool.request()
+    .input("id", sql.NChar(10), id)
+    .input("projectId", sql.Int, input.projectId)
+    .input("billNo", sql.NChar(10), input.billNo)
+    .input("billDate", sql.Date, input.billDate)
+    .input("billDueDate", sql.Date, input.billDueDate)
+    .input("billPaidDate", sql.Date, input.billPaidDate)
+    .input("billAmount", sql.NChar(10), input.billAmount)
+    .input("companyName", sql.NChar(10), input.companyName)
+    .input("billingAddressLine1", sql.NChar(50), input.billingAddressLine1)
+    .input("billingAddressLine2", sql.NChar(50), input.billingAddressLine2)
+    .input("billingAddressCity", sql.NChar(50), input.billingAddressCity)
+    .input("billingAddressState", sql.NChar(50), input.billingAddressState)
+    .input("billingAddressZip", sql.NChar(10), input.billingAddressZip)
+    .query(`
+      UPDATE dbo.Bills SET
+        [ProjectID] = @projectId,
+        [Bill No] = @billNo,
+        [Bill Date] = @billDate,
+        [Bill Due Date] = @billDueDate,
+        [Bill Paid Date] = @billPaidDate,
+        [Bill Amount] = @billAmount,
+        [Company Name] = @companyName,
+        [Billing Address Line 1] = @billingAddressLine1,
+        [Billing Address Line 2] = @billingAddressLine2,
+        [Billing Address City] = @billingAddressCity,
+        [Billing Address State] = @billingAddressState,
+        [Billing Address Zip] = @billingAddressZip
+      WHERE [id] = @id
+    `);
+}
+
+export async function deleteBill(id: string): Promise<void> {
+  const pool = await getPool();
+  await pool.request()
+    .input("id", sql.NChar(10), id)
+    .query(`DELETE FROM dbo.Bills WHERE [id] = @id`);
 }

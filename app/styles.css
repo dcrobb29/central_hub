@@ -279,7 +279,8 @@
 }
 
 .estimateTextAction,
-.estimateWinAction {
+.estimateWinAction,
+.estimateDangerAction {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -292,7 +293,12 @@
   text-decoration: underline;
 }
 
-.estimateWinAction:disabled {
+.estimateDangerAction {
+  color: #8a2f29;
+}
+
+.estimateWinAction:disabled,
+.estimateDangerAction:disabled {
   cursor: wait;
   opacity: 0.55;
 }
@@ -1139,6 +1145,26 @@
 .financeImportSubmit {
   background: #1f604e;
   color: #fff;
+}
+
+.financeImportDanger {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid #8a2f29;
+  border-radius: 3px;
+  background: #8a2f29;
+  color: #fff;
+  cursor: pointer;
+  font: 600 12px Arial, sans-serif;
+}
+
+.financeImportDanger:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.financeConfirmDialog {
+  width: min(420px, 100%);
 }
 
 .financeImportCancel:disabled,

@@ -4,6 +4,25 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import type { ProjectFinancialSummary } from "@/app/lib/projects";
+import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
+import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
+import Modal from "@/app/components/modal";
+
+type Column = TableColumn<ProjectFinancialSummary>;
+
+const COLUMNS: Column[] = [
+  { key: "projectName", label: "Project" },
+  { key: "income", label: "Income" },
+  { key: "paidIncome", label: "Paid Income" },
+  { key: "unpaidIncome", label: "Unpaid Income" },
+  { key: "percentOfIncome", label: "% Income" },
+  { key: "costs", label: "Costs" },
+  { key: "paidCosts", label: "Paid Costs" },
+  { key: "unpaidCosts", label: "Unpaid Bills" },
+  { key: "percentOfCosts", label: "% Costs" },
+  { key: "profit", label: "Profit" },
+  { key: "profitMargin", label: "Profit Margin" },
+];
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
@@ -12,12 +31,43 @@ function money(value: number) {
   return currency.format(Number(value) || 0);
 }
 
+function formatValue(key: keyof ProjectFinancialSummary, value: ProjectFinancialSummary[keyof ProjectFinancialSummary]) {
+  if (key === "projectName") return String(value ?? "");
+  if (key === "percentOfIncome" || key === "percentOfCosts" || key === "profitMargin") return `${percent.format(Number(value))}%`;
+  return money(Number(value));
+}
+
+function searchableValue(key: keyof ProjectFinancialSummary, value: ProjectFinancialSummary[keyof ProjectFinancialSummary]) {
+  return formatValue(key, value).toLocaleLowerCase();
+}
+
+function compareProjects(left: ProjectFinancialSummary, right: ProjectFinancialSummary, key: keyof ProjectFinancialSummary) {
+  if (key === "projectName") {
+    return String(left.projectName).localeCompare(String(right.projectName), undefined, { numeric: true, sensitivity: "base" });
+  }
+  return Number(left[key]) - Number(right[key]);
+}
+
 export default function ProjectFinancesTable({ rows }: { rows: ProjectFinancialSummary[] }) {
   const router = useRouter();
   const [isAddingProject, setIsAddingProject] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const {
+    search,
+    setSearch,
+    columnFilters,
+    setColumnFilters,
+    sort,
+    toggleSort,
+    openFilter,
+    setOpenFilter,
+    filterControlRoot,
+    visibleRows,
+    clearFilters,
+    hasActiveFilters,
+  } = useFilterableTable(rows, COLUMNS, { searchableValue, compare: compareProjects });
 
   async function submitProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -48,40 +98,62 @@ export default function ProjectFinancesTable({ rows }: { rows: ProjectFinancialS
   }
 
   return (
-    <section className="projectFinancesTablePanel">
+    <section className="projectFinancesTablePanel" ref={filterControlRoot}>
       <div className="projectFinancesToolbar">
         <div>
           <p className="financeImportEyebrow">ALL-TIME PROJECT TOTALS</p>
           <h2>Project financials</h2>
         </div>
+        <label className="invoiceSearchLabel">
+          Search projects
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search every column"
+            className="invoiceSearchInput"
+          />
+        </label>
         <button type="button" className="financeImportButton" onClick={() => { setError(null); setIsAddingProject(true); }}>
           <Plus size={15} aria-hidden="true" />
           Add project
         </button>
+        <span className="invoiceResultCount" aria-live="polite">
+          {visibleRows.length} of {rows.length} projects
+        </span>
+        {hasActiveFilters && (
+          <button type="button" className="invoiceClearButton" onClick={clearFilters}>Clear</button>
+        )}
       </div>
       <div className="invoiceTableWrapper">
         <table className="invoiceTable projectFinancesTable">
           <thead>
             <tr>
-              <th>Project</th>
-              <th>Income</th>
-              <th>Paid Income</th>
-              <th>Unpaid Income</th>
-              <th>% Income</th>
-              <th>Costs</th>
-              <th>Paid Costs</th>
-              <th>Unpaid Bills</th>
-              <th>% Costs</th>
-              <th>Profit</th>
-              <th>Profit Margin</th>
+              {COLUMNS.map((column, index) => (
+                <FilterableTableHeaderCell
+                  key={column.key}
+                  column={column}
+                  idPrefix="project-finances"
+                  alignPopoverRight={index >= COLUMNS.length - 2}
+                  sortDirection={sort?.key === column.key ? sort.direction : null}
+                  filterValue={columnFilters[column.key] ?? ""}
+                  isFilterOpen={openFilter === column.key}
+                  onToggleSort={() => toggleSort(column.key)}
+                  onToggleFilter={() => setOpenFilter((current) => current === column.key ? null : column.key)}
+                  onFilterChange={(value) => setColumnFilters((current) => ({ ...current, [column.key]: value }))}
+                  onClearFilter={() => setColumnFilters((current) => ({ ...current, [column.key]: "" }))}
+                />
+              ))}
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {visibleRows.length === 0 ? (
               <tr>
-                <td colSpan={11} className="invoiceNoResults">No projects yet. Add a project to get started.</td>
+                <td colSpan={COLUMNS.length} className="invoiceNoResults">
+                  {rows.length === 0 ? "No projects yet. Add a project to get started." : "No projects match these filters."}
+                </td>
               </tr>
-            ) : rows.map((project) => (
+            ) : visibleRows.map((project) => (
               <tr key={project.projectId}>
                 <td>{project.projectName}</td>
                 <td>{money(project.income)}</td>
@@ -100,15 +172,7 @@ export default function ProjectFinancesTable({ rows }: { rows: ProjectFinancialS
         </table>
       </div>
       {isAddingProject && (
-        <div className="financeImportBackdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog(); }}>
-          <section className="financeImportDialog financeProjectDialog" role="dialog" aria-modal="true" aria-labelledby="addProjectTitle">
-            <header className="financeImportDialogHeader">
-              <div>
-                <p className="financeImportEyebrow">PROJECT FINANCES</p>
-                <h2 id="addProjectTitle">Add project</h2>
-              </div>
-              <button type="button" className="financeImportClose" onClick={closeDialog} aria-label="Close" disabled={isSaving}>×</button>
-            </header>
+        <Modal titleId="addProjectTitle" title="Add project" eyebrow="PROJECT FINANCES" onClose={closeDialog} closeDisabled={isSaving} className="financeProjectDialog">
             <p className="financeImportHint">Projects can be connected to invoices and bills when those records are added. Existing unassigned records stay unassigned.</p>
             <form onSubmit={submitProject}>
               <label className="financeImportField">
@@ -121,8 +185,7 @@ export default function ProjectFinancesTable({ rows }: { rows: ProjectFinancialS
                 <button type="submit" className="financeImportSubmit" disabled={isSaving}>{isSaving ? "Saving..." : "Save project"}</button>
               </div>
             </form>
-          </section>
-        </div>
+        </Modal>
       )}
     </section>
   );

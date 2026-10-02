@@ -18,6 +18,7 @@ import type {
 import type { MaterialWithLatestPrice } from "@/app/lib/materials";
 import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
 import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
+import Modal from "@/app/components/modal";
 
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -117,6 +118,15 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
   const [isWinning, setIsWinning] = useState(false);
   const [winError, setWinError] = useState<string | null>(null);
 
+  // edit flow: non-null while the create/edit form is prefilled for an existing (non-won) estimate
+  const [editingEstimateId, setEditingEstimateId] = useState<number | null>(null);
+  const [loadingEditEstimateId, setLoadingEditEstimateId] = useState<number | null>(null);
+
+  // delete flow: a draft/lost estimate pending a confirm-or-cancel decision
+  const [deletingEstimate, setDeletingEstimate] = useState<EstimateSummary | null>(null);
+  const [isDeletingEstimate, setIsDeletingEstimate] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   // catalog picker: which line is currently choosing a material, plus the lazily-fetched list
   const [catalogPickerLine, setCatalogPickerLine] = useState<number | null>(null);
   const [catalogMaterials, setCatalogMaterials] = useState<MaterialWithLatestPrice[] | null>(null);
@@ -158,12 +168,84 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
     setError(null);
     setPrintPdfPopupOpen(false);
     setCollapsedFormScopes({});
+    setEditingEstimateId(null);
   }
 
   function closeForm() {
     if (isSaving) return;
     setIsCreating(false);
     resetForm();
+  }
+
+  // Loads an existing (non-won) estimate's full details and prefills the create form with them so
+  // the same Modal can be reused for both creating and editing.
+  async function openEditForm(estimate: EstimateSummary) {
+    setLoadingEditEstimateId(estimate.estimateId);
+    setError(null);
+    try {
+      const response = await fetch(`/api/sales/estimates?estimateId=${estimate.estimateId}`);
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "Unable to load estimate");
+      const details = result as EstimateDetails;
+      setEstimateName(details.estimateName);
+      setCustomerName(details.customerName ?? "");
+      setMarkupMode(details.markupMode);
+      setEstimateMarkupPercent(details.estimateMarkupPercent);
+      setTaxPercent(details.taxPercent);
+      setRoundingIncrement(details.roundingIncrement);
+      setGroupingMode(details.groupingMode);
+      setScopes([...details.scopes].sort((a, b) => a.sortOrder - b.sortOrder).map((scope) => scope.scopeName));
+      setLines(details.lines.map((line) => ({
+        description: line.description,
+        quantity: line.quantity,
+        unitName: line.unitName,
+        unitCost: line.unitCost,
+        freightAmount: line.freightAmount,
+        lineMarkupPercent: line.lineMarkupPercent,
+        materialId: line.materialId,
+        catalogUnitCostAtEntry: line.catalogUnitCostAtEntry,
+        catalogPriceDate: line.catalogPriceDate,
+        lineType: line.lineType,
+        scopeName: line.scopeName,
+      })));
+      setCollapsedFormScopes({});
+      setEditingEstimateId(estimate.estimateId);
+      setIsCreating(true);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Unable to load estimate");
+    } finally {
+      setLoadingEditEstimateId(null);
+    }
+  }
+
+  function openDeleteDialog(estimate: EstimateSummary) {
+    setDeletingEstimate(estimate);
+    setDeleteError(null);
+  }
+
+  function closeDeleteDialog() {
+    if (isDeletingEstimate) return;
+    setDeletingEstimate(null);
+    setDeleteError(null);
+  }
+
+  async function confirmDeleteEstimate() {
+    if (!deletingEstimate) return;
+    setIsDeletingEstimate(true);
+    setDeleteError(null);
+    try {
+      const response = await fetch(`/api/sales/estimates/${deletingEstimate.estimateId}`, { method: "DELETE" });
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error ?? "Unable to delete estimate");
+      }
+      setDeletingEstimate(null);
+      router.refresh();
+    } catch (deleteErr) {
+      setDeleteError(deleteErr instanceof Error ? deleteErr.message : "Unable to delete estimate");
+    } finally {
+      setIsDeletingEstimate(false);
+    }
   }
 
   function updateLine(index: number, patch: Partial<EstimateLineDraft>) {
@@ -284,8 +366,9 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
     setIsSaving(true);
     setError(null);
     try {
-      const response = await fetch("/api/sales/estimates", {
-        method: "POST",
+      const url = editingEstimateId != null ? `/api/sales/estimates/${editingEstimateId}` : "/api/sales/estimates";
+      const response = await fetch(url, {
+        method: editingEstimateId != null ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           estimateName,
@@ -529,6 +612,21 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
                           Mark won
                         </button>
                       )}
+                      {estimate.status !== "Won" && (
+                        <>
+                          <button
+                            type="button"
+                            className="estimateTextAction"
+                            disabled={loadingEditEstimateId === estimate.estimateId}
+                            onClick={() => void openEditForm(estimate)}
+                          >
+                            {loadingEditEstimateId === estimate.estimateId ? "Loading..." : "Edit"}
+                          </button>
+                          <button type="button" className="estimateDangerAction" onClick={() => openDeleteDialog(estimate)}>
+                            Delete
+                          </button>
+                        </>
+                      )}
                       {estimate.projectId && <a className="estimateTextAction" href={`/projects?created=${estimate.projectId}`}>Open project</a>}
                     </div>
                   </td>
@@ -618,15 +716,7 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
       </div>
 
       {isCreating && (
-        <div className="financeImportBackdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeForm(); }}>
-          <section className="financeImportDialog estimateDialog" role="dialog" aria-modal="true" aria-labelledby="newEstimateTitle">
-            <header className="financeImportDialogHeader">
-              <div>
-                <p className="financeImportEyebrow">SALES &amp; ESTIMATES</p>
-                <h2 id="newEstimateTitle">New estimate</h2>
-              </div>
-              <button type="button" className="financeImportClose" onClick={closeForm} aria-label="Close estimate form" disabled={isSaving}>×</button>
-            </header>
+        <Modal titleId="newEstimateTitle" title={editingEstimateId != null ? "Edit estimate" : "New estimate"} eyebrow="SALES & ESTIMATES" onClose={closeForm} closeDisabled={isSaving} closeLabel="Close estimate form" className="estimateDialog">
             <form onSubmit={submitEstimate}>
               <fieldset className="financeImportGroup">
                 <legend>Quote</legend>
@@ -729,11 +819,12 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
               {error && <p className="financeImportError" role="alert">{error}</p>}
               <div className="financeImportActions">
                 <button type="button" className="financeImportCancel" onClick={closeForm} disabled={isSaving}>Cancel</button>
-                <button type="submit" className="financeImportSubmit" disabled={isSaving}>{isSaving ? "Saving..." : "Save draft estimate"}</button>
+                <button type="submit" className="financeImportSubmit" disabled={isSaving}>
+                  {isSaving ? "Saving..." : editingEstimateId != null ? "Save changes" : "Save draft estimate"}
+                </button>
               </div>
             </form>
-          </section>
-        </div>
+        </Modal>
       )}
 
       {printPdfPopupOpen && printPdfEstimateId != null && (() => {
@@ -741,15 +832,7 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
         const previewEstimate = estimates.find((item) => item.estimateId === activeId);
         const isSavingOptions = printOptionsSaving === activeId;
         return (
-          <div className="financeImportBackdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setPrintPdfPopupOpen(false); }}>
-            <section className="financeImportDialog estimatePdfDialog" role="dialog" aria-modal="true" aria-labelledby="printPdfTitle">
-              <header className="financeImportDialogHeader">
-                <div>
-                  <p className="financeImportEyebrow">SALES &amp; ESTIMATES</p>
-                  <h2 id="printPdfTitle">Print preview — {previewEstimate?.estimateName ?? "estimate"}</h2>
-                </div>
-                <button type="button" className="financeImportClose" onClick={() => setPrintPdfPopupOpen(false)} aria-label="Close print preview">×</button>
-              </header>
+          <Modal titleId="printPdfTitle" title={<>Print preview — {previewEstimate?.estimateName ?? "estimate"}</>} eyebrow="SALES & ESTIMATES" onClose={() => setPrintPdfPopupOpen(false)} closeLabel="Close print preview" className="estimatePdfDialog">
               <fieldset className="estimatePdfOptions" disabled={isSavingOptions}>
                 <legend>What should this PDF include?</legend>
                 <label className="estimatePdfCheckbox">
@@ -794,21 +877,12 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
                 <button type="button" className="financeImportCancel" onClick={() => setPrintPdfPopupOpen(false)}>Cancel</button>
                 <button type="button" className="financeImportSubmit" disabled={isSavingOptions} onClick={() => confirmPrintPdf(activeId)}>Print PDF</button>
               </div>
-            </section>
-          </div>
+          </Modal>
         );
       })()}
 
       {winningEstimate && (
-        <div className="financeImportBackdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !isWinning) setWinningEstimate(null); }}>
-          <section className="financeImportDialog financeProjectDialog" role="dialog" aria-modal="true" aria-labelledby="winEstimateTitle">
-            <header className="financeImportDialogHeader">
-              <div>
-                <p className="financeImportEyebrow">SALES &amp; ESTIMATES</p>
-                <h2 id="winEstimateTitle">Send &quot;{winningEstimate.estimateName}&quot; to Projects &amp; Jobs</h2>
-              </div>
-              <button type="button" className="financeImportClose" onClick={() => setWinningEstimate(null)} aria-label="Close" disabled={isWinning}>×</button>
-            </header>
+        <Modal titleId="winEstimateTitle" title={<>Send &quot;{winningEstimate.estimateName}&quot; to Projects &amp; Jobs</>} eyebrow="SALES & ESTIMATES" onClose={() => { if (!isWinning) setWinningEstimate(null); }} closeDisabled={isWinning} className="financeProjectDialog">
             <form onSubmit={confirmWin}>
               <label className="financeImportField">What kind of work is this?
                 <select value={winEngagementType} onChange={(event) => setWinEngagementType(event.target.value as EngagementType)}>
@@ -831,20 +905,34 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
                 <button type="submit" className="financeImportSubmit" disabled={isWinning}>{isWinning ? "Converting..." : "Confirm"}</button>
               </div>
             </form>
-          </section>
-        </div>
+        </Modal>
+      )}
+
+      {deletingEstimate && (
+        <Modal
+          titleId="estimateDeleteTitle"
+          title="Delete estimate"
+          eyebrow="SALES & ESTIMATES"
+          onClose={closeDeleteDialog}
+          closeDisabled={isDeletingEstimate}
+          closeLabel="Close delete confirmation"
+          className="financeConfirmDialog"
+        >
+          <p className="financeImportHint">
+            Delete estimate <strong>{deletingEstimate.estimateName}</strong>? This cannot be undone.
+          </p>
+          {deleteError && <p className="financeImportError" role="alert">{deleteError}</p>}
+          <div className="financeImportActions">
+            <button type="button" className="financeImportCancel" onClick={closeDeleteDialog} disabled={isDeletingEstimate}>Cancel</button>
+            <button type="button" className="financeImportDanger" onClick={() => void confirmDeleteEstimate()} disabled={isDeletingEstimate}>
+              {isDeletingEstimate ? "Deleting..." : "Delete estimate"}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {catalogPickerLine != null && (
-        <div className="financeImportBackdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCatalogPickerLine(null); }}>
-          <section className="financeImportDialog financeProjectDialog" role="dialog" aria-modal="true" aria-labelledby="catalogPickerTitle">
-            <header className="financeImportDialogHeader">
-              <div>
-                <p className="financeImportEyebrow">MATERIAL CATALOG</p>
-                <h2 id="catalogPickerTitle">Pick a material</h2>
-              </div>
-              <button type="button" className="financeImportClose" onClick={() => setCatalogPickerLine(null)} aria-label="Close">×</button>
-            </header>
+        <Modal titleId="catalogPickerTitle" title="Pick a material" eyebrow="MATERIAL CATALOG" onClose={() => setCatalogPickerLine(null)} className="financeProjectDialog">
             <input
               autoFocus
               className="invoiceSearchInput"
@@ -870,8 +958,7 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
                   ))
               )}
             </ol>
-          </section>
-        </div>
+        </Modal>
       )}
     </section>
   );

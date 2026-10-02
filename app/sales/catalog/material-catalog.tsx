@@ -4,6 +4,19 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import type { MaterialPriceEntry, MaterialWithLatestPrice } from "@/app/lib/materials";
+import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
+import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
+import Modal from "@/app/components/modal";
+
+type Column = TableColumn<MaterialWithLatestPrice>;
+
+const COLUMNS: Column[] = [
+  { key: "materialName", label: "Material" },
+  { key: "unitName", label: "Unit" },
+  { key: "latestUnitCost", label: "Latest cost" },
+  { key: "latestQuotedDate", label: "Quoted" },
+  { key: "latestVendorName", label: "Vendor" },
+];
 
 const money = (value: number | null) =>
   value == null ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
@@ -12,6 +25,31 @@ function daysOld(quotedDate: string | null) {
   if (!quotedDate) return null;
   const days = Math.floor((Date.now() - new Date(`${quotedDate}T00:00:00`).getTime()) / 86_400_000);
   return days;
+}
+
+function formatValue(key: keyof MaterialWithLatestPrice, value: MaterialWithLatestPrice[keyof MaterialWithLatestPrice]) {
+  if (key === "latestUnitCost") return money(value as number | null);
+  if (key === "latestQuotedDate") {
+    const age = daysOld(value as string | null);
+    return value ? `${value} (${age}d old)` : "—";
+  }
+  return value == null || value === "" ? "—" : String(value);
+}
+
+function searchableValue(key: keyof MaterialWithLatestPrice, value: MaterialWithLatestPrice[keyof MaterialWithLatestPrice]) {
+  return formatValue(key, value).toLocaleLowerCase();
+}
+
+function compareMaterials(left: MaterialWithLatestPrice, right: MaterialWithLatestPrice, key: keyof MaterialWithLatestPrice) {
+  if (key === "latestUnitCost") return (left.latestUnitCost ?? -1) - (right.latestUnitCost ?? -1);
+  if (key === "latestQuotedDate") {
+    const leftDate = Date.parse(left.latestQuotedDate ?? "");
+    const rightDate = Date.parse(right.latestQuotedDate ?? "");
+    if (Number.isNaN(leftDate)) return Number.isNaN(rightDate) ? 0 : 1;
+    if (Number.isNaN(rightDate)) return -1;
+    return leftDate - rightDate;
+  }
+  return String(left[key] ?? "").localeCompare(String(right[key] ?? ""), undefined, { numeric: true, sensitivity: "base" });
 }
 
 function todayIso() {
@@ -36,6 +74,21 @@ export default function MaterialCatalog({ materials }: { materials: MaterialWith
   const [newPriceCost, setNewPriceCost] = useState(0);
   const [newPriceDate, setNewPriceDate] = useState(todayIso);
   const [newPriceVendor, setNewPriceVendor] = useState("");
+
+  const {
+    search,
+    setSearch,
+    columnFilters,
+    setColumnFilters,
+    sort,
+    toggleSort,
+    openFilter,
+    setOpenFilter,
+    filterControlRoot,
+    visibleRows: visibleMaterials,
+    clearFilters,
+    hasActiveFilters,
+  } = useFilterableTable(materials, COLUMNS, { searchableValue, compare: compareMaterials });
 
   function resetForm() {
     setMaterialName("");
@@ -111,12 +164,22 @@ export default function MaterialCatalog({ materials }: { materials: MaterialWith
   }
 
   return (
-    <section className="salesWorkspace">
+    <section className="salesWorkspace" ref={filterControlRoot}>
       <header className="salesToolbar">
         <div>
           <p className="salesEyebrow">SALES</p>
           <h1>Material Catalog</h1>
         </div>
+        <label className="invoiceSearchLabel">
+          Search materials
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search every column"
+            className="invoiceSearchInput"
+          />
+        </label>
         <div className="estimateActionsInner">
           <a className="estimateTextAction" href="/sales">Back to estimates</a>
           <button className="financeImportButton" type="button" onClick={() => { resetForm(); setIsAdding(true); }}>
@@ -129,30 +192,43 @@ export default function MaterialCatalog({ materials }: { materials: MaterialWith
       <p className="salesWorkflowNote">Prices are recorded over time, never overwritten, so you can see how old the last quote is when pulling an item into an estimate.</p>
       {error && !isAdding && !historyMaterialId && <p className="financeImportError" role="alert">{error}</p>}
 
+      <div className="invoiceTableTools">
+        <span className="invoiceResultCount" aria-live="polite">
+          {visibleMaterials.length} of {materials.length} materials
+        </span>
+        {hasActiveFilters && (
+          <button type="button" className="invoiceClearButton" onClick={clearFilters}>Clear</button>
+        )}
+      </div>
       <div className="invoiceTableWrapper salesEstimateTableWrapper">
         <table className="invoiceTable salesEstimateTable">
           <thead>
             <tr>
-              <th>Material</th>
-              <th>Unit</th>
-              <th>Latest cost</th>
-              <th>Quoted</th>
-              <th>Vendor</th>
+              {COLUMNS.map((column, index) => (
+                <FilterableTableHeaderCell
+                  key={column.key}
+                  column={column}
+                  idPrefix="material"
+                  alignPopoverRight={index >= COLUMNS.length - 2}
+                  sortDirection={sort?.key === column.key ? sort.direction : null}
+                  filterValue={columnFilters[column.key] ?? ""}
+                  isFilterOpen={openFilter === column.key}
+                  onToggleSort={() => toggleSort(column.key)}
+                  onToggleFilter={() => setOpenFilter((current) => current === column.key ? null : column.key)}
+                  onFilterChange={(value) => setColumnFilters((current) => ({ ...current, [column.key]: value }))}
+                  onClearFilter={() => setColumnFilters((current) => ({ ...current, [column.key]: "" }))}
+                />
+              ))}
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {materials.length === 0 ? (
-              <tr><td colSpan={6} className="invoiceNoResults">No materials in the catalog yet.</td></tr>
-            ) : materials.map((material) => {
-              const age = daysOld(material.latestQuotedDate);
+            {visibleMaterials.length === 0 ? (
+              <tr><td colSpan={COLUMNS.length + 1} className="invoiceNoResults">{materials.length === 0 ? "No materials in the catalog yet." : "No materials match these filters."}</td></tr>
+            ) : visibleMaterials.map((material) => {
               return (
                 <tr key={material.materialId}>
-                  <td>{material.materialName}</td>
-                  <td>{material.unitName ?? "—"}</td>
-                  <td>{money(material.latestUnitCost)}</td>
-                  <td>{material.latestQuotedDate ? `${material.latestQuotedDate} (${age}d old)` : "—"}</td>
-                  <td>{material.latestVendorName ?? "—"}</td>
+                  {COLUMNS.map((column) => <td key={column.key}>{formatValue(column.key, material[column.key])}</td>)}
                   <td>
                     <div className="estimateActionsInner">
                       <button type="button" className="estimateTextAction" onClick={() => void openHistory(material)}>History / Update</button>
@@ -166,15 +242,7 @@ export default function MaterialCatalog({ materials }: { materials: MaterialWith
       </div>
 
       {isAdding && (
-        <div className="financeImportBackdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeForm(); }}>
-          <section className="financeImportDialog financeProjectDialog" role="dialog" aria-modal="true" aria-labelledby="addMaterialTitle">
-            <header className="financeImportDialogHeader">
-              <div>
-                <p className="financeImportEyebrow">MATERIAL CATALOG</p>
-                <h2 id="addMaterialTitle">Add material</h2>
-              </div>
-              <button type="button" className="financeImportClose" onClick={closeForm} aria-label="Close" disabled={isSaving}>×</button>
-            </header>
+        <Modal titleId="addMaterialTitle" title="Add material" eyebrow="MATERIAL CATALOG" onClose={closeForm} closeDisabled={isSaving} className="financeProjectDialog">
             <form onSubmit={submitMaterial}>
               <label className="financeImportField">Material name *<input autoFocus value={materialName} onChange={(event) => setMaterialName(event.target.value)} maxLength={200} required /></label>
               <label className="financeImportField">Unit<input placeholder="ea, ft, hr" value={unitName} onChange={(event) => setUnitName(event.target.value)} maxLength={30} /></label>
@@ -187,20 +255,11 @@ export default function MaterialCatalog({ materials }: { materials: MaterialWith
                 <button type="submit" className="financeImportSubmit" disabled={isSaving}>{isSaving ? "Saving..." : "Save material"}</button>
               </div>
             </form>
-          </section>
-        </div>
+        </Modal>
       )}
 
       {historyMaterialId && (
-        <div className="financeImportBackdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setHistoryMaterialId(null); }}>
-          <section className="financeImportDialog financeProjectDialog" role="dialog" aria-modal="true" aria-labelledby="priceHistoryTitle">
-            <header className="financeImportDialogHeader">
-              <div>
-                <p className="financeImportEyebrow">MATERIAL CATALOG</p>
-                <h2 id="priceHistoryTitle">Price history</h2>
-              </div>
-              <button type="button" className="financeImportClose" onClick={() => setHistoryMaterialId(null)} aria-label="Close">×</button>
-            </header>
+        <Modal titleId="priceHistoryTitle" title="Price history" eyebrow="MATERIAL CATALOG" onClose={() => setHistoryMaterialId(null)} className="financeProjectDialog">
             <ol className="estimateScope">
               {historyEntries.length === 0 ? <p>No recorded prices yet.</p> : historyEntries.map((entry) => (
                 <li key={entry.materialPriceId}>{entry.quotedDate} — {money(entry.unitCost)}{entry.vendorName ? ` · ${entry.vendorName}` : ""}</li>
@@ -217,8 +276,7 @@ export default function MaterialCatalog({ materials }: { materials: MaterialWith
                 <button type="submit" className="financeImportSubmit" disabled={isAddingPrice}>{isAddingPrice ? "Saving..." : "Add price"}</button>
               </div>
             </form>
-          </section>
-        </div>
+        </Modal>
       )}
     </section>
   );

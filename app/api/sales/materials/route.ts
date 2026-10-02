@@ -1,18 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createMaterial, getMaterialsWithLatestPrice } from "@/app/lib/materials";
-
-function dateValue(value: unknown): string {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error("Enter a valid quoted date");
-  const date = new Date(`${value}T00:00:00.000Z`);
-  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) throw new Error("Enter a valid quoted date");
-  return value;
-}
-
-function numberValue(value: unknown, label: string): number {
-  const number = Number(value);
-  if (!Number.isFinite(number) || number < 0) throw new Error(`${label} must be a non-negative number`);
-  return number;
-}
+import { isoDateString, nonNegativeNumberValue, ValidationError } from "@/app/lib/validation";
 
 export async function GET() {
   try {
@@ -41,10 +29,13 @@ export async function POST(request: NextRequest) {
   let unitCost: number;
   let quotedDate: string;
   try {
-    unitCost = numberValue(body.unitCost, "Unit cost");
-    quotedDate = dateValue(body.quotedDate);
+    unitCost = nonNegativeNumberValue(body.unitCost, "Unit cost");
+    quotedDate = isoDateString(body.quotedDate);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid material data" }, { status: 400 });
+    const message = error instanceof ValidationError && error.message === "date"
+      ? "Enter a valid quoted date"
+      : error instanceof Error ? error.message : "Invalid material data";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
   try {

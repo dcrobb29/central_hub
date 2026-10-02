@@ -8,6 +8,7 @@ import type { Invoice } from "@/app/lib/invoices";
 import type { ProjectOption } from "@/app/lib/projects";
 import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
 import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
+import Modal from "@/app/components/modal";
 
 type Column = TableColumn<Invoice>;
 
@@ -143,12 +144,40 @@ function compareInvoices(left: Invoice, right: Invoice, key: keyof Invoice) {
   });
 }
 
+function toDraft(invoice: Invoice): InvoiceDraft {
+  return {
+    projectId: invoice.projectId == null ? "" : String(invoice.projectId),
+    invoiceNo: invoice.invoiceNo,
+    invoiceDate: invoice.invoiceDate,
+    invoiceDueDate: invoice.invoiceDueDate,
+    invoicePaidDate: invoice.invoicePaidDate ?? "",
+    invoiceAmount: invoice.invoiceAmount ?? "",
+    firstName: invoice.firstName ?? "",
+    lastName: invoice.lastName ?? "",
+    companyName: invoice.companyName ?? "",
+    billingAddressLine1: invoice.billingAddressLine1 ?? "",
+    billingAddressLine2: invoice.billingAddressLine2 ?? "",
+    billingAddressCity: invoice.billingAddressCity ?? "",
+    billingAddressState: invoice.billingAddressState ?? "",
+    billingAddressZip: invoice.billingAddressZip ?? "",
+    shippingAddressLine1: invoice.shippingAddressLine1 ?? "",
+    shippingAddressLine2: invoice.shippingAddressLine2 ?? "",
+    shippingAddressCity: invoice.shippingAddressCity ?? "",
+    shippingAddressState: invoice.shippingAddressState ?? "",
+    shippingAddressZip: invoice.shippingAddressZip ?? "",
+  };
+}
+
 export default function InvoiceTable({ className, invoices, projectOptions }: { className?: string; invoices: Invoice[]; projectOptions: ProjectOption[] }) {
   const router = useRouter();
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null);
   const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraft>(EMPTY_INVOICE);
   const [isSavingInvoice, setIsSavingInvoice] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [deletingInvoice, setDeletingInvoice] = useState<Invoice | null>(null);
+  const [isDeletingInvoice, setIsDeletingInvoice] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const {
     search,
     setSearch,
@@ -169,8 +198,9 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
     setIsSavingInvoice(true);
     setImportError(null);
     try {
-      const response = await fetch("/api/finances/invoices", {
-        method: "POST",
+      const url = editingInvoiceId == null ? "/api/finances/invoices" : `/api/finances/invoices/${editingInvoiceId}`;
+      const response = await fetch(url, {
+        method: editingInvoiceId == null ? "POST" : "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(invoiceDraft),
       });
@@ -178,6 +208,7 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
       if (!response.ok) throw new Error(result?.error ?? "Unable to save invoice");
       setInvoiceDraft(EMPTY_INVOICE);
       setIsImportOpen(false);
+      setEditingInvoiceId(null);
       router.refresh();
     } catch (error) {
       setImportError(error instanceof Error ? error.message : "Unable to save invoice");
@@ -186,10 +217,48 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
     }
   }
 
+  function openCreateForm() {
+    setImportError(null);
+    setInvoiceDraft(EMPTY_INVOICE);
+    setEditingInvoiceId(null);
+    setIsImportOpen(true);
+  }
+
+  function openEditForm(invoice: Invoice) {
+    setImportError(null);
+    setInvoiceDraft(toDraft(invoice));
+    setEditingInvoiceId(invoice.id);
+    setIsImportOpen(true);
+  }
+
   function closeImportDialog() {
     if (isSavingInvoice) return;
     setIsImportOpen(false);
+    setEditingInvoiceId(null);
     setImportError(null);
+  }
+
+  async function confirmDeleteInvoice() {
+    if (!deletingInvoice) return;
+    setIsDeletingInvoice(true);
+    setDeleteError(null);
+    try {
+      const response = await fetch(`/api/finances/invoices/${deletingInvoice.id}`, { method: "DELETE" });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "Unable to delete invoice");
+      setDeletingInvoice(null);
+      router.refresh();
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Unable to delete invoice");
+    } finally {
+      setIsDeletingInvoice(false);
+    }
+  }
+
+  function closeDeleteDialog() {
+    if (isDeletingInvoice) return;
+    setDeletingInvoice(null);
+    setDeleteError(null);
   }
 
   return (
@@ -205,7 +274,7 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
             className="invoiceSearchInput"
           />
         </label>
-        <button type="button" className="financeImportButton" onClick={() => { setImportError(null); setIsImportOpen(true); }}>
+        <button type="button" className="financeImportButton" onClick={openCreateForm}>
           <Plus size={15} aria-hidden="true" />
           Import invoice
         </button>
@@ -235,32 +304,42 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
                   onClearFilter={() => setColumnFilters((current) => ({ ...current, [column.key]: "" }))}
                 />
               ))}
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {visibleInvoices.length === 0 ? (
-              <tr><td colSpan={COLUMNS.length} className="invoiceNoResults">{invoices.length === 0 ? "No invoices found." : "No invoices match these filters."}</td></tr>
+              <tr><td colSpan={COLUMNS.length + 1} className="invoiceNoResults">{invoices.length === 0 ? "No invoices found." : "No invoices match these filters."}</td></tr>
             ) : visibleInvoices.map((invoice) => (
               <tr key={invoice.id}>
                 {COLUMNS.map((column) => (
                   <td key={column.key}>{formatValue(column.key, invoice[column.key])}</td>
                 ))}
+                <td>
+                  <div className="estimateActionsInner">
+                    <button type="button" className="estimateTextAction" onClick={() => openEditForm(invoice)}>Edit</button>
+                    <button type="button" className="estimateDangerAction" onClick={() => { setDeleteError(null); setDeletingInvoice(invoice); }}>Delete</button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
       {isImportOpen && (
-        <div className="financeImportBackdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeImportDialog(); }}>
-          <section className="financeImportDialog" role="dialog" aria-modal="true" aria-labelledby="invoiceImportTitle">
-            <header className="financeImportDialogHeader">
-              <div>
-                <p className="financeImportEyebrow">INVOICES</p>
-                <h2 id="invoiceImportTitle">Import invoice row</h2>
-              </div>
-              <button type="button" className="financeImportClose" onClick={closeImportDialog} aria-label="Close import form" disabled={isSavingInvoice}>×</button>
-            </header>
-            <p className="financeImportHint">Fields marked required are needed to create the row. The invoice ID is generated by SQL Server.</p>
+        <Modal
+          titleId="invoiceImportTitle"
+          title={editingInvoiceId == null ? "Import invoice row" : "Edit invoice row"}
+          eyebrow="INVOICES"
+          onClose={closeImportDialog}
+          closeDisabled={isSavingInvoice}
+          closeLabel="Close import form"
+        >
+            <p className="financeImportHint">
+              {editingInvoiceId == null
+                ? "Fields marked required are needed to create the row. The invoice ID is generated by SQL Server."
+                : "Fields marked required are needed to save the row."}
+            </p>
             <form onSubmit={submitInvoice}>
               <fieldset className="financeImportGroup">
                 <legend>Project assignment</legend>
@@ -300,8 +379,29 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
                 <button type="submit" className="financeImportSubmit" disabled={isSavingInvoice}>{isSavingInvoice ? "Saving..." : "Save invoice"}</button>
               </div>
             </form>
-          </section>
-        </div>
+        </Modal>
+      )}
+      {deletingInvoice && (
+        <Modal
+          titleId="invoiceDeleteTitle"
+          title="Delete invoice row"
+          eyebrow="INVOICES"
+          onClose={closeDeleteDialog}
+          closeDisabled={isDeletingInvoice}
+          closeLabel="Close delete confirmation"
+          className="financeConfirmDialog"
+        >
+          <p className="financeImportHint">
+            Delete invoice <strong>{deletingInvoice.invoiceNo}</strong>? This cannot be undone.
+          </p>
+          {deleteError && <p className="financeImportError" role="alert">{deleteError}</p>}
+          <div className="financeImportActions">
+            <button type="button" className="financeImportCancel" onClick={closeDeleteDialog} disabled={isDeletingInvoice}>Cancel</button>
+            <button type="button" className="financeImportDanger" onClick={() => void confirmDeleteInvoice()} disabled={isDeletingInvoice}>
+              {isDeletingInvoice ? "Deleting..." : "Delete invoice"}
+            </button>
+          </div>
+        </Modal>
       )}
     </section>
   );

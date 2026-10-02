@@ -671,11 +671,80 @@
 }
 
 .logo {
-  height: 100%;
+  height: 10vh;
+  width: auto;
 }
 
 .linkLogo {
   height: 3vh;
+}
+
+.userProfile {
+  justify-content: flex-end;
+  width: 100%;
+  height: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.userAvatarControl {
+  position: relative;
+  display: flex;
+}
+
+.userAvatarButton {
+  display: flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  line-height: 0;
+  cursor: pointer;
+  border-radius: 50%;
+}
+
+.userAvatarButton:focus-visible {
+  outline: 2px solid #176347;
+  outline-offset: 2px;
+}
+
+.userAvatar {
+  height: 3vh;
+  width: auto;
+  border-radius: 50%;
+}
+
+.userAccountMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 6px;
+  border: 1px solid #d7e4db;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(20, 40, 30, 0.14);
+}
+
+.userAccountMenuItem {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #20362d;
+  font: 13px Arial, sans-serif;
+  text-align: left;
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.userName {
+  font-size: 14px;
+  color: #20362d;
 }
 
 .importButton {

@@ -385,7 +385,8 @@
   margin: 6px 0;
 }
 
-.estimateLineEditor input {
+.estimateLineEditor input,
+.estimateLineEditor select {
   width: 100%;
   min-width: 0;
   height: 34px;
@@ -621,6 +622,50 @@
   margin: 0 16px 16px;
   color: #687a73;
   font-size: 12px;
+}
+
+.estimateNotes {
+  margin: 14px 0;
+}
+
+.estimateNotes textarea {
+  width: 100%;
+  min-height: 90px;
+  padding: 8px;
+  border: 1px solid #bdcbc3;
+  border-radius: 3px;
+  font: 12px Arial, sans-serif;
+  resize: vertical;
+}
+
+.internalNotes {
+  color: #20362d;
+  font-size: 12px;
+}
+
+.internalNotes p {
+  margin: 6px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.customerNotes {
+  color: #20362d;
+  font-size: 12px;
+}
+
+.customerNotes p {
+  margin: 6px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.projectInternalNotes {
+  margin: 0 16px 16px;
+}
+
+.projectCustomerNotes {
+  margin: 0 16px 16px;
 }
 
 .modulePlaceholder {
@@ -1270,7 +1315,7 @@
   .estimateLineEditor { grid-template-columns: minmax(0, 1fr) 70px 32px 32px; }
   .estimateLineEditor input:first-child { grid-column: 1 / -1; }
   .estimateLineEditor input:nth-child(2) { grid-column: 1; }
-  .estimateLineEditor input:nth-child(3) { grid-column: 2; }
+  .estimateLineEditor select:nth-child(3) { grid-column: 2; }
   .estimateLineEditor input:nth-child(4) { grid-column: 1; }
   .estimateLineEditor input:nth-child(5) { grid-column: 2; }
   .estimateLineEditor input:nth-child(6) { grid-column: 1; }

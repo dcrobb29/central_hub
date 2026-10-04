@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { InvalidUnitPresetError } from "@/app/lib/unit-presets";
+import { parseEstimateNotes } from "@/app/lib/estimate-notes";
 import {
   createEstimate,
   getEstimateDetails,
@@ -33,6 +35,8 @@ function decimalPlaces(value: number, places: number) {
 export function parseEstimate(body: Record<string, unknown>): CreateEstimateInput {
   const estimateName = typeof body.estimateName === "string" ? body.estimateName.trim() : "";
   const customerName = typeof body.customerName === "string" ? body.customerName.trim() : "";
+  const internalNotes = parseEstimateNotes(body.internalNotes, "Internal notes");
+  const customerNotes = parseEstimateNotes(body.customerNotes, "Customer notes");
   if (!estimateName) throw new Error("Enter an estimate name");
   if (estimateName.length > 150 || customerName.length > 150) throw new Error("Name fields must be 150 characters or fewer");
   if (body.markupMode !== "perLine" && body.markupMode !== "estimate") {
@@ -132,6 +136,8 @@ export function parseEstimate(body: Record<string, unknown>): CreateEstimateInpu
   return {
     estimateName,
     customerName: customerName || null,
+    internalNotes,
+    customerNotes,
     engagementType,
     recurrenceFrequency,
     expectedStartDate,
@@ -180,7 +186,11 @@ export async function POST(request: NextRequest) {
   try {
     const estimateId = await createEstimate(estimateInput);
     return NextResponse.json({ estimateId }, { status: 201 });
-  } catch {
+  } catch (error) {
+    if (error instanceof InvalidUnitPresetError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    console.error("Unable to create estimate", error);
     return NextResponse.json({ error: "Unable to save estimate. Check the database connection and permissions." }, { status: 500 });
   }
 }
@@ -233,4 +243,3 @@ export async function PATCH(request: NextRequest) {
 
   return NextResponse.json({ error: "Invalid estimate action" }, { status: 400 });
 }
-

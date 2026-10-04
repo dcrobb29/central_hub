@@ -22,6 +22,13 @@ import type { ScopeTemplateDetails, ScopeTemplateSummary } from "@/app/lib/scope
 import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
 import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
 import Modal from "@/app/components/modal";
+import { ESTIMATE_NOTES_MAX_LENGTH } from "@/app/lib/estimate-notes";
+import {
+  defaultUnitAbbreviation,
+  findUnitPreset,
+  requireUnitAbbreviation,
+  type UnitPreset,
+} from "@/app/lib/unit-presets";
 
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -91,9 +98,9 @@ function compareEstimates(left: EstimateSummary, right: EstimateSummary, key: ke
   });
 }
 
-function newLine(): EstimateLineDraft {
+function createLine(unitName: string): EstimateLineDraft {
   return {
-    description: "", quantity: 1, unitName: "", unitCost: 0, freightAmount: 0, lineMarkupPercent: 0,
+    description: "", quantity: 1, unitName, unitCost: 0, freightAmount: 0, lineMarkupPercent: 0,
     materialId: null, catalogUnitCostAtEntry: null, catalogPriceDate: null, lineType: "Material", scopeName: null,
   };
 }
@@ -103,11 +110,22 @@ function asNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export default function EstimateWorkspace({ estimates }: { estimates: EstimateSummary[] }) {
+export default function EstimateWorkspace({ estimates, unitPresets }: { estimates: EstimateSummary[]; unitPresets: UnitPreset[] }) {
+  const defaultUnit = defaultUnitAbbreviation(unitPresets);
+
+  function newLine(): EstimateLineDraft {
+    return createLine(defaultUnit);
+  }
+
+  function importedUnit(value: string | null): string {
+    return findUnitPreset(value, unitPresets)?.abbreviation ?? (value?.trim() || defaultUnit);
+  }
   const router = useRouter();
   const [isCreating, setIsCreating] = useState(false);
   const [estimateName, setEstimateName] = useState("");
   const [customerName, setCustomerName] = useState("");
+  const [internalNotes, setInternalNotes] = useState("");
+  const [customerNotes, setCustomerNotes] = useState("");
   const [markupMode, setMarkupMode] = useState<EstimateMarkupMode>("perLine");
   const [estimateMarkupPercent, setEstimateMarkupPercent] = useState(0);
   const [taxPercent, setTaxPercent] = useState(0);
@@ -204,6 +222,8 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
   function resetForm() {
     setEstimateName("");
     setCustomerName("");
+    setInternalNotes("");
+    setCustomerNotes("");
     setMarkupMode("perLine");
     setEstimateMarkupPercent(0);
     setTaxPercent(0);
@@ -239,6 +259,8 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
       const details = result as EstimateDetails;
       setEstimateName(details.estimateName);
       setCustomerName(details.customerName ?? "");
+      setInternalNotes(details.internalNotes ?? "");
+      setCustomerNotes(details.customerNotes ?? "");
       setMarkupMode(details.markupMode);
       setEstimateMarkupPercent(details.estimateMarkupPercent);
       setTaxPercent(details.taxPercent);
@@ -252,7 +274,7 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
       setLines(details.lines.map((line) => ({
         description: line.description,
         quantity: line.quantity,
-        unitName: line.unitName,
+        unitName: importedUnit(line.unitName),
         unitCost: line.unitCost,
         freightAmount: line.freightAmount,
         lineMarkupPercent: line.lineMarkupPercent,
@@ -313,7 +335,15 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
         <div className="estimateLineEditor">
           <input aria-label={`Line ${index + 1} description`} placeholder="Description" value={line.description} maxLength={300} onChange={(event) => updateLine(index, { description: event.target.value })} required />
           <input aria-label={`Line ${index + 1} quantity`} type="number" min="0.0001" step="0.0001" value={line.quantity} onChange={(event) => updateLine(index, { quantity: asNumber(event.target.value) })} required />
-          <input aria-label={`Line ${index + 1} unit`} placeholder="ea, hr, ft" value={line.unitName ?? ""} maxLength={30} onChange={(event) => updateLine(index, { unitName: event.target.value })} />
+          <select aria-label={`Line ${index + 1} unit`} value={line.unitName ?? ""} onChange={(event) => updateLine(index, { unitName: event.target.value })} required>
+            <option value="" disabled>Choose unit</option>
+            {line.unitName && !findUnitPreset(line.unitName, unitPresets) && (
+              <option value={line.unitName} disabled>{line.unitName} (choose preset)</option>
+            )}
+            {unitPresets.map((preset) => (
+              <option key={preset.abbreviation} value={preset.abbreviation} title={preset.unitName}>{preset.abbreviation}</option>
+            ))}
+          </select>
           <input aria-label={`Line ${index + 1} unit cost`} type="number" min="0" step="0.0001" value={line.unitCost} onChange={(event) => updateLine(index, { unitCost: asNumber(event.target.value) })} required />
           <input aria-label={`Line ${index + 1} freight`} type="number" min="0" step="0.0001" value={line.freightAmount} onChange={(event) => updateLine(index, { freightAmount: asNumber(event.target.value) })} />
           <input aria-label={`Line ${index + 1} markup percent`} type="number" min="0" max="1000" step="0.01" value={line.lineMarkupPercent} disabled={markupMode === "estimate"} onChange={(event) => updateLine(index, { lineMarkupPercent: asNumber(event.target.value) })} />
@@ -420,6 +450,10 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
     setIsSaving(true);
     setError(null);
     try {
+      const canonicalLines = lines.map((line, index) => ({
+        ...line,
+        unitName: requireUnitAbbreviation(line.unitName, unitPresets, index + 1),
+      }));
       const url = editingEstimateId != null ? `/api/sales/estimates/${editingEstimateId}` : "/api/sales/estimates";
       const response = await fetch(url, {
         method: editingEstimateId != null ? "PUT" : "POST",
@@ -427,6 +461,8 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
         body: JSON.stringify({
           estimateName,
           customerName,
+          internalNotes,
+          customerNotes,
           markupMode,
           estimateMarkupPercent,
           taxPercent,
@@ -437,7 +473,7 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
           expectedStartDate: engagementType === "Service" ? expectedStartDate : null,
           expectedEndDate: engagementType === "Service" ? expectedEndDate : null,
           scopes: scopes.map((scope) => scope.trim()).filter((scope) => scope.length > 0),
-          lines: lines.map((line) => ({
+          lines: canonicalLines.map((line) => ({
             ...line,
             quantity: Number(line.quantity),
             unitCost: Number(line.unitCost),
@@ -545,7 +581,7 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
     if (catalogPickerLine == null) return;
     updateLine(catalogPickerLine, {
       description: material.materialName,
-      unitName: material.unitName ?? "",
+      unitName: importedUnit(material.unitName),
       unitCost: material.latestUnitCost ?? 0,
       materialId: material.materialId,
       catalogUnitCostAtEntry: material.latestUnitCost,
@@ -606,7 +642,7 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
     const newLines: EstimateLineDraft[] = selectedScopeTemplate.components.map((component) => ({
       description: component.description,
       quantity: Number((component.quantityPerUnit * scopeTemplateQuantity).toFixed(6)),
-      unitName: component.unitName ?? "",
+      unitName: importedUnit(component.unitName),
       unitCost: component.unitCost,
       freightAmount: 0,
       lineMarkupPercent: 0,
@@ -695,6 +731,8 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
       </div>
 
       <p className="salesWorkflowNote">Draft estimates retain their pricing inputs and line items. Marking one won sends it straight to Projects &amp; Jobs using the engagement type chosen when it was created.</p>
+      {unitPresets.length === 0 && <p className="financeImportError" role="alert">No unit presets are configured. Add units to dbo.UnitsOfMeasurement, then refresh this page.</p>}
+      {unitPresets.length > 0 && !defaultUnit && <p className="estimateInternalNote">No EA preset is configured. Choose a unit for each new line.</p>}
       {error && <p className="financeImportError" role="alert">{error}</p>}
 
       <div className="invoiceTableTools">
@@ -857,6 +895,18 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
                               <span>Grouping: {details.groupingMode === "None" ? "None" : details.groupingMode === "Scope" ? "By scope of work" : "By line type"}</span>
                             </div>
                             {groupedContent}
+                            {details.internalNotes && (
+                              <div className="internalNotes">
+                                <strong>Internal notes</strong>
+                                <p>{details.internalNotes}</p>
+                              </div>
+                            )}
+                            {details.customerNotes && (
+                              <div className="customerNotes">
+                                <strong>Customer notes</strong>
+                                <p>{details.customerNotes}</p>
+                              </div>
+                            )}
                           </div>
                         );
                       })() : <p>Could not load this estimate&apos;s scope.</p>}
@@ -1007,6 +1057,18 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
                   </>
                 )}
               </fieldset>
+              <div className="estimateNotes">
+                <label className="financeImportField" htmlFor="internalNotes">Internal Notes
+                  <textarea id="internalNotes" placeholder="Notes for the team (not shown on the customer PDF)" value={internalNotes} maxLength={ESTIMATE_NOTES_MAX_LENGTH} rows={4} onChange={(event) => setInternalNotes(event.target.value)} />
+                </label>
+                <p className="estimateInternalNote">Optional. Carried into the project when this estimate is won. Up to {ESTIMATE_NOTES_MAX_LENGTH.toLocaleString()} characters.</p>
+              </div>
+              <div className="estimateNotes">
+                <label className="financeImportField" htmlFor="customerNotes">Customer Notes
+                  <textarea id="customerNotes" placeholder="Notes for the customer (shown on the customer PDF)" value={customerNotes} maxLength={ESTIMATE_NOTES_MAX_LENGTH} rows={4} onChange={(event) => setCustomerNotes(event.target.value)} />
+                </label>
+                <p className="estimateInternalNote">Optional. Included on the customer PDF and carried into the project when won. Up to {ESTIMATE_NOTES_MAX_LENGTH.toLocaleString()} characters.</p>
+              </div>
 
               <div className="estimatePreviewTotal">
                 <strong>{money(pricing.quotedTotal)}</strong>
@@ -1015,7 +1077,7 @@ export default function EstimateWorkspace({ estimates }: { estimates: EstimateSu
               {error && <p className="financeImportError" role="alert">{error}</p>}
               <div className="financeImportActions">
                 <button type="button" className="financeImportCancel" onClick={closeForm} disabled={isSaving}>Cancel</button>
-                <button type="submit" className="financeImportSubmit" disabled={isSaving}>
+                <button type="submit" className="financeImportSubmit" disabled={isSaving || unitPresets.length === 0}>
                   {isSaving ? "Saving..." : editingEstimateId != null ? "Save changes" : "Save draft estimate"}
                 </button>
               </div>

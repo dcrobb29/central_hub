@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { InvalidUnitPresetError } from "@/app/lib/unit-presets";
 import { deleteEstimate, updateEstimate, type CreateEstimateInput } from "@/app/lib/estimates";
 import { isRecord, parseEstimate } from "../route";
 
@@ -26,7 +27,11 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     await updateEstimate(estimateId, estimateInput);
     return NextResponse.json({ estimateId });
   } catch (error) {
+    if (error instanceof InvalidUnitPresetError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     const { message, status } = describeEstimateMutationError(error);
+    if (status === 500) console.error("Unable to update estimate", error);
     return NextResponse.json({ error: message }, { status });
   }
 }

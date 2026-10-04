@@ -97,6 +97,18 @@ export default function ProjectsWorkspace({ projects }: { projects: ProjectWithE
                   </table>
                 </div>
               ) : <p className="projectScopeEmpty">This project has no estimate scope attached.</p>}
+              {project.internalNotes && (
+                <div className="internalNotes projectInternalNotes">
+                  <strong>Internal notes</strong>
+                  <p>{project.internalNotes}</p>
+                </div>
+              )}
+              {project.customerNotes && (
+                <div className="customerNotes projectCustomerNotes">
+                  <strong>Customer notes</strong>
+                  <p>{project.customerNotes}</p>
+                </div>
+              )}
             </details>
           ))}
         </div>

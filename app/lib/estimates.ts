@@ -1,4 +1,6 @@
 import { getPool, sql } from "@/app/lib/db";
+import { getUnitsOfMeasurement } from "@/app/lib/units-of-measurement";
+import { requireUnitAbbreviation } from "@/app/lib/unit-presets";
 import {
   calculateEstimate,
   type EstimateMarkupMode,
@@ -23,6 +25,8 @@ export type EstimateLineInput = EstimatePricingLine & {
 export type CreateEstimateInput = {
   estimateName: string;
   customerName: string | null;
+  internalNotes: string | null;
+  customerNotes: string | null;
   engagementType: EngagementType;
   recurrenceFrequency: RecurrenceFrequency;
   expectedStartDate: string | null;
@@ -53,6 +57,8 @@ export type EstimateSummary = {
   estimateId: number;
   estimateName: string;
   customerName: string | null;
+  internalNotes: string | null;
+  customerNotes: string | null;
   status: "Draft" | "Won" | "Lost";
   engagementType: EngagementType;
   recurrenceFrequency: RecurrenceFrequency;
@@ -98,6 +104,8 @@ export type ProjectWithEstimate = {
   projectId: number;
   projectName: string;
   projectStatus: string;
+  internalNotes: string | null;
+  customerNotes: string | null;
   engagementType: EngagementType;
   recurrenceFrequency: RecurrenceFrequency;
   expectedStartDate: string | null;
@@ -115,6 +123,8 @@ export async function getEstimates(): Promise<EstimateSummary[]> {
       e.EstimateID AS estimateId,
       e.EstimateName AS estimateName,
       e.CustomerName AS customerName,
+      e.InternalNotes AS internalNotes,
+      e.CustomerNotes AS customerNotes,
       e.EstimateStatus AS status,
       e.EngagementType AS engagementType,
       e.RecurrenceFrequency AS recurrenceFrequency,
@@ -161,6 +171,8 @@ export async function getEstimateDetails(estimateId: number): Promise<EstimateDe
         e.EstimateID AS estimateId,
         e.EstimateName AS estimateName,
         e.CustomerName AS customerName,
+        e.InternalNotes AS internalNotes,
+        e.CustomerNotes AS customerNotes,
         e.EstimateStatus AS status,
         e.EngagementType AS engagementType,
         e.RecurrenceFrequency AS recurrenceFrequency,
@@ -230,6 +242,7 @@ export async function getEstimateDetails(estimateId: number): Promise<EstimateDe
 }
 
 export async function createEstimate(input: CreateEstimateInput): Promise<number> {
+  input = await canonicalizeEstimateUnits(input);
   const pricing = calculateEstimate(input);
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
@@ -239,16 +252,18 @@ export async function createEstimate(input: CreateEstimateInput): Promise<number
     const estimateResult = await transaction.request()
       .input("estimateName", sql.NVarChar(150), input.estimateName)
       .input("customerName", sql.NVarChar(150), input.customerName)
+      .input("internalNotes", sql.NVarChar(4000), input.internalNotes)
+      .input("customerNotes", sql.NVarChar(4000), input.customerNotes)
       .input("engagementType", sql.VarChar(16), input.engagementType)
       .input("recurrenceFrequency", sql.VarChar(16), input.recurrenceFrequency)
       .input("expectedStartDate", sql.Date, input.expectedStartDate)
       .input("expectedEndDate", sql.Date, input.expectedEndDate)
       .query<{ EstimateID: number }>(`
         INSERT INTO dbo.Estimates (
-          EstimateName, CustomerName, EngagementType, RecurrenceFrequency, ExpectedStartDate, ExpectedEndDate
+          EstimateName, CustomerName, InternalNotes, CustomerNotes, EngagementType, RecurrenceFrequency, ExpectedStartDate, ExpectedEndDate
         )
         OUTPUT inserted.EstimateID
-        VALUES (@estimateName, @customerName, @engagementType, @recurrenceFrequency, @expectedStartDate, @expectedEndDate)
+        VALUES (@estimateName, @customerName, @internalNotes, @customerNotes, @engagementType, @recurrenceFrequency, @expectedStartDate, @expectedEndDate)
       `);
     const estimateId = estimateResult.recordset[0].EstimateID;
 
@@ -279,6 +294,17 @@ export async function createEstimate(input: CreateEstimateInput): Promise<number
     await transaction.rollback();
     throw error;
   }
+}
+
+async function canonicalizeEstimateUnits(input: CreateEstimateInput): Promise<CreateEstimateInput> {
+  const presets = await getUnitsOfMeasurement();
+  return {
+    ...input,
+    lines: input.lines.map((line, index) => ({
+      ...line,
+      unitName: requireUnitAbbreviation(line.unitName, presets, index + 1),
+    })),
+  };
 }
 
 // Shared by createEstimate (fresh revision) and updateEstimate (replacing an existing revision's
@@ -330,6 +356,7 @@ async function insertScopesAndLines(transaction: sql.Transaction, revisionId: nu
 // an estimate is won). EngagementType itself is intentionally never updated here — it's locked in
 // at creation; switching between Project and Recurring requires deleting and recreating.
 export async function updateEstimate(estimateId: number, input: CreateEstimateInput): Promise<void> {
+  input = await canonicalizeEstimateUnits(input);
   const pricing = calculateEstimate(input);
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
@@ -359,12 +386,15 @@ export async function updateEstimate(estimateId: number, input: CreateEstimateIn
       .input("estimateId", sql.Int, estimateId)
       .input("estimateName", sql.NVarChar(150), input.estimateName)
       .input("customerName", sql.NVarChar(150), input.customerName)
+      .input("internalNotes", sql.NVarChar(4000), input.internalNotes)
+      .input("customerNotes", sql.NVarChar(4000), input.customerNotes)
       .input("recurrenceFrequency", sql.VarChar(16), input.recurrenceFrequency)
       .input("expectedStartDate", sql.Date, input.expectedStartDate)
       .input("expectedEndDate", sql.Date, input.expectedEndDate)
       .query(`
         UPDATE dbo.Estimates
-        SET EstimateName = @estimateName, CustomerName = @customerName, RecurrenceFrequency = @recurrenceFrequency,
+        SET EstimateName = @estimateName, CustomerName = @customerName,
+          InternalNotes = @internalNotes, CustomerNotes = @customerNotes, RecurrenceFrequency = @recurrenceFrequency,
           ExpectedStartDate = @expectedStartDate, ExpectedEndDate = @expectedEndDate
         WHERE EstimateID = @estimateId
       `);
@@ -458,13 +488,15 @@ export async function winEstimate(estimateId: number): Promise<number> {
       .query<{
         EstimateName: string;
         EstimateStatus: string;
+        InternalNotes: string | null;
+        CustomerNotes: string | null;
         EstimateRevisionID: number | null;
         EngagementType: EngagementType;
         RecurrenceFrequency: RecurrenceFrequency;
         ExpectedStartDate: Date | null;
         ExpectedEndDate: Date | null;
       }>(`
-        SELECT e.EstimateName, e.EstimateStatus, e.EngagementType, e.RecurrenceFrequency,
+        SELECT e.EstimateName, e.EstimateStatus, e.InternalNotes, e.CustomerNotes, e.EngagementType, e.RecurrenceFrequency,
           e.ExpectedStartDate, e.ExpectedEndDate, r.EstimateRevisionID
         FROM dbo.Estimates e WITH (UPDLOCK, HOLDLOCK)
         OUTER APPLY (
@@ -484,6 +516,8 @@ export async function winEstimate(estimateId: number): Promise<number> {
     // (not here) — simply carried over onto the new Project.
     const projectResult = await transaction.request()
       .input("projectName", sql.NVarChar(150), estimate.EstimateName)
+      .input("internalNotes", sql.NVarChar(4000), estimate.InternalNotes)
+      .input("customerNotes", sql.NVarChar(4000), estimate.CustomerNotes)
       .input("revisionId", sql.Int, estimate.EstimateRevisionID)
       .input("engagementType", sql.VarChar(16), estimate.EngagementType)
       .input("recurrenceFrequency", sql.VarChar(16), estimate.RecurrenceFrequency)
@@ -491,11 +525,11 @@ export async function winEstimate(estimateId: number): Promise<number> {
       .input("expectedEndDate", sql.Date, estimate.ExpectedEndDate)
       .query<{ ProjectID: number }>(`
         INSERT INTO dbo.Projects (
-          ProjectName, ProjectStatus, AcceptedEstimateRevisionID, EngagementType, RecurrenceFrequency,
+          ProjectName, ProjectStatus, InternalNotes, CustomerNotes, AcceptedEstimateRevisionID, EngagementType, RecurrenceFrequency,
           ExpectedStartDate, ExpectedEndDate
         )
         OUTPUT inserted.ProjectID
-        VALUES (@projectName, 'Planning', @revisionId, @engagementType, @recurrenceFrequency,
+        VALUES (@projectName, 'Planning', @internalNotes, @customerNotes, @revisionId, @engagementType, @recurrenceFrequency,
           @expectedStartDate, @expectedEndDate)
       `);
     const projectId = projectResult.recordset[0].ProjectID;
@@ -535,6 +569,8 @@ export async function getProjectsWithEstimates(): Promise<ProjectWithEstimate[]>
       p.ProjectID AS projectId,
       p.ProjectName AS projectName,
       p.ProjectStatus AS projectStatus,
+      p.InternalNotes AS internalNotes,
+      p.CustomerNotes AS customerNotes,
       p.EngagementType AS engagementType,
       p.RecurrenceFrequency AS recurrenceFrequency,
       CONVERT(varchar(10), p.ExpectedStartDate, 23) AS expectedStartDate,
@@ -563,6 +599,8 @@ export async function getProjectsWithEstimates(): Promise<ProjectWithEstimate[]>
         projectId: row.projectId,
         projectName: row.projectName,
         projectStatus: row.projectStatus,
+        internalNotes: row.internalNotes,
+        customerNotes: row.customerNotes,
         engagementType: row.engagementType,
         recurrenceFrequency: row.recurrenceFrequency,
         expectedStartDate: row.expectedStartDate,

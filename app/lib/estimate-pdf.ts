@@ -16,7 +16,7 @@ type LineGroup = {
   indexes: number[];
 };
 
-// Customer-facing export: never includes tax or freight breakdown, only sell prices/total.
+// Customer-facing export: customer notes and sell prices only, never internal notes or cost breakdowns.
 export function renderEstimatePdf(estimate: EstimateDetails): Promise<Buffer> {
   const pricing = calculateEstimate({
     markupMode: estimate.markupMode,
@@ -136,6 +136,16 @@ export function renderEstimatePdf(estimate: EstimateDetails): Promise<Buffer> {
       doc.moveDown(showLineItems ? 0.2 : 2);
       doc.fontSize(14).font("Helvetica-Bold").text(`Total: ${money(pricing.quotedTotal)}`, { align: "right" });
       doc.font("Helvetica");
+    }
+
+    if (estimate.customerNotes?.trim()) {
+      doc.moveDown(1);
+      if (doc.y > doc.page.height - doc.page.margins.bottom - 50) doc.addPage();
+      doc.fillColor("#000000").font("Helvetica-Bold").fontSize(11)
+        .text("Notes", 54, doc.y, { width: 504, align: "left" });
+      doc.moveDown(0.4);
+      doc.font("Helvetica").fontSize(10)
+        .text(estimate.customerNotes, 54, doc.y, { width: 504, align: "left" });
     }
 
     doc.end();

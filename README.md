@@ -69,7 +69,12 @@ application only needs SELECT/INSERT/UPDATE permissions.
 
 The weekly board shows all projects and recurring jobs and all org-chart
 employees; overhead filtering and project-status filtering are not applied.
-Recurring occurrences are manually scheduled by date in v1. Estimate labor is
+Recurring estimates require a valid start date, end date, and frequency. Acceptance
+creates dated visits and a General work task for each occurrence in that inclusive
+date range, in the same transaction as approval. Weekly and biweekly intervals
+stay anchored to the start date. Monthly, quarterly, semiannual, and annual visits
+use calendar months, clamping to the last day of shorter months without shifting
+later occurrences. Estimate labor is
 the sum of approved estimate line quantities whose type is `Labor` and unit is
 `HR` (case-insensitive). Planned hours are entered per task and do not change
 the approved estimate total. Reassigning a resource between tasks moves that
@@ -77,8 +82,99 @@ assignment. The same employee or equipment may be assigned to multiple tasks
 on a date; conflicts are not blocked. Removing a visit marks it Skipped and
 deactivates its tasks and assignments. Equipment is loaded from `dbo.Equipment`.
 
+Apply [database/recurring-field-planning-schema.sql](database/recurring-field-planning-schema.sql)
+after the engagement and field-planning schemas before deploying recurring
+scheduling. It gives existing recurring estimates and jobs without end dates an
+end date three calendar months after their start. Legacy records without a start
+date must be corrected before acceptance; they are not automatically scheduled.
+Opening a planner week fills missing occurrences for existing approved jobs.
+Previously manual visits on default dates are reused, including skipped/completed
+visits. Original occurrence dates are unique and retained when visits move or are
+removed, so refreshes never recreate them. Drag a scheduled title or use its date
+selector to move just that visit within the same Monday-Sunday week, retaining
+tasks, hours, and assignments. Extra manual visits remain supported. Editing an
+approved job's recurrence or extending its end date is a future feature.
+
+To run the migration in SQL Server Management Studio, connect using a
+schema-owner/admin account (Windows Authentication works in the local setup),
+select the application database in the database dropdown, open the SQL file with
+**File > Open > File**, then click **Execute** (F5). Verify the Messages tab shows
+no errors. The script can be rerun safely; already populated end dates are not
+changed. The application login deliberately does not have schema-alter permissions.
+
 Run planner date and labor calculations with
-`node --test app/lib/field-operations-dates.test.mjs`.
+`node --test app/lib/field-operations-dates.test.mjs app/lib/recurring-dates.test.mjs`.
+Run database integration tests after applying the migration with
+`$env:RUN_DB_TESTS='1'; node --test app/lib/recurring-schedule.integration.test.mjs`
+in PowerShell (Node.js 22.18+). These exercise actual approval, duplicate prevention,
+move/skip persistence, task/resource retention, legacy visit adoption, and unchanged
+one-time approval. All fixture data is rolled back at the end.
+
+## Bill-backed project actuals
+
+Apply [database/project-bill-costs-schema.sql](database/project-bill-costs-schema.sql)
+after the project-finances, project-workflow, estimate-scopes, and estimate-pricing
+schemas using a schema-owner/admin connection. The app login receives only
+SELECT/INSERT/UPDATE on `ProjectBillCosts`. The script is rerunnable and leaves
+existing estimates, bills, and the older unlinked `ProjectActualCosts` table
+untouched. The older table is not included in this new bill-backed workflow.
+
+In **Finances > Bills**, assign a bill to its project, then select **Allocate costs**
+to open that project in **Projects & Jobs**. Add actual-cost rows beneath accepted
+estimate lines or under **Unexpected / Out-of-scope costs**. Each row requires a
+bill, description, cost date, quantity, unit, actual unit cost, freight amount, and
+manually entered tax amount. Scopes and estimate lines are collapsed by default.
+Expand a project, then a scope (such as 2" Waterline), then a work item to reach
+its actual costs. Scope parents show actual cost and remaining budget; nested
+accordions expand independently without toggling their ancestors. Click the line
+parent row (or focus it and press Enter/Space) to reveal only its actual-cost rows
+and **Add actual cost** button. Each line expands independently without toggling
+the enclosing project. The parent shows actual cost, remaining cost budget, and
+remaining matching-unit quantity. **Estimate reference** opens the original
+baseline in a modal without expanding the line. **Show financial details** toggles
+estimated project/scope totals and revenue inline; these are hidden by default.
+This view is for supplier-billed materials, subcontracts, and rentals, not in-house
+labor/equipment. Labor/equipment estimate lines remain available until a sourcing
+classification distinguishes subcontract/rental work from in-house resources.
+Quantity and unit cost support four decimal places;
+freight and tax support two. The total is rounded quantity × unit cost, plus freight
+and tax. Actual prices are never copied from the estimate. Users must apportion
+bill-level freight/tax across partial rows rather than repeat them on each row.
+The job's tax percentage is shown only as a reference for actuals.
+
+Baseline cost uses the accepted estimate's existing pricing rules: base cost plus
+freight, then estimated tax on that subtotal, excluding customer markup. The
+accepted estimate is never changed. Line/scope actuals sum allocations; negative
+remaining budgets indicate overruns. Quantity comparison includes only matching
+units, case-insensitively, and warns about other units without excluding their
+costs. Recurring budgets are shown as quoted, not multiplied by occurrences.
+
+Project actual cost is the **full total of project-assigned bills**, paid or unpaid,
+not that total plus its allocations. Unallocated bill balances therefore affect
+the project budget immediately but do not affect individual line/scope actuals.
+Unexpected costs have no estimated budget and may be edited/reallocated later.
+Outgoing customer invoices remain separate project-level billed/paid/unpaid
+revenue. No invoice parsing, automatic cost allocation, or change-order approval
+workflow is included.
+
+Bill totals, allocated totals, and unallocated balances are visible in both
+Projects & Jobs and Finances. Partial allocation is allowed; allocations exceeding
+the bill total are rejected transactionally. Only bills assigned to the same
+project and lines from its accepted revision can be selected. Editing/reallocating
+a row preserves its identity; removing an allocation is soft removal and restores
+bill allocation capacity, but does not delete or reduce the source bill cost.
+Bills with allocation history cannot be deleted. Database protection prevents
+changing a bill's project while allocations are active or reducing its total below
+active allocations, including changes through import/finance workflows.
+
+Run targeted calculation and database tests in PowerShell:
+
+```powershell
+$env:RUN_DB_TESTS = '1'
+node --test app\lib\project-cost-pricing.test.mjs app\lib\project-costs.integration.test.mjs
+```
+
+Integration fixtures use a transaction and are rolled back after every test.
 
 ## Learn More
 

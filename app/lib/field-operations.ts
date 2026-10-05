@@ -1,4 +1,7 @@
 import { getPool, sql } from "@/app/lib/db";
+import { ensureRecurringVisits } from "@/app/lib/recurring-schedule";
+import type { RecurringFrequency } from "@/app/lib/recurring-dates";
+import { getCurrentWeekRange } from "@/app/lib/field-operations-dates";
 export type FieldOperationsEquipment = {
   equipmentId: number;
   equipmentName: string;
@@ -55,6 +58,31 @@ export async function getFieldOperationsEquipment(): Promise<FieldOperationsEqui
 
 export async function getFieldOperationsSchedule(startDate: string, endDate: string): Promise<FieldOperationsVisit[]> {
   const pool = await getPool();
+  const recurring = await pool.request()
+    .input("startDate", sql.Date, asSqlDate(startDate))
+    .input("endDate", sql.Date, asSqlDate(endDate))
+    .query<{ projectId: number; startDate: string; endDate: string; frequency: RecurringFrequency }>(`
+      SELECT ProjectID AS projectId, CONVERT(varchar(10), ExpectedStartDate, 23) AS startDate,
+        CONVERT(varchar(10), ExpectedEndDate, 23) AS endDate, RecurrenceFrequency AS frequency
+      FROM dbo.Projects
+      WHERE EngagementType = 'Service' AND AcceptedEstimateRevisionID IS NOT NULL
+        AND ExpectedStartDate <= @endDate AND ExpectedEndDate >= @startDate
+        AND RecurrenceFrequency IS NOT NULL
+      ORDER BY ProjectID
+    `);
+  if (recurring.recordset.length > 0) {
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    try {
+      for (const project of recurring.recordset) {
+        await ensureRecurringVisits(transaction, project.projectId, project.startDate, project.endDate, project.frequency, startDate, endDate);
+      }
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
   const result = await pool.request()
     .input("startDate", sql.Date, new Date(`${startDate}T00:00:00.000Z`))
     .input("endDate", sql.Date, new Date(`${endDate}T00:00:00.000Z`))
@@ -131,7 +159,7 @@ export async function scheduleProjectVisit(projectId: number, visitDate: string)
   try {
     const project = await transaction.request()
       .input("projectId", sql.Int, projectId)
-      .query<{ ProjectID: number }>("SELECT ProjectID FROM dbo.Projects WHERE ProjectID = @projectId");
+      .query<{ ProjectID: number }>("SELECT ProjectID FROM dbo.Projects WITH (UPDLOCK, HOLDLOCK) WHERE ProjectID = @projectId");
     if (!project.recordset[0]) throw new Error("project-not-found");
 
     const existing = await transaction.request()
@@ -173,6 +201,38 @@ export async function scheduleProjectVisit(projectId: number, visitDate: string)
         `);
     }
     await transaction.commit();
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+}
+
+export async function moveFieldOperationsVisit(serviceVisitId: number, visitDate: string): Promise<boolean> {
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+  try {
+    const result = await transaction.request()
+      .input("serviceVisitId", sql.Int, serviceVisitId)
+      .query<{ visitDate: string }>(`
+        SELECT CONVERT(varchar(10), VisitDate, 23) AS visitDate
+        FROM dbo.ServiceVisits WITH (UPDLOCK, HOLDLOCK)
+        WHERE ServiceVisitID = @serviceVisitId AND Status = 'Scheduled'
+      `);
+    const visit = result.recordset[0];
+    if (!visit) {
+      await transaction.rollback();
+      return false;
+    }
+    if (getCurrentWeekRange(asSqlDate(visit.visitDate)).startDate !== getCurrentWeekRange(asSqlDate(visitDate)).startDate) {
+      throw new Error("visit-outside-week");
+    }
+    await transaction.request()
+      .input("serviceVisitId", sql.Int, serviceVisitId)
+      .input("visitDate", sql.Date, asSqlDate(visitDate))
+      .query("UPDATE dbo.ServiceVisits SET VisitDate = @visitDate WHERE ServiceVisitID = @serviceVisitId");
+    await transaction.commit();
+    return true;
   } catch (error) {
     await transaction.rollback();
     throw error;

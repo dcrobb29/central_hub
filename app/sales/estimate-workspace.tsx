@@ -958,8 +958,8 @@ export default function EstimateWorkspace({ estimates, unitPresets }: { estimate
                       <label className="financeImportField">Expected start date *
                         <input type="date" value={expectedStartDate ?? ""} onChange={(event) => setExpectedStartDate(event.target.value || null)} required />
                       </label>
-                      <label className="financeImportField">Expected end date
-                        <input type="date" value={expectedEndDate ?? ""} min={expectedStartDate ?? undefined} onChange={(event) => setExpectedEndDate(event.target.value || null)} />
+                      <label className="financeImportField">Expected end date *
+                        <input type="date" value={expectedEndDate ?? ""} min={expectedStartDate ?? undefined} onChange={(event) => setExpectedEndDate(event.target.value || null)} required />
                       </label>
                     </>
                   )}

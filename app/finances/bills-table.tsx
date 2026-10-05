@@ -3,6 +3,8 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
+import Link from "next/link";
+import type { AllocationBill } from "@/app/lib/project-costs";
 import type { Bill } from "@/app/lib/bills";
 import type { ProjectOption } from "@/app/lib/projects";
 import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
@@ -135,7 +137,7 @@ function toDraft(bill: Bill): BillDraft {
   };
 }
 
-export default function BillsTable({ bills, projectOptions }: { bills: Bill[]; projectOptions: ProjectOption[] }) {
+export default function BillsTable({ bills, projectOptions, allocations }: { bills: Bill[]; projectOptions: ProjectOption[]; allocations: AllocationBill[] }) {
   const router = useRouter();
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [editingBillId, setEditingBillId] = useState<string | null>(null);
@@ -279,11 +281,18 @@ export default function BillsTable({ bills, projectOptions }: { bills: Bill[]; p
               <tr><td colSpan={COLUMNS.length + 1} className="invoiceNoResults">{bills.length === 0 ? "No bills found." : "No bills match these filters."}</td></tr>
             ) : visibleBills.map((bill) => (
               <tr key={bill.id}>
-                {COLUMNS.map((column) => <td key={column.key}>{formatValue(column.key, bill[column.key])}</td>)}
+                {COLUMNS.map((column) => <td key={column.key}>{formatValue(column.key, bill[column.key])}
+                  {column.key === "billAmount" && (() => {
+                    const allocation = allocations.find((item) => item.billId === bill.id);
+                    return allocation ? <small className="billAllocationBalance">Allocated: {formatValue("billAmount", String(allocation.allocatedAmount))}<br />
+                      Unallocated: {allocation.remainingAmount === null ? "Correct bill amount" : formatValue("billAmount", String(allocation.remainingAmount))}</small> : null;
+                  })()}
+                </td>)}
                 <td>
                   <div className="estimateActionsInner">
                     <button type="button" className="estimateTextAction" onClick={() => openEditForm(bill)}>Edit</button>
                     <button type="button" className="estimateDangerAction" onClick={() => { setDeleteError(null); setDeletingBill(bill); }}>Delete</button>
+                    {bill.projectId !== null && <Link href={`/projects?projectId=${bill.projectId}#project-${bill.projectId}`} className="estimateTextAction">Allocate costs</Link>}
                   </div>
                 </td>
               </tr>

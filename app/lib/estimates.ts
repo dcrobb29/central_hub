@@ -1,4 +1,6 @@
 import { getPool, sql } from "@/app/lib/db";
+import { validateRecurringSchedule } from "@/app/lib/recurring-dates";
+import { ensureRecurringVisits } from "@/app/lib/recurring-schedule";
 import { getUnitsOfMeasurement } from "@/app/lib/units-of-measurement";
 import { requireUnitAbbreviation } from "@/app/lib/unit-presets";
 import {
@@ -92,6 +94,9 @@ export type EstimateDetails = EstimateSummary & {
 };
 
 export type ProjectScopeLine = {
+  estimateLineItemId: number;
+  scopeName: string | null;
+  freightAmount: number;
   lineNumber: number;
   description: string;
   lineType: LineType;
@@ -114,6 +119,7 @@ export type ProjectWithEstimate = {
   estimateName: string | null;
   customerName: string | null;
   quotedTotal: number | null;
+  taxPercent: number;
   lines: ProjectScopeLine[];
 };
 
@@ -512,6 +518,17 @@ export async function winEstimate(estimateId: number): Promise<number> {
     if (!estimate) throw new Error("not-found");
     if (estimate.EstimateStatus !== "Draft") throw new Error("not-draft");
     if (!estimate.EstimateRevisionID) throw new Error("no-revision");
+    if (estimate.EngagementType === "Service") {
+      try {
+        validateRecurringSchedule(
+          estimate.ExpectedStartDate?.toISOString().slice(0, 10),
+          estimate.ExpectedEndDate?.toISOString().slice(0, 10),
+          estimate.RecurrenceFrequency,
+        );
+      } catch {
+        throw new Error("invalid-recurring-schedule");
+      }
+    }
 
     // Engagement type, recurrence, and expected dates are decided when the estimate is created
     // (not here) — simply carried over onto the new Project.
@@ -534,6 +551,14 @@ export async function winEstimate(estimateId: number): Promise<number> {
           @expectedStartDate, @expectedEndDate)
       `);
     const projectId = projectResult.recordset[0].ProjectID;
+    if (estimate.EngagementType === "Service" && estimate.ExpectedStartDate && estimate.ExpectedEndDate && estimate.RecurrenceFrequency) {
+      await ensureRecurringVisits(
+        transaction, projectId,
+        estimate.ExpectedStartDate.toISOString().slice(0, 10),
+        estimate.ExpectedEndDate.toISOString().slice(0, 10),
+        estimate.RecurrenceFrequency,
+      );
+    }
 
     await transaction.request()
       .input("estimateId", sql.Int, estimateId)
@@ -565,7 +590,7 @@ export async function setEstimatePrintOptions(estimateId: number, options: Estim
 
 export async function getProjectsWithEstimates(): Promise<ProjectWithEstimate[]> {
   const pool = await getPool();
-  const result = await pool.request().query<ProjectWithEstimate & { lineNumber: number | null; description: string | null; lineType: LineType | null; quantity: number | null; unitName: string | null; unitCost: number | null; lineMarkupPercent: number | null }>(`
+  const result = await pool.request().query<ProjectWithEstimate & { estimateLineItemId: number | null; scopeName: string | null; freightAmount: number | null; lineNumber: number | null; description: string | null; lineType: LineType | null; quantity: number | null; unitName: string | null; unitCost: number | null; lineMarkupPercent: number | null }>(`
     SELECT
       p.ProjectID AS projectId,
       p.ProjectName AS projectName,
@@ -579,6 +604,10 @@ export async function getProjectsWithEstimates(): Promise<ProjectWithEstimate[]>
       e.EstimateName AS estimateName,
       e.CustomerName AS customerName,
       r.QuotedTotal AS quotedTotal,
+      COALESCE(r.TaxPercent, 0) AS taxPercent,
+      li.EstimateLineItemID AS estimateLineItemId,
+      s.ScopeName AS scopeName,
+      li.FreightAmount AS freightAmount,
       li.LineNumber AS lineNumber,
       li.Description AS description,
       li.LineType AS lineType,
@@ -590,6 +619,7 @@ export async function getProjectsWithEstimates(): Promise<ProjectWithEstimate[]>
     LEFT JOIN dbo.EstimateRevisions r ON r.EstimateRevisionID = p.AcceptedEstimateRevisionID
     LEFT JOIN dbo.Estimates e ON e.EstimateID = r.EstimateID
     LEFT JOIN dbo.EstimateLineItems li ON li.EstimateRevisionID = r.EstimateRevisionID
+    LEFT JOIN dbo.EstimateScopesOfWork s ON s.EstimateScopeOfWorkID = li.EstimateScopeOfWorkID
     ORDER BY p.ProjectID DESC, li.LineNumber
   `);
 
@@ -610,12 +640,16 @@ export async function getProjectsWithEstimates(): Promise<ProjectWithEstimate[]>
         estimateName: row.estimateName,
         customerName: row.customerName,
         quotedTotal: row.quotedTotal,
+        taxPercent: row.taxPercent,
         lines: [],
       };
       projects.set(row.projectId, project);
     }
-    if (row.lineNumber !== null && row.description !== null && row.quantity !== null && row.unitCost !== null) {
+    if (row.estimateLineItemId !== null && row.lineNumber !== null && row.description !== null && row.quantity !== null && row.unitCost !== null) {
       project.lines.push({
+        estimateLineItemId: row.estimateLineItemId,
+        scopeName: row.scopeName,
+        freightAmount: row.freightAmount ?? 0,
         lineNumber: row.lineNumber,
         description: row.description,
         lineType: row.lineType ?? "Material",

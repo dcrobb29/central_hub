@@ -25,6 +25,11 @@ export function parseBillInput(body: unknown): BillInput {
 }
 
 export function describeBillSqlError(error: unknown): { message: string; status: number } {
+  if (typeof error === "object" && error !== null && "number" in error && [51021, 51022].includes(Number(error.number))) {
+    return { message: Number(error.number) === 51021
+      ? "Remove active cost allocations in Projects & Jobs before changing this bill's project"
+      : "The bill total cannot be lower than its allocated costs", status: 409 };
+  }
   if (typeof error === "object" && error !== null && "number" in error && error.number === 547) {
     return { message: "The selected project no longer exists", status: 400 };
   }

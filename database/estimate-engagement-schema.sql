@@ -30,8 +30,8 @@ IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_Estimates_R
             ('Weekly', 'Biweekly', 'Monthly', 'Quarterly', 'SemiAnnually', 'Annually'));
 GO
 
--- ExpectedEndDate is nullable: recurring work is often open-ended ("until further notice") when
--- first quoted.
+-- Project dates remain nullable; recurring-field-planning-schema.sql requires
+-- a start and end date for recurring work.
 IF COL_LENGTH(N'dbo.Estimates', N'ExpectedStartDate') IS NULL
     ALTER TABLE dbo.Estimates ADD ExpectedStartDate date NULL;
 GO

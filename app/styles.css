@@ -586,7 +586,7 @@
   background: #fff;
 }
 
-.projectCard summary {
+.projectCard > summary {
   display: grid;
   grid-template-columns: minmax(180px, 2fr) minmax(90px, .7fr) minmax(130px, 1fr) auto;
   align-items: center;
@@ -623,6 +623,38 @@
   color: #687a73;
   font-size: 12px;
 }
+
+.projectCostPanel { padding: 0 14px 14px; }
+.projectCostSummary { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; padding: 14px; background: #f2f6f3; border-radius: 4px; }
+.projectCostSummary > div { display: flex; flex-direction: column; gap: 5px; }
+.projectCostSummary span, .projectCostSummary small { color: #687a73; font-size: 11px; }
+.projectCostSummary strong { font-size: 16px; }
+.projectCostHint { color: #687a73; font-size: 12px; margin: 12px 0; }
+.projectCostScope { border: 1px solid #d0dad4; border-radius: 4px; padding: 12px; margin-top: 14px; }
+.projectScopeSummary { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; cursor: pointer; color: #20362d; }
+.projectScopeSummary::before,
+.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; flex: 0 0 auto; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); }
+.projectCostScope[open] > .projectScopeSummary::before,
+.projectCostLine[open] > .projectEstimateSummary::before { transform: rotate(45deg); }
+.projectScopeSummary > span { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.projectScopeSummary > .projectScopeTitle { flex: 1; min-width: 160px; }
+.projectScopeSummary small { color: #687a73; font-size: 11px; }
+.projectScopeSummary:focus-visible { outline: 2px solid #294b3f; outline-offset: 4px; }
+.projectCostScope > header, .projectActualCostToolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; justify-content: space-between; }
+.projectCostScope h3, .projectCostLine h4 { margin: 0; color: #20362d; }
+.projectCostScope > header p { font-size: 12px; }
+.projectCostLine { margin-top: 12px; padding: 12px; border-top: 1px solid #d0dad4; background: #f9fbfa; }
+.projectEstimateSummary { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; cursor: pointer; color: #20362d; }
+.projectEstimateSummary > span { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.projectEstimateSummary > .projectEstimateTitle { flex: 1; min-width: 160px; }
+.projectEstimateSummary small { color: #687a73; font-size: 11px; }
+.projectEstimateSummary:focus-visible { outline: 2px solid #294b3f; outline-offset: 4px; }
+.projectActualCostContent { margin-top: 14px; padding-top: 12px; border-top: 1px solid #d0dad4; }
+.projectActualCostToolbar { font-size: 12px; }
+.projectCostLine .projectScopeTableWrapper, .projectCostScope > .projectScopeTableWrapper { margin: 12px 0 0; }
+.projectCostLine caption { text-align: left; padding: 8px 0; font-size: 11px; color: #687a73; }
+.projectOverBudget { color: #a12f25; }
+.billAllocationBalance { display: block; margin-top: 5px; font-size: 10px; color: #687a73; }
 
 .estimateNotes {
   margin: 14px 0;
@@ -915,6 +947,30 @@
 
 .fieldScheduledJob > header strong {
   font-size: 12px;
+}
+
+.fieldScheduledJob > header div[draggable] {
+  cursor: grab;
+}
+
+.fieldVisitMove {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: #687a73;
+  font-size: 10px;
+}
+
+.fieldVisitMove select {
+  min-width: 0;
+  flex: 1;
+  padding: 4px;
+  border: 1px solid #bdcbc3;
+  border-radius: 3px;
+  background: #fff;
+  color: #294b3f;
+  font-size: 11px;
 }
 
 .fieldUnscheduleButton {
@@ -1787,7 +1843,7 @@
   .estimateLineEditor input:nth-child(6) { grid-column: 1; }
   .estimateCatalogLine { grid-column: 3; grid-row: 2 / span 3; }
   .estimateRemoveLine { grid-column: 4; grid-row: 2 / span 3; }
-  .projectCard summary { grid-template-columns: minmax(0, 1fr) auto; }
+  .projectCard > summary { grid-template-columns: minmax(0, 1fr) auto; }
   .projectCardMeta { display: none; }
 }
 

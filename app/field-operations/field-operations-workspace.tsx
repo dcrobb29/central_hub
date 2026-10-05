@@ -10,6 +10,7 @@ import type { Person } from "@/app/lib/personnel";
 type DragPayload =
   | { kind: "resource"; resourceType: "employee" | "equipment"; resourceId: number }
   | { kind: "assignment"; assignmentId: number }
+  | { kind: "visit"; serviceVisitId: number }
   | { kind: "project"; projectId: number };
 
 function shiftDate(value: string, days: number) {
@@ -42,7 +43,7 @@ async function sendAction(body: Record<string, unknown>) {
 }
 
 function startDrag(event: DragEvent<HTMLElement>, payload: DragPayload) {
-  event.dataTransfer.effectAllowed = payload.kind === "assignment" ? "move" : "copy";
+  event.dataTransfer.effectAllowed = payload.kind === "assignment" || payload.kind === "visit" ? "move" : "copy";
   event.dataTransfer.setData("application/json", JSON.stringify(payload));
 }
 
@@ -267,8 +268,12 @@ export default function FieldOperationsWorkspace({
     event.preventDefault();
     try {
       const payload: unknown = JSON.parse(event.dataTransfer.getData("application/json"));
-      if (typeof payload !== "object" || payload === null || !("kind" in payload) || payload.kind !== "project" || !("projectId" in payload)) return;
-      await runAction({ action: "schedule-project", projectId: Number(payload.projectId), visitDate });
+      if (typeof payload !== "object" || payload === null || !("kind" in payload)) return;
+      if (payload.kind === "visit" && "serviceVisitId" in payload) {
+        await runAction({ action: "move-visit", serviceVisitId: Number(payload.serviceVisitId), visitDate });
+      } else if (payload.kind === "project" && "projectId" in payload) {
+        await runAction({ action: "schedule-project", projectId: Number(payload.projectId), visitDate });
+      }
     } catch (dropError) {
       setError(dropError instanceof Error ? dropError.message : "Unable to schedule dropped job");
     }
@@ -282,7 +287,7 @@ export default function FieldOperationsWorkspace({
         <div>
           <p className="salesEyebrow">FIELD OPERATIONS</p>
           <h1>Weekly field planner</h1>
-          <p>Schedule project and recurring-service work by date. Recurring visits are added manually in this version.</p>
+          <p>Approved recurring jobs are scheduled from their start date and frequency through their expected end date. Move individual visits within the week as needed.</p>
         </div>
         <div className="fieldWeekNavigation" aria-label="Choose week">
           <button type="button" aria-label="Previous week" disabled={isLoading} onClick={() => void changeWeek(shiftDate(weekStart, -7))}><ChevronLeft size={18} /></button>
@@ -296,6 +301,9 @@ export default function FieldOperationsWorkspace({
         <div>
           <h2>Jobs</h2>
           <p>All projects are listed. Estimated labor sums approved estimate lines marked Labor and measured in HR.</p>
+          {projects.some((project) => project.engagementType === "Service" && (!project.expectedStartDate || !project.expectedEndDate || !project.recurrenceFrequency)) && (
+            <p className="fieldOperationsError" role="alert">Some existing recurring jobs are missing a start date, end date, or frequency. They remain available for manual scheduling, but cannot be automatically scheduled until their recurrence details are supplied.</p>
+          )}
           <div className="fieldJobPool">
             {projects.map((project) => (
               <button
@@ -372,7 +380,11 @@ export default function FieldOperationsWorkspace({
                 return (
                   <article className="fieldScheduledJob" key={visit.serviceVisitId}>
                     <header>
-                      <div>
+                      <div
+                        draggable
+                        onDragStart={(event) => startDrag(event, { kind: "visit", serviceVisitId: visit.serviceVisitId })}
+                        title="Drag this occurrence onto another day in this week"
+                      >
                         <strong>{project.projectName}</strong>
                         <span>{project.engagementType === "Service" ? `${frequencyLabel(project) ?? "Recurring"} service` : "Project"} · {visitPlannedHours.toLocaleString()} planned / {getEstimatedLaborHours(project.lines).toLocaleString()} estimated hrs</span>
                       </div>
@@ -385,6 +397,16 @@ export default function FieldOperationsWorkspace({
                         onClick={() => void runAction({ action: "unschedule-visit", serviceVisitId: visit.serviceVisitId }).catch((actionError: unknown) => setError(actionError instanceof Error ? actionError.message : "Unable to remove visit"))}
                       >×</button>
                     </header>
+                    <label className="fieldVisitMove">
+                      Move visit to
+                      <select
+                        aria-label={`Move ${project.projectName} occurrence from ${dateLabel(date)}`}
+                        value={visit.visitDate}
+                        onChange={(event) => void runAction({ action: "move-visit", serviceVisitId: visit.serviceVisitId, visitDate: event.target.value }).catch((actionError: unknown) => setError(actionError instanceof Error ? actionError.message : "Unable to move visit"))}
+                      >
+                        {dates.map((day) => <option key={day} value={day}>{dateLabel(day)}</option>)}
+                      </select>
+                    </label>
                     <div className="fieldTasks">
                       {visit.tasks.map((task) => (
                         <TaskCard
@@ -406,7 +428,7 @@ export default function FieldOperationsWorkspace({
         );
       })}
       </div>
-      <p className="fieldScheduleHint">Drop a job from the list above onto a date, or use Schedule. Employees and equipment may be assigned to multiple tasks on a date; conflicts are not blocked.</p>
+      <p className="fieldScheduleHint">Drag a scheduled job&apos;s title to another day, or use Move visit to. Moving or removing a visit affects only that occurrence, not future dates. Drop a job from the list above to add extra work. Employees and equipment may be assigned to multiple tasks on a date; conflicts are not blocked.</p>
 
       <section className="fieldResourceLists">
         <ResourceList

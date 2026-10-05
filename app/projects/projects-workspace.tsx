@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 import type { ProjectWithEstimate } from "@/app/lib/estimates";
+import type { AllocationBill, ProjectBillCost } from "@/app/lib/project-costs";
+import type { ProjectFinancialSummary } from "@/app/lib/projects";
+import ProjectCostPanel from "./project-cost-panel";
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
@@ -18,8 +21,16 @@ function formatDate(value: string) {
   return new Date(`${value}T00:00:00`).toLocaleDateString();
 }
 
-export default function ProjectsWorkspace({ projects }: { projects: ProjectWithEstimate[] }) {
-  const [activeTab, setActiveTab] = useState<"Project" | "Service">("Project");
+export default function ProjectsWorkspace({ projects, costs, bills, financials, initialProjectId }: {
+  projects: ProjectWithEstimate[];
+  costs: ProjectBillCost[];
+  bills: AllocationBill[];
+  financials: ProjectFinancialSummary[];
+  initialProjectId: number | null;
+}) {
+  const [activeTab, setActiveTab] = useState<"Project" | "Service">(
+    projects.find((project) => project.projectId === initialProjectId)?.engagementType ?? "Project",
+  );
 
   const oneTimeProjects = projects.filter((project) => project.engagementType === "Project");
   const recurringProjects = projects.filter((project) => project.engagementType === "Service");
@@ -63,7 +74,7 @@ export default function ProjectsWorkspace({ projects }: { projects: ProjectWithE
       ) : (
         <div className="projectList">
           {visibleProjects.map((project) => (
-            <details className="projectCard" key={project.projectId}>
+            <details className="projectCard" id={`project-${project.projectId}`} key={project.projectId} open={project.projectId === initialProjectId ? true : undefined}>
               <summary>
                 <span className="projectCardTitle">
                   <strong>{project.projectName}</strong>
@@ -80,23 +91,12 @@ export default function ProjectsWorkspace({ projects }: { projects: ProjectWithE
                 )}
                 <strong className="projectCardTotal">{project.quotedTotal == null ? "—" : currency.format(project.quotedTotal)}</strong>
               </summary>
-              {project.lines.length > 0 ? (
-                <div className="projectScopeTableWrapper">
-                  <table className="invoiceTable projectScopeTable">
-                    <thead><tr><th>Accepted estimate scope</th><th>Quantity</th><th>Estimated unit cost</th><th>Line markup</th></tr></thead>
-                    <tbody>
-                      {project.lines.map((line) => (
-                        <tr key={line.lineNumber}>
-                          <td>{line.description}</td>
-                          <td>{line.quantity} {line.unitName}</td>
-                          <td>{currency.format(line.unitCost)}</td>
-                          <td>{line.lineMarkupPercent}%</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : <p className="projectScopeEmpty">This project has no estimate scope attached.</p>}
+              <ProjectCostPanel
+                project={project}
+                costs={costs.filter((cost) => cost.projectId === project.projectId)}
+                bills={bills.filter((bill) => bill.projectId === project.projectId)}
+                financials={financials.find((summary) => summary.projectId === project.projectId)}
+              />
               {project.internalNotes && (
                 <div className="internalNotes projectInternalNotes">
                   <strong>Internal notes</strong>

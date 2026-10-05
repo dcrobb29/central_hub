@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { InvalidUnitPresetError } from "@/app/lib/unit-presets";
 import { parseEstimateNotes } from "@/app/lib/estimate-notes";
+import { RECURRENCE_FREQUENCIES, isCalendarDate, validateRecurringSchedule } from "@/app/lib/recurring-dates";
 import {
   createEstimate,
   getEstimateDetails,
@@ -13,8 +14,6 @@ import {
   type RecurrenceFrequency,
 } from "@/app/lib/estimates";
 
-const RECURRENCE_FREQUENCIES = ["Weekly", "Biweekly", "Monthly", "Quarterly", "SemiAnnually", "Annually"] as const;
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -54,23 +53,14 @@ export function parseEstimate(body: Record<string, unknown>): CreateEstimateInpu
   let expectedStartDate: string | null = null;
   let expectedEndDate: string | null = null;
   if (engagementType === "Service") {
-    if (!RECURRENCE_FREQUENCIES.includes(body.recurrenceFrequency as (typeof RECURRENCE_FREQUENCIES)[number])) {
+    validateRecurringSchedule(body.expectedStartDate, body.expectedEndDate, body.recurrenceFrequency);
+    const frequency = RECURRENCE_FREQUENCIES.find((candidate) => candidate === body.recurrenceFrequency);
+    if (!frequency || !isCalendarDate(body.expectedStartDate) || !isCalendarDate(body.expectedEndDate)) {
       throw new Error("Choose a valid recurrence frequency");
     }
-    recurrenceFrequency = body.recurrenceFrequency as RecurrenceFrequency;
-    if (typeof body.expectedStartDate !== "string" || !DATE_PATTERN.test(body.expectedStartDate)) {
-      throw new Error("Enter an expected start date for recurring work");
-    }
+    recurrenceFrequency = frequency;
     expectedStartDate = body.expectedStartDate;
-    if (body.expectedEndDate != null && body.expectedEndDate !== "") {
-      if (typeof body.expectedEndDate !== "string" || !DATE_PATTERN.test(body.expectedEndDate)) {
-        throw new Error("Expected end date must be a valid date");
-      }
-      if (body.expectedEndDate < expectedStartDate) {
-        throw new Error("Expected end date can't be before the expected start date");
-      }
-      expectedEndDate = body.expectedEndDate;
-    }
+    expectedEndDate = body.expectedEndDate;
   }
   if (!Array.isArray(body.lines) || body.lines.length === 0 || body.lines.length > 100) {
     throw new Error("Add between 1 and 100 estimate lines");
@@ -234,6 +224,7 @@ export async function PATCH(request: NextRequest) {
       if (reason === "not-found") return NextResponse.json({ error: "Estimate not found" }, { status: 404 });
       if (reason === "not-draft") return NextResponse.json({ error: "Only draft estimates can be marked as won" }, { status: 409 });
       if (reason === "no-revision") return NextResponse.json({ error: "Estimate has no saved revision" }, { status: 400 });
+      if (reason === "invalid-recurring-schedule") return NextResponse.json({ error: "Edit this recurring estimate to supply a valid start date, expected end date, and frequency before accepting it" }, { status: 400 });
       if (typeof error === "object" && error !== null && "number" in error && [2601, 2627].includes(Number(error.number))) {
         return NextResponse.json({ error: "This accepted estimate already has a project" }, { status: 409 });
       }

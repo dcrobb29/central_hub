@@ -6,6 +6,7 @@ import {
   deactivateFieldOperationsTask,
   getFieldOperationsSchedule,
   moveFieldOperationsAssignment,
+  moveFieldOperationsVisit,
   scheduleProjectVisit,
   unscheduleFieldOperationsVisit,
   updateFieldOperationsTask,
@@ -32,6 +33,9 @@ function validWeek(startDate: string | null, endDate: string | null) {
 }
 
 function errorResponse(error: unknown) {
+  if (error instanceof Error && error.message === "visit-outside-week") {
+    return NextResponse.json({ error: "Move this occurrence to a date within the same planner week" }, { status: 400 });
+  }
   if (error instanceof Error && error.message === "project-not-found") {
     return NextResponse.json({ error: "Choose an existing project" }, { status: 404 });
   }
@@ -81,6 +85,17 @@ export async function POST(request: NextRequest) {
       const serviceVisitId = positiveInteger(body.serviceVisitId);
       if (!serviceVisitId) return NextResponse.json({ error: "Choose a valid scheduled job" }, { status: 400 });
       if (!await unscheduleFieldOperationsVisit(serviceVisitId)) {
+        return NextResponse.json({ error: "The scheduled job no longer exists" }, { status: 404 });
+      }
+      return NextResponse.json({ success: true });
+    }
+
+    if (body.action === "move-visit") {
+      const serviceVisitId = positiveInteger(body.serviceVisitId);
+      if (!serviceVisitId || !validDate(body.visitDate)) {
+        return NextResponse.json({ error: "Choose a valid scheduled job and date" }, { status: 400 });
+      }
+      if (!await moveFieldOperationsVisit(serviceVisitId, body.visitDate)) {
         return NextResponse.json({ error: "The scheduled job no longer exists" }, { status: 404 });
       }
       return NextResponse.json({ success: true });

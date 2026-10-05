@@ -35,7 +35,11 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   try {
     await deleteBill(billId);
     return NextResponse.json({ id: billId });
-  } catch {
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "number" in error && Number(error.number) === 547) {
+      return NextResponse.json({ error: "This bill has cost-allocation history and cannot be deleted. Its records are retained for traceability." }, { status: 409 });
+    }
+    console.error("Bill deletion failed", error);
     return NextResponse.json({ error: "Unable to delete bill. Check database delete permissions." }, { status: 500 });
   }
 }

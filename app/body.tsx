@@ -28,7 +28,7 @@ const HOME_TILES = [
   {
     href: "/field-operations",
     label: "Field Operations",
-    description: "Job activity, notes, and site work",
+    description: "Weekly job, employee, and equipment scheduling",
     image: null,
     icon: ClipboardCheck,
   },

@@ -683,6 +683,472 @@
   background: #fff;
 }
 
+.fieldOperationsBody {
+  display: block;
+  min-height: 100%;
+  padding: 24px;
+  background: #f2f5f3;
+}
+
+.fieldOperationsWorkspace {
+  width: min(1600px, 100%);
+  margin: 0 auto;
+  color: #20362d;
+}
+
+.fieldOperationsHeader,
+.fieldOperationsHeader > div:last-child,
+.fieldWeekNavigation,
+.fieldJobPicker,
+.fieldJobPicker form,
+.fieldDayHeader,
+.fieldScheduledJob > header,
+.fieldResourceList > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fieldOperationsHeader {
+  margin-bottom: 20px;
+}
+
+.fieldOperationsHeader h1 {
+  margin: 4px 0;
+  font-size: 25px;
+}
+
+.fieldOperationsHeader p:last-child,
+.fieldJobPicker p,
+.fieldResourceList > header p {
+  margin: 4px 0 0;
+  color: #687a73;
+  font-size: 12px;
+}
+
+.fieldWeekNavigation button,
+.fieldJobPicker button,
+.fieldAddTask button,
+.fieldAssignForm button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border: 1px solid #bdcbc3;
+  border-radius: 4px;
+  background: #fff;
+  color: #294b3f;
+  cursor: pointer;
+  font: 12px Arial, sans-serif;
+}
+
+.fieldWeekNavigation strong {
+  min-width: 175px;
+  text-align: center;
+  font-size: 13px;
+}
+
+.fieldJobPicker {
+  align-items: flex-end;
+  margin-bottom: 18px;
+  padding: 14px;
+  border: 1px solid #d0dad4;
+  border-radius: 5px;
+  background: #fff;
+}
+
+.fieldJobPicker h2,
+.fieldResourceList h2 {
+  margin: 0;
+  color: #20362d;
+  font-size: 15px;
+}
+
+.fieldJobPicker > div:first-child {
+  flex: 1.2;
+  min-width: 300px;
+}
+
+.fieldJobPool {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  max-height: 190px;
+  margin-top: 9px;
+  overflow: auto;
+}
+
+.fieldJobPicker .fieldJobChip {
+  display: flex;
+  min-width: 155px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 7px 9px;
+  text-align: left;
+  cursor: grab;
+}
+
+.fieldJobChip strong {
+  color: #20362d;
+  font-size: 11px;
+}
+
+.fieldJobChip span,
+.fieldJobChip small {
+  color: #687a73;
+  font-size: 9px;
+}
+
+.fieldJobSchedule {
+  flex: 1;
+  min-width: 300px;
+}
+
+.fieldJobSchedule h3 {
+  margin: 0 0 8px;
+  color: #63776b;
+  font-size: 11px;
+}
+
+.fieldJobPicker form {
+  justify-content: flex-end;
+}
+
+.fieldJobPicker label,
+.fieldTaskEdit label,
+.fieldAssignForm label,
+.fieldAddTask label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #63776b;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.fieldJobPicker select,
+.fieldTaskEdit input,
+.fieldAssignForm select,
+.fieldAddTask input {
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid #bdcbc3;
+  border-radius: 3px;
+  background: #fff;
+  color: #20362d;
+  font: 12px Arial, sans-serif;
+}
+
+.fieldJobPicker label:first-child {
+  flex: 1;
+  min-width: 160px;
+}
+
+.fieldJobPicker label:nth-child(2) {
+  min-width: 145px;
+}
+
+.fieldWeekBoard {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(210px, 1fr));
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px 2px 12px;
+  align-items: start;
+}
+
+.fieldDayColumn {
+  min-height: 290px;
+  padding: 9px;
+  border: 1px solid #d0dad4;
+  border-radius: 5px;
+  background: #e9efeb;
+}
+
+.fieldDayHeader {
+  margin-bottom: 9px;
+  padding: 2px 1px 8px;
+  border-bottom: 1px solid #cbd6cf;
+}
+
+.fieldDayHeader strong {
+  font-size: 13px;
+}
+
+.fieldDayHeader span,
+.fieldScheduledJob > header span {
+  color: #687a73;
+  font-size: 10px;
+}
+
+.fieldDayEmpty,
+.fieldResourceEmpty {
+  padding: 14px 4px;
+  color: #819088;
+  text-align: center;
+  font-size: 11px;
+}
+
+.fieldScheduledJob {
+  margin-bottom: 9px;
+  padding: 9px;
+  border: 1px solid #cbd6cf;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.fieldScheduledJob > header {
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.fieldScheduledJob > header div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.fieldScheduledJob > header strong {
+  font-size: 12px;
+}
+
+.fieldUnscheduleButton {
+  display: inline-flex;
+  width: 23px;
+  height: 23px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #8e483f;
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.fieldJobStatus {
+  flex: 0 0 auto;
+  padding: 3px 5px;
+  border-radius: 3px;
+  background: #edf1ee;
+}
+
+.fieldTask {
+  margin: 7px 0;
+  padding: 7px;
+  border: 1px solid #dbe3de;
+  border-radius: 4px;
+  background: #f9fbfa;
+}
+
+.fieldTaskEdit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 82px 36px 30px;
+  align-items: end;
+  gap: 5px;
+}
+
+.fieldTaskEdit label:first-child {
+  min-width: 0;
+}
+
+.fieldIconButton {
+  min-height: 32px;
+  border: 1px solid #bdcbc3;
+  border-radius: 3px;
+  background: #fff;
+  color: #294b3f;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.fieldRemoveButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #8e483f;
+}
+
+.fieldTaskAssignments {
+  display: flex;
+  min-height: 29px;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  margin: 7px 0;
+  padding: 4px;
+  border: 1px dashed #bdcbc3;
+  border-radius: 3px;
+}
+
+.fieldDropHint {
+  color: #89958f;
+  font-size: 10px;
+}
+
+.fieldAssignmentChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 4px 3px 7px;
+  border-radius: 3px;
+  background: #deebe3;
+  color: #20362d;
+  cursor: grab;
+  font-size: 10px;
+}
+
+.fieldAssignmentChip > span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fieldAssignmentChip small {
+  color: #5c7065;
+  font-size: 8px;
+}
+
+.fieldAssignmentChip button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #496156;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.fieldEquipmentChip {
+  background: #e6e9f3;
+}
+
+.fieldAssignForm,
+.fieldAddTask {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+}
+
+.fieldAssignForm label {
+  flex: 1;
+  min-width: 0;
+}
+
+.fieldAssignForm select {
+  width: 100%;
+  font-size: 10px;
+}
+
+.fieldAssignForm button,
+.fieldAddTask button {
+  min-height: 32px;
+  padding: 5px 7px;
+  font-size: 10px;
+}
+
+.fieldAddTask {
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.fieldAddTask label:first-child {
+  flex: 1;
+  min-width: 90px;
+}
+
+.fieldAddTask label:nth-child(2) {
+  width: 73px;
+}
+
+.fieldScheduleHint,
+.fieldScheduleLoading {
+  color: #687a73;
+  font-size: 11px;
+}
+
+.fieldScheduleHint {
+  margin: 4px 0 20px;
+}
+
+.fieldOperationsError {
+  color: #9b3025;
+  font-size: 11px;
+}
+
+.fieldResourceLists {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.fieldResourceList {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #d0dad4;
+  border-radius: 5px;
+  background: #fff;
+}
+
+.fieldResourceList > header {
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.fieldResourcePool {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.fieldResourceChip {
+  display: flex;
+  min-width: 130px;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid #bdcbc3;
+  border-radius: 4px;
+  background: #f9fbfa;
+  color: #20362d;
+  text-align: left;
+  cursor: grab;
+}
+
+.fieldResourceChip strong {
+  font-size: 11px;
+}
+
+.fieldResourceChip span {
+  color: #687a73;
+  font-size: 9px;
+}
+
+@media (max-width: 760px) {
+  .fieldOperationsBody { padding: 14px 8px; }
+  .fieldOperationsHeader { align-items: flex-start; flex-direction: column; }
+  .fieldWeekNavigation { width: 100%; flex-wrap: wrap; }
+  .fieldWeekNavigation strong { flex: 1; }
+  .fieldJobPicker { align-items: stretch; flex-direction: column; }
+  .fieldJobPicker > div:first-child,
+  .fieldJobSchedule { min-width: 0; }
+  .fieldJobPicker form { align-items: stretch; flex-direction: column; }
+  .fieldJobPicker label:first-child,
+  .fieldJobPicker label:nth-child(2) { min-width: 0; }
+  .fieldResourceLists { grid-template-columns: minmax(0, 1fr); }
+  .fieldResourceList > header { flex-direction: column; gap: 4px; }
+}
+
 .modulePlaceholderField { border-left-color: #b16a37; }
 
 .modulePlaceholderEyebrow {

@@ -94,6 +94,7 @@ export type EstimateDetails = EstimateSummary & {
 export type ProjectScopeLine = {
   lineNumber: number;
   description: string;
+  lineType: LineType;
   quantity: number;
   unitName: string | null;
   unitCost: number;
@@ -564,7 +565,7 @@ export async function setEstimatePrintOptions(estimateId: number, options: Estim
 
 export async function getProjectsWithEstimates(): Promise<ProjectWithEstimate[]> {
   const pool = await getPool();
-  const result = await pool.request().query<ProjectWithEstimate & { lineNumber: number | null; description: string | null; quantity: number | null; unitName: string | null; unitCost: number | null; lineMarkupPercent: number | null }>(`
+  const result = await pool.request().query<ProjectWithEstimate & { lineNumber: number | null; description: string | null; lineType: LineType | null; quantity: number | null; unitName: string | null; unitCost: number | null; lineMarkupPercent: number | null }>(`
     SELECT
       p.ProjectID AS projectId,
       p.ProjectName AS projectName,
@@ -580,6 +581,7 @@ export async function getProjectsWithEstimates(): Promise<ProjectWithEstimate[]>
       r.QuotedTotal AS quotedTotal,
       li.LineNumber AS lineNumber,
       li.Description AS description,
+      li.LineType AS lineType,
       li.Quantity AS quantity,
       li.UnitName AS unitName,
       li.UnitCost AS unitCost,
@@ -616,6 +618,7 @@ export async function getProjectsWithEstimates(): Promise<ProjectWithEstimate[]>
       project.lines.push({
         lineNumber: row.lineNumber,
         description: row.description,
+        lineType: row.lineType ?? "Material",
         quantity: row.quantity,
         unitName: row.unitName,
         unitCost: row.unitCost,

@@ -59,6 +59,27 @@ Run notes and PDF visibility tests with
 `node --test app/lib/estimate-notes.test.mjs app/lib/estimate-pdf.test.mjs`
 (Node.js 22.18+).
 
+## Field operations planner
+
+Apply [database/field-operations-planning-schema.sql](database/field-operations-planning-schema.sql)
+after the project workflow, personnel, and equipment schemas. The planner uses
+dated `ServiceVisits`, adds multiple task rows per visit, and stores employee or
+equipment assignments on each task. Task and assignment removal is soft, so the
+application only needs SELECT/INSERT/UPDATE permissions.
+
+The weekly board shows all projects and recurring jobs and all org-chart
+employees; overhead filtering and project-status filtering are not applied.
+Recurring occurrences are manually scheduled by date in v1. Estimate labor is
+the sum of approved estimate line quantities whose type is `Labor` and unit is
+`HR` (case-insensitive). Planned hours are entered per task and do not change
+the approved estimate total. Reassigning a resource between tasks moves that
+assignment. The same employee or equipment may be assigned to multiple tasks
+on a date; conflicts are not blocked. Removing a visit marks it Skipped and
+deactivates its tasks and assignments. Equipment is loaded from `dbo.Equipment`.
+
+Run planner date and labor calculations with
+`node --test app/lib/field-operations-dates.test.mjs`.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

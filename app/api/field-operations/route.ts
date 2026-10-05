@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ACTIVE_PLANNER_MESSAGE, COMPLETED_PROJECT_MESSAGE, isCompletedProjectError, isInactivePlannerError } from "@/app/lib/project-status";
 import {
   addFieldOperationsTask,
   assignResourceToTask,
@@ -33,6 +34,12 @@ function validWeek(startDate: string | null, endDate: string | null) {
 }
 
 function errorResponse(error: unknown) {
+  if (isInactivePlannerError(error) || error instanceof Error && error.message === ACTIVE_PLANNER_MESSAGE) {
+    return NextResponse.json({ error: ACTIVE_PLANNER_MESSAGE }, { status: 409 });
+  }
+  if (isCompletedProjectError(error) || error instanceof Error && error.message === COMPLETED_PROJECT_MESSAGE) {
+    return NextResponse.json({ error: COMPLETED_PROJECT_MESSAGE }, { status: 409 });
+  }
   if (error instanceof Error && error.message === "visit-outside-week") {
     return NextResponse.json({ error: "Move this occurrence to a date within the same planner week" }, { status: 400 });
   }

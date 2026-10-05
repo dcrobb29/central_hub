@@ -290,8 +290,8 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
                 </td>)}
                 <td>
                   <div className="estimateActionsInner">
-                    <button type="button" className="estimateTextAction" onClick={() => openEditForm(bill)}>Edit</button>
-                    <button type="button" className="estimateDangerAction" onClick={() => { setDeleteError(null); setDeletingBill(bill); }}>Delete</button>
+                    <button type="button" className="estimateTextAction" disabled={projectOptions.some((project) => project.projectId === bill.projectId && project.projectStatus === "Complete")} onClick={() => openEditForm(bill)}>Edit</button>
+                    <button type="button" className="estimateDangerAction" disabled={projectOptions.some((project) => project.projectId === bill.projectId && project.projectStatus === "Complete")} onClick={() => { setDeleteError(null); setDeletingBill(bill); }}>Delete</button>
                     {bill.projectId !== null && <Link href={`/projects?projectId=${bill.projectId}#project-${bill.projectId}`} className="estimateTextAction">Allocate costs</Link>}
                   </div>
                 </td>
@@ -322,7 +322,7 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
                     Project
                     <select value={billDraft.projectId} onChange={(event) => setBillDraft((current) => ({ ...current, projectId: event.target.value }))}>
                       <option value="">Unassigned</option>
-                      {projectOptions.map((project) => <option value={project.projectId} key={project.projectId}>{project.projectName}</option>)}
+                      {projectOptions.map((project) => <option value={project.projectId} key={project.projectId} disabled={project.projectStatus === "Complete"}>{project.projectName}{project.projectStatus === "Complete" ? " (Complete - read-only)" : ""}</option>)}
                     </select>
                   </label>
                 </div>

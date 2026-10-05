@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
 import { InvalidUnitPresetError } from "@/app/lib/unit-presets";
 import { parseEstimateNotes } from "@/app/lib/estimate-notes";
 import { RECURRENCE_FREQUENCIES, isCalendarDate, validateRecurringSchedule } from "@/app/lib/recurring-dates";
@@ -210,7 +211,9 @@ export async function PATCH(request: NextRequest) {
     try {
       await setEstimatePrintOptions(estimateId, printOptions);
       return NextResponse.json({ estimateId, ...printOptions });
-    } catch {
+    } catch (error) {
+      if (isCompletedProjectError(error)) return NextResponse.json({ error: COMPLETED_PROJECT_MESSAGE }, { status: 409 });
+      console.error("Unable to update print preferences", error);
       return NextResponse.json({ error: "Unable to update print preferences" }, { status: 500 });
     }
   }
@@ -220,6 +223,7 @@ export async function PATCH(request: NextRequest) {
       const projectId = await winEstimate(estimateId);
       return NextResponse.json({ estimateId, projectId }, { status: 201 });
     } catch (error) {
+      if (isCompletedProjectError(error)) return NextResponse.json({ error: COMPLETED_PROJECT_MESSAGE }, { status: 409 });
       const reason = error instanceof Error ? error.message : "";
       if (reason === "not-found") return NextResponse.json({ error: "Estimate not found" }, { status: 404 });
       if (reason === "not-draft") return NextResponse.json({ error: "Only draft estimates can be marked as won" }, { status: 409 });

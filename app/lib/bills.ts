@@ -47,7 +47,7 @@ export async function getBills(): Promise<Bill[]> {
 export async function getBillProjectOptions(): Promise<ProjectOption[]> {
   const pool = await getPool();
   const result = await pool.request().query<ProjectOption>(`
-    SELECT ProjectID AS projectId, ProjectName AS projectName
+    SELECT ProjectID AS projectId, ProjectName AS projectName, ProjectStatus AS projectStatus
     FROM dbo.Projects
     ORDER BY ProjectName, ProjectID
   `);

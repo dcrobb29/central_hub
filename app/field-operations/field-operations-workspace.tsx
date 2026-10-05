@@ -53,12 +53,14 @@ function TaskCard({
   equipment,
   onAction,
   onDropResource,
+  readOnly,
 }: {
   task: FieldOperationsTask;
   employees: Person[];
   equipment: FieldOperationsEquipment[];
   onAction: (action: Record<string, unknown>) => Promise<void>;
   onDropResource: (payload: DragPayload, taskId: number) => Promise<void>;
+  readOnly: boolean;
 }) {
   const [taskName, setTaskName] = useState(task.taskName);
   const [plannedHours, setPlannedHours] = useState(String(task.plannedLaborHours));
@@ -107,6 +109,16 @@ function TaskCard({
       setError(dropError instanceof Error ? dropError.message : "Invalid dragged resource");
     }
   }
+
+  if (readOnly) return (
+    <div className="fieldTask">
+      <strong>{task.taskName}</strong>
+      <p>{task.plannedLaborHours.toLocaleString()} planned hrs · Read-only</p>
+      <div className="fieldTaskAssignments">
+        {task.assignments.map((assignment) => <span key={assignment.assignmentId} className="fieldAssignmentChip">{assignment.employeeName ?? assignment.equipmentName}</span>)}
+      </div>
+    </div>
+  );
 
   return (
     <div
@@ -192,6 +204,7 @@ export default function FieldOperationsWorkspace({
   const [weekStart, setWeekStart] = useState(initialWeek.startDate);
   const [visits, setVisits] = useState(initialVisits);
   const [selectedProjectId, setSelectedProjectId] = useState("");
+  const activeProjects = projects.filter((project) => project.projectStatus === "Active");
   const [selectedDate, setSelectedDate] = useState(initialWeek.startDate);
   const [isLoading, setIsLoading] = useState(false);
   const [isScheduling, setIsScheduling] = useState(false);
@@ -287,7 +300,7 @@ export default function FieldOperationsWorkspace({
         <div>
           <p className="salesEyebrow">FIELD OPERATIONS</p>
           <h1>Weekly field planner</h1>
-          <p>Approved recurring jobs are scheduled from their start date and frequency through their expected end date. Move individual visits within the week as needed.</p>
+          <p>Only Active jobs appear in this planner. Active recurring jobs are scheduled from their start date and frequency through their expected end date. Move individual visits within the week as needed.</p>
         </div>
         <div className="fieldWeekNavigation" aria-label="Choose week">
           <button type="button" aria-label="Previous week" disabled={isLoading} onClick={() => void changeWeek(shiftDate(weekStart, -7))}><ChevronLeft size={18} /></button>
@@ -300,12 +313,12 @@ export default function FieldOperationsWorkspace({
       <section className="fieldJobPicker">
         <div>
           <h2>Jobs</h2>
-          <p>All projects are listed. Estimated labor sums approved estimate lines marked Labor and measured in HR.</p>
-          {projects.some((project) => project.engagementType === "Service" && (!project.expectedStartDate || !project.expectedEndDate || !project.recurrenceFrequency)) && (
+          <p>Set a job to Active in Project Management to make it available here. Estimated labor sums approved estimate lines marked Labor and measured in HR.</p>
+          {activeProjects.some((project) => project.engagementType === "Service" && (!project.expectedStartDate || !project.expectedEndDate || !project.recurrenceFrequency)) && (
             <p className="fieldOperationsError" role="alert">Some existing recurring jobs are missing a start date, end date, or frequency. They remain available for manual scheduling, but cannot be automatically scheduled until their recurrence details are supplied.</p>
           )}
           <div className="fieldJobPool">
-            {projects.map((project) => (
+            {activeProjects.map((project) => (
               <button
                 className="fieldJobChip"
                 key={project.projectId}
@@ -319,7 +332,7 @@ export default function FieldOperationsWorkspace({
                 <small>{getEstimatedLaborHours(project.lines).toLocaleString()} estimated labor hrs</small>
               </button>
             ))}
-            {projects.length === 0 && <p className="fieldResourceEmpty">No projects or recurring jobs yet.</p>}
+            {activeProjects.length === 0 && <p className="fieldResourceEmpty">No Active jobs. Activate a job in Project Management to schedule it.</p>}
           </div>
         </div>
         <div className="fieldJobSchedule">
@@ -329,7 +342,7 @@ export default function FieldOperationsWorkspace({
               Job
               <select aria-label="Job to schedule" required value={selectedProjectId} onChange={(event) => setSelectedProjectId(event.target.value)}>
                 <option value="">Choose a project or recurring job</option>
-                {projects.map((project) => (
+                {activeProjects.map((project) => (
                   <option key={project.projectId} value={project.projectId}>
                     {project.projectName} · {project.engagementType === "Service" ? "Recurring" : "Project"} · {getEstimatedLaborHours(project.lines).toLocaleString()} estimated labor hrs
                   </option>
@@ -375,7 +388,7 @@ export default function FieldOperationsWorkspace({
             ) : (
               dayVisits.map((visit) => {
                 const project = projects.find((item) => item.projectId === visit.projectId);
-                if (!project) return null;
+                if (!project || project.projectStatus !== "Active") return null;
                 const visitPlannedHours = visit.tasks.reduce((total, task) => total + task.plannedLaborHours, 0);
                 return (
                   <article className="fieldScheduledJob" key={visit.serviceVisitId}>
@@ -412,6 +425,7 @@ export default function FieldOperationsWorkspace({
                         <TaskCard
                           key={`${task.taskId}:${task.taskName}:${task.plannedLaborHours}`}
                           task={task}
+                          readOnly={false}
                           employees={employees}
                           equipment={equipment}
                           onAction={runAction}

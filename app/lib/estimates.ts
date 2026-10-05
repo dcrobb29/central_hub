@@ -1,6 +1,7 @@
 import { getPool, sql } from "@/app/lib/db";
+import type { ProjectStatus } from "@/app/lib/project-status";
+import { rollbackIfActive } from "@/app/lib/sql-transactions";
 import { validateRecurringSchedule } from "@/app/lib/recurring-dates";
-import { ensureRecurringVisits } from "@/app/lib/recurring-schedule";
 import { getUnitsOfMeasurement } from "@/app/lib/units-of-measurement";
 import { requireUnitAbbreviation } from "@/app/lib/unit-presets";
 import {
@@ -109,7 +110,7 @@ export type ProjectScopeLine = {
 export type ProjectWithEstimate = {
   projectId: number;
   projectName: string;
-  projectStatus: string;
+  projectStatus: ProjectStatus;
   internalNotes: string | null;
   customerNotes: string | null;
   engagementType: EngagementType;
@@ -269,8 +270,8 @@ export async function createEstimate(input: CreateEstimateInput): Promise<number
         INSERT INTO dbo.Estimates (
           EstimateName, CustomerName, InternalNotes, CustomerNotes, EngagementType, RecurrenceFrequency, ExpectedStartDate, ExpectedEndDate
         )
-        OUTPUT inserted.EstimateID
-        VALUES (@estimateName, @customerName, @internalNotes, @customerNotes, @engagementType, @recurrenceFrequency, @expectedStartDate, @expectedEndDate)
+        VALUES (@estimateName, @customerName, @internalNotes, @customerNotes, @engagementType, @recurrenceFrequency, @expectedStartDate, @expectedEndDate);
+        SELECT CONVERT(int, SCOPE_IDENTITY()) AS EstimateID;
       `);
     const estimateId = estimateResult.recordset[0].EstimateID;
 
@@ -287,9 +288,9 @@ export async function createEstimate(input: CreateEstimateInput): Promise<number
           EstimateID, RevisionNumber, MarkupMode, GroupingMode, EstimateMarkupPercent,
           TaxPercent, RoundingIncrement, QuotedTotal
         )
-        OUTPUT inserted.EstimateRevisionID
         VALUES (@estimateId, 1, @markupMode, @groupingMode, @estimateMarkupPercent,
-          @taxPercent, @roundingIncrement, @quotedTotal)
+          @taxPercent, @roundingIncrement, @quotedTotal);
+        SELECT CONVERT(int, SCOPE_IDENTITY()) AS EstimateRevisionID;
       `);
     const revisionId = revisionResult.recordset[0].EstimateRevisionID;
 
@@ -298,7 +299,7 @@ export async function createEstimate(input: CreateEstimateInput): Promise<number
     await transaction.commit();
     return estimateId;
   } catch (error) {
-    await transaction.rollback();
+    await rollbackIfActive(transaction);
     throw error;
   }
 }
@@ -325,8 +326,8 @@ async function insertScopesAndLines(transaction: sql.Transaction, revisionId: nu
       .input("sortOrder", sql.Int, index)
       .query<{ EstimateScopeOfWorkID: number }>(`
         INSERT INTO dbo.EstimateScopesOfWork (EstimateRevisionID, ScopeName, SortOrder)
-        OUTPUT inserted.EstimateScopeOfWorkID
-        VALUES (@revisionId, @scopeName, @sortOrder)
+        VALUES (@revisionId, @scopeName, @sortOrder);
+        SELECT CONVERT(int, SCOPE_IDENTITY()) AS EstimateScopeOfWorkID;
       `);
     scopeIdByName.set(scopeName, scopeResult.recordset[0].EstimateScopeOfWorkID);
   }
@@ -434,7 +435,7 @@ export async function updateEstimate(estimateId: number, input: CreateEstimateIn
 
     await transaction.commit();
   } catch (error) {
-    await transaction.rollback();
+    await rollbackIfActive(transaction);
     throw error;
   }
 }
@@ -479,7 +480,7 @@ export async function deleteEstimate(estimateId: number): Promise<void> {
 
     await transaction.commit();
   } catch (error) {
-    await transaction.rollback();
+    await rollbackIfActive(transaction);
     throw error;
   }
 }
@@ -534,6 +535,7 @@ export async function winEstimate(estimateId: number): Promise<number> {
     // (not here) — simply carried over onto the new Project.
     const projectResult = await transaction.request()
       .input("projectName", sql.NVarChar(150), estimate.EstimateName)
+      .input("status", sql.VarChar(24), "Upcoming")
       .input("internalNotes", sql.NVarChar(4000), estimate.InternalNotes)
       .input("customerNotes", sql.NVarChar(4000), estimate.CustomerNotes)
       .input("revisionId", sql.Int, estimate.EstimateRevisionID)
@@ -546,20 +548,11 @@ export async function winEstimate(estimateId: number): Promise<number> {
           ProjectName, ProjectStatus, InternalNotes, CustomerNotes, AcceptedEstimateRevisionID, EngagementType, RecurrenceFrequency,
           ExpectedStartDate, ExpectedEndDate
         )
-        OUTPUT inserted.ProjectID
-        VALUES (@projectName, 'Planning', @internalNotes, @customerNotes, @revisionId, @engagementType, @recurrenceFrequency,
-          @expectedStartDate, @expectedEndDate)
+        VALUES (@projectName, @status, @internalNotes, @customerNotes, @revisionId, @engagementType, @recurrenceFrequency,
+          @expectedStartDate, @expectedEndDate);
+        SELECT CONVERT(int, SCOPE_IDENTITY()) AS ProjectID;
       `);
     const projectId = projectResult.recordset[0].ProjectID;
-    if (estimate.EngagementType === "Service" && estimate.ExpectedStartDate && estimate.ExpectedEndDate && estimate.RecurrenceFrequency) {
-      await ensureRecurringVisits(
-        transaction, projectId,
-        estimate.ExpectedStartDate.toISOString().slice(0, 10),
-        estimate.ExpectedEndDate.toISOString().slice(0, 10),
-        estimate.RecurrenceFrequency,
-      );
-    }
-
     await transaction.request()
       .input("estimateId", sql.Int, estimateId)
       .query("UPDATE dbo.Estimates SET EstimateStatus = 'Won' WHERE EstimateID = @estimateId");
@@ -567,7 +560,7 @@ export async function winEstimate(estimateId: number): Promise<number> {
     await transaction.commit();
     return projectId;
   } catch (error) {
-    await transaction.rollback();
+    await rollbackIfActive(transaction);
     throw error;
   }
 }

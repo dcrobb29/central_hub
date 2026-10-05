@@ -2,6 +2,8 @@ import { getPool, sql } from "@/app/lib/db";
 import { ensureRecurringVisits } from "@/app/lib/recurring-schedule";
 import type { RecurringFrequency } from "@/app/lib/recurring-dates";
 import { getCurrentWeekRange } from "@/app/lib/field-operations-dates";
+import { ACTIVE_PLANNER_MESSAGE, COMPLETED_PROJECT_MESSAGE } from "@/app/lib/project-status";
+import { rollbackIfActive } from "@/app/lib/sql-transactions";
 export type FieldOperationsEquipment = {
   equipmentId: number;
   equipmentName: string;
@@ -66,6 +68,7 @@ export async function getFieldOperationsSchedule(startDate: string, endDate: str
         CONVERT(varchar(10), ExpectedEndDate, 23) AS endDate, RecurrenceFrequency AS frequency
       FROM dbo.Projects
       WHERE EngagementType = 'Service' AND AcceptedEstimateRevisionID IS NOT NULL
+        AND ProjectStatus = 'Active'
         AND ExpectedStartDate <= @endDate AND ExpectedEndDate >= @startDate
         AND RecurrenceFrequency IS NOT NULL
       ORDER BY ProjectID
@@ -79,7 +82,7 @@ export async function getFieldOperationsSchedule(startDate: string, endDate: str
       }
       await transaction.commit();
     } catch (error) {
-      await transaction.rollback();
+      await rollbackIfActive(transaction);
       throw error;
     }
   }
@@ -100,6 +103,7 @@ export async function getFieldOperationsSchedule(startDate: string, endDate: str
         a.EquipmentID AS equipmentId,
         q.EquipmentName AS equipmentName
       FROM dbo.ServiceVisits v
+      JOIN dbo.Projects p ON p.ProjectID = v.ProjectID AND p.ProjectStatus = 'Active'
       LEFT JOIN dbo.FieldOperationsTasks t
         ON t.ServiceVisitID = v.ServiceVisitID AND t.IsActive = 1
       LEFT JOIN dbo.FieldOperationsTaskAssignments a
@@ -159,8 +163,10 @@ export async function scheduleProjectVisit(projectId: number, visitDate: string)
   try {
     const project = await transaction.request()
       .input("projectId", sql.Int, projectId)
-      .query<{ ProjectID: number }>("SELECT ProjectID FROM dbo.Projects WITH (UPDLOCK, HOLDLOCK) WHERE ProjectID = @projectId");
+      .query<{ ProjectID: number; ProjectStatus: string }>("SELECT ProjectID, ProjectStatus FROM dbo.Projects WITH (UPDLOCK, HOLDLOCK) WHERE ProjectID = @projectId");
     if (!project.recordset[0]) throw new Error("project-not-found");
+    if (project.recordset[0].ProjectStatus === "Complete") throw new Error(COMPLETED_PROJECT_MESSAGE);
+    if (project.recordset[0].ProjectStatus !== "Active") throw new Error(ACTIVE_PLANNER_MESSAGE);
 
     const existing = await transaction.request()
       .input("projectId", sql.Int, projectId)
@@ -179,8 +185,8 @@ export async function scheduleProjectVisit(projectId: number, visitDate: string)
         .input("visitDate", sql.Date, asSqlDate(visitDate))
         .query<{ ServiceVisitID: number }>(`
           INSERT INTO dbo.ServiceVisits (ProjectID, VisitDate, Status)
-          OUTPUT inserted.ServiceVisitID
-          VALUES (@projectId, @visitDate, 'Scheduled')
+          VALUES (@projectId, @visitDate, 'Scheduled');
+          SELECT CONVERT(int, SCOPE_IDENTITY()) AS ServiceVisitID;
         `);
       serviceVisitId = inserted.recordset[0].ServiceVisitID;
     }
@@ -202,7 +208,7 @@ export async function scheduleProjectVisit(projectId: number, visitDate: string)
     }
     await transaction.commit();
   } catch (error) {
-    await transaction.rollback();
+    await rollbackIfActive(transaction);
     throw error;
   }
 }
@@ -234,7 +240,7 @@ export async function moveFieldOperationsVisit(serviceVisitId: number, visitDate
     await transaction.commit();
     return true;
   } catch (error) {
-    await transaction.rollback();
+    await rollbackIfActive(transaction);
     throw error;
   }
 }
@@ -271,7 +277,7 @@ export async function unscheduleFieldOperationsVisit(serviceVisitId: number): Pr
     await transaction.commit();
     return true;
   } catch (error) {
-    await transaction.rollback();
+    await rollbackIfActive(transaction);
     throw error;
   }
 }
@@ -335,7 +341,7 @@ export async function deactivateFieldOperationsTask(taskId: number): Promise<boo
     await transaction.commit();
     return true;
   } catch (error) {
-    await transaction.rollback();
+    await rollbackIfActive(transaction);
     throw error;
   }
 }

@@ -52,7 +52,8 @@ test("recurring approval, moves, skips, and legacy visits persist correctly", {
   try {
     const { winEstimate } = await import("./estimates.ts");
     const { ensureRecurringVisits } = await import("./recurring-schedule.ts");
-    const { getFieldOperationsSchedule, moveFieldOperationsVisit, unscheduleFieldOperationsVisit } = await import("./field-operations.ts");
+    const { getFieldOperationsSchedule, scheduleProjectVisit, moveFieldOperationsVisit, unscheduleFieldOperationsVisit } = await import("./field-operations.ts");
+    const { updateProjectStatus } = await import("./projects.ts");
     const fixture = await transaction.request().query(`
       INSERT INTO dbo.Estimates (EstimateName, EngagementType, RecurrenceFrequency, ExpectedStartDate, ExpectedEndDate)
       VALUES (N'Recurring planner integration test', 'Service', 'Weekly', '2040-10-03', '2040-10-17');
@@ -68,6 +69,15 @@ test("recurring approval, moves, skips, and legacy visits persist correctly", {
         CONVERT(varchar(10), RecurrenceDate, 23) AS original, Status AS status
       FROM dbo.ServiceVisits WHERE ProjectID = @projectId ORDER BY RecurrenceDate
     `)).recordset;
+    assert.equal((await visits()).length, 0);
+    await ensureRecurringVisits(facade, projectId, "2040-10-03", "2040-10-17", "Weekly");
+    assert.equal((await visits()).length, 0);
+    assert.equal((await getFieldOperationsSchedule("2040-10-01", "2040-10-07")).filter((visit) => visit.projectId === projectId).length, 0);
+    await assert.rejects(() => scheduleProjectVisit(projectId, "2040-10-03"), /Only Active jobs/);
+    await updateProjectStatus(projectId, "Active");
+    await getFieldOperationsSchedule("2040-10-01", "2040-10-07");
+    assert.deepEqual((await visits()).map((visit) => visit.date), ["2040-10-03"]);
+    await ensureRecurringVisits(facade, projectId, "2040-10-03", "2040-10-17", "Weekly");
     const initial = await visits();
     assert.deepEqual(initial.map((visit) => visit.date), ["2040-10-03", "2040-10-10", "2040-10-17"]);
     await assert.rejects(() => winEstimate(fixture.recordset[0].estimateId), /not-draft/);
@@ -97,6 +107,13 @@ test("recurring approval, moves, skips, and legacy visits persist correctly", {
     assert.equal(schedule[0].tasks[0].plannedLaborHours, 3.5);
     assert.equal(schedule[0].tasks[0].assignments.length, 1);
 
+    await updateProjectStatus(projectId, "Upcoming");
+    assert.equal((await getFieldOperationsSchedule("2040-10-01", "2040-10-07")).filter((visit) => visit.projectId === projectId).length, 0);
+    assert.equal((await visits()).length, 3);
+    await assert.rejects(() => scheduleProjectVisit(projectId, "2040-10-06"), /Only Active jobs/);
+    await updateProjectStatus(projectId, "Active");
+    assert.equal((await getFieldOperationsSchedule("2040-10-01", "2040-10-07")).filter((visit) => visit.projectId === projectId).length, 1);
+
     assert.equal(await unscheduleFieldOperationsVisit(initial[0].id), true);
     await ensureRecurringVisits(facade, projectId, "2040-10-03", "2040-10-17", "Weekly");
     assert.equal((await visits()).length, 3);
@@ -125,6 +142,13 @@ test("recurring approval, moves, skips, and legacy visits persist correctly", {
     const count = await transaction.request().input("projectId", sql.Int, oneTimeProjectId)
       .query("SELECT COUNT(*) AS count FROM dbo.ServiceVisits WHERE ProjectID = @projectId");
     assert.equal(count.recordset[0].count, 0);
+    await assert.rejects(() => scheduleProjectVisit(oneTimeProjectId, "2040-10-03"), /Only Active jobs/);
+    await updateProjectStatus(oneTimeProjectId, "Active");
+    await scheduleProjectVisit(oneTimeProjectId, "2040-10-03");
+    assert.equal((await getFieldOperationsSchedule("2040-10-01", "2040-10-07")).filter((visit) => visit.projectId === oneTimeProjectId).length, 1);
+    await updateProjectStatus(oneTimeProjectId, "Complete");
+    assert.equal((await getFieldOperationsSchedule("2040-10-01", "2040-10-07")).filter((visit) => visit.projectId === oneTimeProjectId).length, 0);
+    await assert.rejects(() => scheduleProjectVisit(oneTimeProjectId, "2040-10-04"), /Complete and read-only/);
   } finally {
     hooks.deregister();
     delete globalThis.recurringTestDb;

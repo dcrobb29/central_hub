@@ -60,7 +60,7 @@ export async function getInvoices(): Promise<Invoice[]> {
 export async function getInvoiceProjectOptions(): Promise<ProjectOption[]> {
   const pool = await getPool();
   const result = await pool.request().query<ProjectOption>(`
-    SELECT ProjectID AS projectId, ProjectName AS projectName
+    SELECT ProjectID AS projectId, ProjectName AS projectName, ProjectStatus AS projectStatus
     FROM dbo.Projects
     ORDER BY ProjectName, ProjectID
   `);
@@ -118,7 +118,6 @@ export async function addInvoice(input: {
         [Shipping Address Line 1], [Shipping Address Line 2], [Shipping Address City],
         [Shipping Address State], [Shipping Address Zip]
       )
-      OUTPUT inserted.id AS id
       VALUES (
         @invoiceNo, @projectId, @invoiceDate, @invoiceDueDate, @invoicePaidDate, @invoiceAmount,
         @firstName, @lastName, @companyName,
@@ -126,7 +125,8 @@ export async function addInvoice(input: {
         @billingAddressState, @billingAddressZip,
         @shippingAddressLine1, @shippingAddressLine2, @shippingAddressCity,
         @shippingAddressState, @shippingAddressZip
-      )
+      );
+      SELECT CONVERT(int, SCOPE_IDENTITY()) AS id;
     `);
   return result.recordset[0].id;
 }

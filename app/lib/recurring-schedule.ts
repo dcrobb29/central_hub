@@ -20,7 +20,10 @@ export async function ensureRecurringVisits(
       INSERT INTO @datesToSchedule SELECT CONVERT(date, [value]) FROM OPENJSON(@dates);
 
       -- Serialize per project, including adoption of previously manual visits.
-      SELECT ProjectID FROM dbo.Projects WITH (UPDLOCK, HOLDLOCK) WHERE ProjectID = @projectId;
+      DECLARE @status varchar(24);
+      SELECT @status = ProjectStatus FROM dbo.Projects WITH (UPDLOCK, HOLDLOCK) WHERE ProjectID = @projectId;
+      -- Status may change between the planner's project query and this lock.
+      IF @status IS NULL OR @status <> 'Active' RETURN;
 
       UPDATE v SET RecurrenceDate = d.RecurrenceDate
       FROM @datesToSchedule d

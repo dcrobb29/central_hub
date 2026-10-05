@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { deleteBill, updateBill } from "@/app/lib/bills";
 import { describeValidationError } from "@/app/lib/validation";
 import { describeBillSqlError, parseBillInput } from "../route";
+import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const billId = (await params).id;
@@ -36,6 +37,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
     await deleteBill(billId);
     return NextResponse.json({ id: billId });
   } catch (error) {
+    if (isCompletedProjectError(error)) return NextResponse.json({ error: COMPLETED_PROJECT_MESSAGE }, { status: 409 });
     if (typeof error === "object" && error !== null && "number" in error && Number(error.number) === 547) {
       return NextResponse.json({ error: "This bill has cost-allocation history and cannot be deleted. Its records are retained for traceability." }, { status: 409 });
     }

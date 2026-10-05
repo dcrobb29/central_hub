@@ -317,8 +317,8 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
                 ))}
                 <td>
                   <div className="estimateActionsInner">
-                    <button type="button" className="estimateTextAction" onClick={() => openEditForm(invoice)}>Edit</button>
-                    <button type="button" className="estimateDangerAction" onClick={() => { setDeleteError(null); setDeletingInvoice(invoice); }}>Delete</button>
+                    <button type="button" className="estimateTextAction" disabled={projectOptions.some((project) => project.projectId === invoice.projectId && project.projectStatus === "Complete")} onClick={() => openEditForm(invoice)}>Edit</button>
+                    <button type="button" className="estimateDangerAction" disabled={projectOptions.some((project) => project.projectId === invoice.projectId && project.projectStatus === "Complete")} onClick={() => { setDeleteError(null); setDeletingInvoice(invoice); }}>Delete</button>
                   </div>
                 </td>
               </tr>
@@ -348,7 +348,7 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
                     Project
                     <select value={invoiceDraft.projectId} onChange={(event) => setInvoiceDraft((current) => ({ ...current, projectId: event.target.value }))}>
                       <option value="">Unassigned</option>
-                      {projectOptions.map((project) => <option value={project.projectId} key={project.projectId}>{project.projectName}</option>)}
+                      {projectOptions.map((project) => <option value={project.projectId} key={project.projectId} disabled={project.projectStatus === "Complete"}>{project.projectName}{project.projectStatus === "Complete" ? " (Complete - read-only)" : ""}</option>)}
                     </select>
                   </label>
                 </div>

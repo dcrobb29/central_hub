@@ -67,11 +67,13 @@ dated `ServiceVisits`, adds multiple task rows per visit, and stores employee or
 equipment assignments on each task. Task and assignment removal is soft, so the
 application only needs SELECT/INSERT/UPDATE permissions.
 
-The weekly board shows all projects and recurring jobs and all org-chart
-employees; overhead filtering and project-status filtering are not applied.
+The weekly board lists only Active projects and recurring jobs, plus all org-chart
+employees; overhead filtering is not applied. Upcoming jobs remain in Project
+Management for preparation, and Complete jobs are not assignable.
 Recurring estimates require a valid start date, end date, and frequency. Acceptance
-creates dated visits and a General work task for each occurrence in that inclusive
-date range, in the same transaction as approval. Weekly and biweekly intervals
+creates an Upcoming job without planner visits. Once set to Active, opening a
+planner week creates dated visits and a General work task for occurrences in that
+week, bounded by the job's start and end dates. Weekly and biweekly intervals
 stay anchored to the start date. Monthly, quarterly, semiannual, and annual visits
 use calendar months, clamping to the last day of shorter months without shifting
 later occurrences. Estimate labor is
@@ -87,7 +89,7 @@ after the engagement and field-planning schemas before deploying recurring
 scheduling. It gives existing recurring estimates and jobs without end dates an
 end date three calendar months after their start. Legacy records without a start
 date must be corrected before acceptance; they are not automatically scheduled.
-Opening a planner week fills missing occurrences for existing approved jobs.
+Opening a planner week fills missing occurrences only for Active approved jobs.
 Previously manual visits on default dates are reused, including skipped/completed
 visits. Original occurrence dates are unique and retained when visits move or are
 removed, so refreshes never recreate them. Drag a scheduled title or use its date
@@ -111,6 +113,42 @@ move/skip persistence, task/resource retention, legacy visit adoption, and uncha
 one-time approval. All fixture data is rolled back at the end.
 
 ## Bill-backed project actuals
+
+### Job status and completion
+
+Apply [database/project-status-schema.sql](database/project-status-schema.sql)
+after the other project, estimate, finance, and planner schemas, using an admin
+connection. Run it in a transaction with `SET XACT_ABORT ON`; unknown legacy
+statuses stop the migration for review. It reuses `Projects.ProjectStatus` rather
+than creating a second status column, maps Planning to Upcoming and Completed to
+Complete, changes the default to Upcoming, and allows Upcoming/Active/Complete.
+Rerun this migration after adding any of its optional job-data tables to install
+their completion guards.
+
+The Project Management status selector works for both one-time and recurring
+jobs. Complete freezes job data while leaving it readable: no new, edited,
+removed, or reassigned bill/invoice/cost rows, payment-date changes, planner visits,
+tasks, resource assignments, or edits to the accepted estimate baseline.
+Database triggers enforce the lock even for direct API/import writes and check
+both the original and new project ownership. The selector can explicitly reopen a
+Complete job to Active; it cannot move directly from Complete to Upcoming.
+Reopening changes only status, not historical data. Correct unpaid bills/invoices
+before completion or reopen to record later payments.
+
+Only Active jobs appear in the weekly planner's job pool, selection dropdown,
+and scheduled board. Upcoming and Complete jobs do not generate default visits.
+Existing visits and assignments are preserved but hidden from the weekly planner
+while the job is not Active; returning to Active restores them without duplicating
+or resetting moved/skipped occurrences. Completing a job does not erase its schedule
+or financial history. Cost and finance controls are disabled for Complete jobs.
+Rerun the status migration to install Active-only guards on visits, tasks, and
+resource assignments. These reject stale planner writes for non-Active jobs,
+including moving assignments out of an Upcoming job.
+Project budgets still use the accepted estimate, and the lock does not change
+financial totals.
+
+Run the transactional status integration tests with
+`$env:RUN_DB_TESTS='1'; node --test app\lib\project-status.integration.test.mjs`.
 
 Apply [database/project-bill-costs-schema.sql](database/project-bill-costs-schema.sql)
 after the project-finances, project-workflow, estimate-scopes, and estimate-pricing

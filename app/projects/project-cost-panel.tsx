@@ -43,6 +43,7 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
   financials: ProjectFinancialSummary | undefined;
 }) {
   const router = useRouter();
+  const readOnly = project.projectStatus === "Complete";
   const [draft, setDraft] = useState<CostDraft | null>(null);
   const [referenceLine, setReferenceLine] = useState<ProjectScopeLine | null>(null);
   const [showFinancialDetails, setShowFinancialDetails] = useState(false);
@@ -118,8 +119,8 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
             <td>{cost.costDate}<br /><Link href="/finances/bills">Bill {cost.billNo} ({cost.billId})</Link></td>
             <td>{cost.description}</td><td>{quantity.format(cost.quantity)} {cost.unitName}</td>
             <td>{unitPrice.format(cost.unitCost)}</td><td>{dollars(cost.freightAmount)}</td><td>{dollars(cost.taxAmount)}</td><td>{dollars(cost.amount)}</td>
-            <td><button type="button" className="estimateTextAction" disabled={busy} onClick={() => edit(cost)}>Edit / Reallocate</button>{" "}
-              <button type="button" className="estimateDangerAction" disabled={busy} onClick={() => void remove(cost)}>Remove allocation</button></td>
+            <td><button type="button" className="estimateTextAction" disabled={busy || readOnly} onClick={() => edit(cost)}>Edit / Reallocate</button>{" "}
+              <button type="button" className="estimateDangerAction" disabled={busy || readOnly} onClick={() => void remove(cost)}>Remove allocation</button></td>
           </tr>)}</tbody>
         </table>
       </div>
@@ -136,6 +137,7 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
 
   return (
     <section className="projectCostPanel">
+      {readOnly && <p className="projectCostHint" role="status">Complete job: all data is read-only. Change the job status to Active to reopen it.</p>}
       <div className="projectActualCostToolbar">
         <strong>Invoiced cost tracking</strong>
         <button type="button" className="estimateTextAction" aria-expanded={showFinancialDetails} onClick={() => setShowFinancialDetails(!showFinancialDetails)}>
@@ -185,7 +187,7 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
                 </summary>
                 <div className="projectActualCostContent">
                 <div className="projectActualCostToolbar">
-                  <button type="button" className="estimateTextAction" disabled={busy} onClick={() => openNew(line)}>Add actual cost</button>
+                  <button type="button" className="estimateTextAction" disabled={busy || readOnly} onClick={() => openNew(line)}>Add actual cost</button>
                 </div>
                 {costRows(rows)}
                 </div>
@@ -196,7 +198,7 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
       })}
       <section className="projectCostScope">
         <header><h3>Unexpected / Out-of-scope costs</h3><strong>{dollars(unexpectedTotal)}</strong>
-          <button type="button" className="estimateTextAction" disabled={busy} onClick={() => openNew(null)}>Add unexpected cost</button></header>
+          <button type="button" className="estimateTextAction" disabled={busy || readOnly} onClick={() => openNew(null)}>Add unexpected cost</button></header>
         <p className="projectCostHint">Includes omitted work and pending change-order costs. These count toward job actuals now and may be reallocated later. The accepted estimate is unchanged.</p>
         {costRows(unexpected)}
       </section>
@@ -219,7 +221,7 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
             <td>{dollars(referencePricing.taxAmount)}</td><td>{referenceLine.lineMarkupPercent}%</td><td>{dollars(referencePricing.landedCost)}</td></tr></tbody>
         </table></div>
       </Modal>}
-      {draft && <Modal titleId={`projectCostTitle-${project.projectId}`} title={draft.costId === null ? "Add actual cost" : "Edit / reallocate actual cost"} eyebrow="PROJECT ACTUALS" onClose={() => { if (!busy) { setDraft(null); setError(null); } }} closeDisabled={busy} closeLabel="Close actual cost form">
+      {draft && !readOnly && <Modal titleId={`projectCostTitle-${project.projectId}`} title={draft.costId === null ? "Add actual cost" : "Edit / reallocate actual cost"} eyebrow="PROJECT ACTUALS" onClose={() => { if (!busy) { setDraft(null); setError(null); } }} closeDisabled={busy} closeLabel="Close actual cost form">
         <form onSubmit={(event) => void save(event)}>
           <div className="financeImportFields">
             <label className="financeImportField">Destination *

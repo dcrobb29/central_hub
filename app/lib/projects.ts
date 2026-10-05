@@ -1,8 +1,10 @@
 import { getPool, sql } from "@/app/lib/db";
+import type { ProjectStatus } from "@/app/lib/project-status";
 
 export type ProjectOption = {
   projectId: number;
   projectName: string;
+  projectStatus: ProjectStatus;
 };
 
 export type ProjectFinancialSummary = ProjectOption & {
@@ -21,7 +23,7 @@ export type ProjectFinancialSummary = ProjectOption & {
 export async function getProjects(): Promise<ProjectOption[]> {
   const pool = await getPool();
   const result = await pool.request().query<ProjectOption>(`
-    SELECT ProjectID AS projectId, ProjectName AS projectName
+    SELECT ProjectID AS projectId, ProjectName AS projectName, ProjectStatus AS projectStatus
     FROM dbo.Projects
     ORDER BY ProjectName, ProjectID
   `);
@@ -34,6 +36,7 @@ export async function getProjectFinancialSummary(): Promise<ProjectFinancialSumm
     SELECT
       ProjectID AS projectId,
       ProjectName AS projectName,
+      (SELECT ProjectStatus FROM dbo.Projects p WHERE p.ProjectID = dbo.ProjectFinancialSummary.ProjectID) AS projectStatus,
       Income AS income,
       PaidIncome AS paidIncome,
       UnpaidIncome AS unpaidIncome,
@@ -50,14 +53,21 @@ export async function getProjectFinancialSummary(): Promise<ProjectFinancialSumm
   return result.recordset;
 }
 
+export async function updateProjectStatus(projectId: number, status: ProjectStatus): Promise<boolean> {
+  const pool = await getPool();
+  const result = await pool.request().input("projectId", sql.Int, projectId).input("status", sql.VarChar(24), status)
+    .query("UPDATE dbo.Projects SET ProjectStatus = @status WHERE ProjectID = @projectId");
+  return result.rowsAffected[0] === 1;
+}
+
 export async function createProject(projectName: string): Promise<number> {
   const pool = await getPool();
   const result = await pool.request()
     .input("projectName", sql.NVarChar(150), projectName)
     .query<{ ProjectID: number }>(`
       INSERT INTO dbo.Projects (ProjectName)
-      OUTPUT inserted.ProjectID
-      VALUES (@projectName)
+      VALUES (@projectName);
+      SELECT CONVERT(int, SCOPE_IDENTITY()) AS ProjectID;
     `);
   return result.recordset[0].ProjectID;
 }

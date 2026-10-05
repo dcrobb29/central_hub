@@ -607,6 +607,8 @@
 .projectCardTitle span,
 .projectCardMeta { color: #687a73; font-size: 11px; }
 .projectCardTotal { color: #183e35; font-size: 14px; }
+.projectStatusControl { display: flex; flex-direction: column; gap: 4px; }
+.projectStatusControl select { padding: 5px 8px; border: 1px solid #bdcbc3; border-radius: 3px; background: #fff; color: #20362d; font-size: 12px; }
 
 .projectScopeTableWrapper {
   margin: 0 14px 14px;

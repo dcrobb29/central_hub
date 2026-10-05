@@ -5,6 +5,7 @@ import type { ProjectWithEstimate } from "@/app/lib/estimates";
 import type { AllocationBill, ProjectBillCost } from "@/app/lib/project-costs";
 import type { ProjectFinancialSummary } from "@/app/lib/projects";
 import ProjectCostPanel from "./project-cost-panel";
+import ProjectStatusSelector from "./project-status-selector";
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
@@ -80,7 +81,7 @@ export default function ProjectsWorkspace({ projects, costs, bills, financials, 
                   <strong>{project.projectName}</strong>
                   <span>{project.customerName ?? "Customer not specified"}</span>
                 </span>
-                <span className="projectCardMeta">{project.projectStatus}</span>
+                <ProjectStatusSelector projectId={project.projectId} projectName={project.projectName} status={project.projectStatus} />
                 <span className="projectCardMeta">{project.estimateName ? `Estimate: ${project.estimateName}` : "No estimate"}</span>
                 {activeTab === "Service" && (
                   <span className="projectCardMeta">

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { deleteInvoice, updateInvoice } from "@/app/lib/invoices";
 import { describeValidationError } from "@/app/lib/validation";
 import { describeInvoiceSqlError, parseInvoiceInput } from "../route";
+import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const invoiceId = Number((await params).id);
@@ -35,7 +36,9 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   try {
     await deleteInvoice(invoiceId);
     return NextResponse.json({ id: invoiceId });
-  } catch {
+  } catch (error) {
+    if (isCompletedProjectError(error)) return NextResponse.json({ error: COMPLETED_PROJECT_MESSAGE }, { status: 409 });
+    console.error("Invoice deletion failed", error);
     return NextResponse.json({ error: "Unable to delete invoice. Check database delete permissions." }, { status: 500 });
   }
 }

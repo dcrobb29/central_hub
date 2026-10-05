@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
 import { InvalidUnitPresetError } from "@/app/lib/unit-presets";
 import { deleteEstimate, updateEstimate, type CreateEstimateInput } from "@/app/lib/estimates";
 import { isRecord, parseEstimate } from "../route";
 
 function describeEstimateMutationError(error: unknown): { message: string; status: number } {
+  if (isCompletedProjectError(error)) return { message: COMPLETED_PROJECT_MESSAGE, status: 409 };
   const reason = error instanceof Error ? error.message : "";
   if (reason === "not-found") return { message: "Estimate not found", status: 404 };
   if (reason === "not-editable") return { message: "Won estimates can't be edited or deleted", status: 409 };

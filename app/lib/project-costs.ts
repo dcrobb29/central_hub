@@ -1,5 +1,7 @@
 import { getPool, sql } from "@/app/lib/db";
 import { actualCostTotal, ProjectCostError, type ProjectCostInput } from "@/app/lib/project-cost-pricing";
+import { COMPLETED_PROJECT_MESSAGE } from "@/app/lib/project-status";
+import { rollbackIfActive } from "@/app/lib/sql-transactions";
 
 export type ProjectBillCost = ProjectCostInput & {
   costId: number;
@@ -53,8 +55,9 @@ export async function saveProjectBillCost(input: ProjectCostInput, costId: numbe
     // Lock the project first, then all its bills in key order, serializing edits
     // that transfer an allocation between bills as well as new allocations.
     const project = await transaction.request().input("projectId", sql.Int, input.projectId)
-      .query<{ ProjectID: number }>("SELECT ProjectID FROM dbo.Projects WITH (UPDLOCK, HOLDLOCK) WHERE ProjectID = @projectId");
+      .query<{ ProjectID: number; ProjectStatus: string }>("SELECT ProjectID, ProjectStatus FROM dbo.Projects WITH (UPDLOCK, HOLDLOCK) WHERE ProjectID = @projectId");
     if (!project.recordset[0]) throw new ProjectCostError("The project no longer exists");
+    if (project.recordset[0].ProjectStatus === "Complete") throw new ProjectCostError(COMPLETED_PROJECT_MESSAGE);
     const bills = await transaction.request().input("projectId", sql.Int, input.projectId)
       .query<{ id: string; amount: number | null }>(`
         SELECT RTRIM(id) AS id,
@@ -96,19 +99,21 @@ export async function saveProjectBillCost(input: ProjectCostInput, costId: numbe
       .input("tax", sql.Decimal(19, 2), input.taxAmount).input("amount", sql.Decimal(19, 2), amount);
     const result = await request.query<{ costId: number }>(costId === null ? `
       INSERT INTO dbo.ProjectBillCosts (ProjectID, BillID, EstimateLineItemID, Description, CostDate, Quantity, UnitName, UnitCost, FreightAmount, TaxAmount, Amount)
-      OUTPUT inserted.ProjectBillCostID AS costId
-      VALUES (@projectId, @billId, @lineId, @description, @costDate, @quantity, @unitName, @unitCost, @freight, @tax, @amount)
+      VALUES (@projectId, @billId, @lineId, @description, @costDate, @quantity, @unitName, @unitCost, @freight, @tax, @amount);
+      SELECT CONVERT(int, SCOPE_IDENTITY()) AS costId;
     ` : `
+      DECLARE @updated TABLE (costId int);
       UPDATE dbo.ProjectBillCosts SET BillID = @billId, EstimateLineItemID = @lineId, Description = @description,
         CostDate = @costDate, Quantity = @quantity, UnitName = @unitName, UnitCost = @unitCost,
         FreightAmount = @freight, TaxAmount = @tax, Amount = @amount, UpdatedAt = SYSUTCDATETIME()
-      OUTPUT inserted.ProjectBillCostID AS costId
-      WHERE ProjectBillCostID = @costId AND ProjectID = @projectId AND IsActive = 1
+      OUTPUT inserted.ProjectBillCostID INTO @updated
+      WHERE ProjectBillCostID = @costId AND ProjectID = @projectId AND IsActive = 1;
+      SELECT costId FROM @updated;
     `);
     await transaction.commit();
     return result.recordset[0].costId;
   } catch (error) {
-    await transaction.rollback();
+    await rollbackIfActive(transaction);
     throw error;
   }
 }

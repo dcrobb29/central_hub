@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseProjectCost, ProjectCostError } from "@/app/lib/project-cost-pricing";
 import { removeProjectBillCost, saveProjectBillCost } from "@/app/lib/project-costs";
+import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
 
 function positiveId(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= 2_147_483_647;
@@ -23,6 +24,9 @@ export async function POST(request: NextRequest) {
     if (costId !== null && !positiveId(costId)) throw new ProjectCostError("Choose a valid cost row");
     return NextResponse.json({ costId: await saveProjectBillCost(input, costId) }, { status: costId === null ? 201 : 200 });
   } catch (error) {
+    if (isCompletedProjectError(error) || error instanceof ProjectCostError && error.message === COMPLETED_PROJECT_MESSAGE) {
+      return NextResponse.json({ error: COMPLETED_PROJECT_MESSAGE }, { status: 409 });
+    }
     if (error instanceof ProjectCostError) return NextResponse.json({ error: error.message }, { status: 400 });
     console.error("Project cost request failed", error);
     return NextResponse.json({ error: "Unable to save project costs. Check the database connection and permissions." }, { status: 500 });

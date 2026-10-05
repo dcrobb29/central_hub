@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { addBill, type BillInput } from "@/app/lib/bills";
+import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
 import { amountValue, describeValidationError, isoDateValue, optionalIsoDateValue, optionalProjectId, textValue, ValidationError } from "@/app/lib/validation";
 
 // Shared by POST (create) and the [id] route's PUT (update) so both stay in lockstep.
@@ -25,6 +26,7 @@ export function parseBillInput(body: unknown): BillInput {
 }
 
 export function describeBillSqlError(error: unknown): { message: string; status: number } {
+  if (isCompletedProjectError(error)) return { message: COMPLETED_PROJECT_MESSAGE, status: 409 };
   if (typeof error === "object" && error !== null && "number" in error && [51021, 51022].includes(Number(error.number))) {
     return { message: Number(error.number) === 51021
       ? "Remove active cost allocations in Projects & Jobs before changing this bill's project"

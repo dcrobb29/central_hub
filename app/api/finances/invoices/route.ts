@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { addInvoice, type InvoiceInput } from "@/app/lib/invoices";
+import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
 import { amountValue, describeValidationError, isoDateValue, optionalIsoDateValue, optionalProjectId, textValue, ValidationError } from "@/app/lib/validation";
 
 // Shared by POST (create) and the [id] route's PUT (update) so both stay in lockstep.
@@ -32,6 +33,7 @@ export function parseInvoiceInput(body: unknown): InvoiceInput {
 }
 
 export function describeInvoiceSqlError(error: unknown): { message: string; status: number } {
+  if (isCompletedProjectError(error)) return { message: COMPLETED_PROJECT_MESSAGE, status: 409 };
   if (typeof error === "object" && error !== null && "number" in error && error.number === 547) {
     return { message: "The selected project no longer exists", status: 400 };
   }

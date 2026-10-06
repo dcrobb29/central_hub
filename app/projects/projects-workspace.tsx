@@ -82,15 +82,17 @@ export default function ProjectsWorkspace({ projects, costs, bills, financials, 
                   <span>{project.customerName ?? "Customer not specified"}</span>
                 </span>
                 <ProjectStatusSelector projectId={project.projectId} projectName={project.projectName} status={project.projectStatus} />
-                <span className="projectCardMeta">{project.estimateName ? `Estimate: ${project.estimateName}` : "No estimate"}</span>
                 <div className="projectCardMetaContainer"> 
                   {activeTab === "Service" && (<span className="projectCardMeta">
                     {project.recurrenceFrequency ? FREQUENCY_LABELS[project.recurrenceFrequency] ?? project.recurrenceFrequency : "—"}
                     {project.expectedStartDate ? ` · Starts ${formatDate(project.expectedStartDate)}` : ""}
                     {project.expectedEndDate ? ` · Ends ${formatDate(project.expectedEndDate)}` : " · Ongoing"}
                   </span>)}
-                  <strong className="projectCardTotal">{project.quotedTotal == null ? "—" : currency.format(project.quotedTotal)}</strong>
-                  </div>
+                </div>
+                <div className="projectCardTotal">
+                  <strong>{project.quotedTotal == null ? "—" : currency.format(project.quotedTotal)}</strong>
+                </div>
+
 
               </summary>
               <ProjectCostPanel

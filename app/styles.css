@@ -588,7 +588,7 @@
 
 .projectCard > summary {
   display: grid;
-  grid-template-columns: minmax(180px, 2fr) minmax(90px, .7fr) minmax(130px, 1fr) auto;
+  grid-template-columns: minmax(40%, 40%) minmax(90px, .7fr) minmax(130px, 1fr) auto;
   align-items: center;
   gap: 12px;
   padding: 14px 16px;
@@ -600,16 +600,20 @@
   display: inline-flex;
   flex-direction: column;
   gap: 4px;
+  /* background: blue; */
   vertical-align: middle;
+
 }
 
 .projectCardTitle strong { color: #20362d; font-size: 14px; }
 .projectCardTitle span,
 .projectCardMeta { color: #687a73; font-size: 11px; }
-.projectCardTotal { color: #183e35; font-size: 14px; }
+.projectCardTotal { color: #183e35; font-size: 14px; height: 100%; display: flex; align-items: center; }
 .projectStatusControl { display: flex; flex-direction: column; gap: 4px; }
-.projectStatusControl select { padding: 5px 8px; border: 1px solid #bdcbc3; border-radius: 3px; background: #fff; color: #20362d; font-size: 12px; }
-.projectCardMetaContainer { display: flex; justify-content: space-between; align-items: center; gap:40px;}
+.projectStatusControl select { width: 10vw;padding: 5px 8px; border: 1px solid #bdcbc3; border-radius: 3px; background: #fff; color: #20362d; font-size: 12px; }
+
+.projectCardMetaContainer { display: flex; justify-content: space-between; align-items: flex-start; gap:40px; min-width: 10vw;}
+.projectCardMetaContainer > .projectCardTotal { margin-left: auto; }
 
 .projectScopeTableWrapper {
   margin: 0 14px 14px;

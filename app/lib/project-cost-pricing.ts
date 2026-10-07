@@ -14,6 +14,7 @@ export type ProjectCostInput = {
 };
 
 export class ProjectCostError extends Error {}
+export class ProjectBillAssignmentError extends ProjectCostError {}
 
 export function money(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;

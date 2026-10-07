@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { parseProjectCost, ProjectCostError } from "@/app/lib/project-cost-pricing";
+import { parseProjectCost, ProjectBillAssignmentError, ProjectCostError } from "@/app/lib/project-cost-pricing";
 import { removeProjectBillCost, saveProjectBillCost } from "@/app/lib/project-costs";
 import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
 
@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
     if (costId !== null && !positiveId(costId)) throw new ProjectCostError("Choose a valid cost row");
     return NextResponse.json({ costId: await saveProjectBillCost(input, costId) }, { status: costId === null ? 201 : 200 });
   } catch (error) {
+    if (error instanceof ProjectBillAssignmentError) return NextResponse.json({ error: error.message }, { status: 409 });
     if (isCompletedProjectError(error) || error instanceof ProjectCostError && error.message === COMPLETED_PROJECT_MESSAGE) {
       return NextResponse.json({ error: COMPLETED_PROJECT_MESSAGE }, { status: 409 });
     }

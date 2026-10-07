@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "@/app/components/modal";
+import BillSplitToggle from "@/app/components/bill-split-toggle";
+import SupplierBillPicker from "./supplier-bill-picker";
+import { billBalanceForRow, billSelectionIssue } from "@/app/lib/bill-picker";
 import type { ProjectScopeLine, ProjectWithEstimate } from "@/app/lib/estimates";
 import { calculateEstimate } from "@/app/lib/estimate-pricing";
 import { actualCostTotal, matchingQuantity, money } from "@/app/lib/project-cost-pricing";
@@ -45,6 +48,7 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
   const router = useRouter();
   const readOnly = project.projectStatus === "Complete";
   const [draft, setDraft] = useState<CostDraft | null>(null);
+  const [billPickerOpen, setBillPickerOpen] = useState(false);
   const [referenceLine, setReferenceLine] = useState<ProjectScopeLine | null>(null);
   const [showFinancialDetails, setShowFinancialDetails] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -56,13 +60,18 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
   const totalAllocated = money(costs.reduce((sum, cost) => sum + cost.amount, 0));
   const unexpected = costs.filter((cost) => cost.estimateLineItemId === null);
   const unexpectedTotal = money(unexpected.reduce((sum, cost) => sum + cost.amount, 0));
-  const projectBillTotal = money(bills.reduce((sum, bill) => sum + (bill.amount ?? 0), 0));
-  const hasInvalidBills = bills.some((bill) => bill.amount === null);
+  const attachedBills = bills.filter((bill) => bill.projectId === project.projectId || bill.isSplit && bill.allocatedProjectIds.includes(project.projectId));
+  const billJobAmount = (bill: AllocationBill) => bill.isSplit
+    ? money(costs.filter((cost) => cost.billId === bill.billId).reduce((sum, cost) => sum + cost.amount, 0))
+    : bill.amount ?? 0;
+  const projectBillTotal = money(attachedBills.reduce((sum, bill) => sum + billJobAmount(bill), 0));
+  const hasInvalidBills = attachedBills.some((bill) => bill.amount === null);
   const unallocated = money(projectBillTotal - totalAllocated);
   const groups = new Map<string | null, ProjectScopeLine[]>();
   for (const line of project.lines) groups.set(line.scopeName, [...(groups.get(line.scopeName) ?? []), line]);
 
   function openNew(line: ProjectScopeLine | null) {
+    setBillPickerOpen(false);
     setError(null);
     setDraft({
       costId: null, estimateLineItemId: line ? String(line.estimateLineItemId) : "", billId: "",
@@ -71,6 +80,7 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
     });
   }
   function edit(cost: ProjectBillCost) {
+    setBillPickerOpen(false);
     setError(null);
     setDraft({
       costId: cost.costId, estimateLineItemId: cost.estimateLineItemId === null ? "" : String(cost.estimateLineItemId),
@@ -82,6 +92,9 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!draft) return;
+    const bill = bills.find((item) => item.billId === draft.billId);
+    const selectionIssue = bill ? billSelectionIssue(bill, project.projectId, costs.find((cost) => cost.costId === draft.costId)) : "Choose a supplier bill first.";
+    if (selectionIssue) { setError(selectionIssue); return; }
     setBusy(true);
     setError(null);
     try {
@@ -109,7 +122,9 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
   }
 
   function costRows(rows: ProjectBillCost[]) {
-    if (rows.length === 0) return <p className="projectCostHint">No actual-cost rows yet.</p>;
+    if (rows.length === 0) return <p className="projectCostHint">
+      {/* No actual-cost rows yet. */}
+      </p>;
     return (
       <div className="projectScopeTableWrapper">
         <table className="invoiceTable projectScopeTable">
@@ -128,7 +143,8 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
   }
   const selectedBill = bills.find((bill) => bill.billId === draft?.billId);
   const original = costs.find((cost) => cost.costId === draft?.costId);
-  const available = selectedBill?.remainingAmount == null ? null : money(selectedBill.remainingAmount + (original?.billId === selectedBill.billId ? original.amount : 0));
+  const available = selectedBill ? billBalanceForRow(selectedBill, original) : null;
+  const selectedBillIssue = selectedBill ? billSelectionIssue(selectedBill, project.projectId, original) : null;
   const draftTotal = draft ? actualCostTotal({
     quantity: Number(draft.quantity), unitCost: Number(draft.unitCost),
     freightAmount: Number(draft.freightAmount), taxAmount: Number(draft.taxAmount),
@@ -139,20 +155,22 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
     <section className="projectCostPanel">
       {readOnly && <p className="projectCostHint" role="status">Complete job: all data is read-only. Change the job status to Active to reopen it.</p>}
       <div className="projectActualCostToolbar">
-        <strong>Invoiced cost tracking</strong>
+        {/* <strong>Invoiced cost tracking</strong> */}
         <button type="button" className="estimateTextAction" aria-expanded={showFinancialDetails} onClick={() => setShowFinancialDetails(!showFinancialDetails)}>
-          {showFinancialDetails ? "Hide financial details" : "Show financial details"}
+          {/* {showFinancialDetails ? "Hide financial details" : "Show financial details"} */}
         </button>
       </div>
       <div className="projectCostSummary" aria-label="Project financial actuals">
-        {showFinancialDetails && <div><span>Estimated cost budget</span><strong>{dollars(pricing.landedCostTotal)}</strong></div>}
-        <div><span>Actual bill costs (paid + unpaid)</span><strong>{hasInvalidBills ? "Needs bill correction" : dollars(projectBillTotal)}</strong></div>
+       <div><span>Estimated costs</span><strong>{dollars(pricing.landedCostTotal)}</strong></div>
+        <div><span>Actual costs</span><strong>{hasInvalidBills ? "Needs bill correction" : dollars(projectBillTotal)}</strong></div>
         <div><span>Remaining project budget</span><strong className={pricing.landedCostTotal - projectBillTotal < 0 ? "projectOverBudget" : ""}>{hasInvalidBills ? "Unavailable" : dollars(money(pricing.landedCostTotal - projectBillTotal))}</strong></div>
-        {showFinancialDetails && <div><span>Allocated to lines / unexpected</span><strong>{dollars(totalAllocated)}</strong></div>}
-        <div><span>Unallocated bill balance</span><strong>{hasInvalidBills ? "Needs bill correction" : dollars(unallocated)}</strong></div>
-        {showFinancialDetails && <div><span>Customer invoiced revenue</span><strong>{dollars(financials?.income ?? 0)}</strong><small>{dollars(financials?.paidIncome ?? 0)} paid / {dollars(financials?.unpaidIncome ?? 0)} unpaid</small></div>}
+        <div><span>Allocated Costs</span><strong>{dollars(totalAllocated)}</strong></div>
+        <div><span>Unallocated Costs</span><strong>{hasInvalidBills ? "Needs bill correction" : dollars(unallocated)}</strong></div>
+        <div><span>Current Invoiced Total</span><strong>{dollars(financials?.income ?? 0)}</strong>
+          {/* <small>{dollars(financials?.paidIncome ?? 0)} paid / {dollars(financials?.unpaidIncome ?? 0)} unpaid</small> */}
+        </div>
       </div>
-      <p className="projectCostHint">Track supplier-billed materials, subcontracts, and rentals here, not in-house labor or equipment. Unallocated bills count in project actuals, but not line or scope actuals. Labor/equipment lines remain visible until sourcing classification is available.</p>
+      {/* <p className="projectCostHint">Track supplier-billed materials, subcontracts, and rentals here, not in-house labor or equipment. Single-job bills count in full; split bills count only this job&apos;s allocations. Unallocated split balances stay in Finances. Labor/equipment lines remain visible until sourcing classification is available.</p> */}
       {project.engagementType === "Service" && <p className="projectCostHint">Recurring budget uses the accepted estimate as-is; it is not multiplied by the number of visits.</p>}
       {error && !draft && <p className="financeImportError" role="alert">{error}</p>}
       {[...groups].map(([scopeName, lines]) => {
@@ -163,7 +181,9 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
           <details className="projectCostScope" key={scopeName ?? "__ungrouped"}>
             <summary className="projectScopeSummary">
               <span className="projectScopeTitle"><strong>{scopeName ?? "Cost lines"}</strong><small>{lines.length} work {lines.length === 1 ? "item" : "items"}</small></span>
-              {showFinancialDetails && <span><small>Estimated cost</small><strong>{dollars(scopeEstimated)}</strong></span>}
+              {/* {showFinancialDetails &&  */}
+              <span><small>Estimated cost</small><strong>{dollars(scopeEstimated)}</strong></span>
+              {/* } */}
               <span><small>Actual cost</small><strong>{dollars(scopeActual)}</strong></span>
               <span><small>Remaining budget</small><strong className={scopeActual > scopeEstimated ? "projectOverBudget" : ""}>{dollars(money(scopeEstimated - scopeActual))}</strong></span>
             </summary>
@@ -175,15 +195,18 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
               return <details className="projectCostLine" key={line.estimateLineItemId}>
                 <summary className="projectEstimateSummary">
                   <span className="projectEstimateTitle"><strong>{line.description}</strong><small>{line.lineType} · {rows.length} actual-cost {rows.length === 1 ? "row" : "rows"}</small></span>
-                  <span><small>Actual cost</small><strong>{dollars(actual)}</strong></span>
-                  <span><small>Remaining budget</small><strong className={actual > estimated.landedCost ? "projectOverBudget" : ""}>{dollars(money(estimated.landedCost - actual))}</strong></span>
+                  <span><small>Estimated quantity</small><strong>{quantity.format(line.quantity)} {line.unitName}</strong></span>
                   <span><small>Remaining quantity</small><strong>{quantity.format(line.quantity - purchased.quantity)} {line.unitName}</strong>
                     {purchased.hasOtherUnits && <small className="projectOverBudget">Other units excluded from quantity only</small>}</span>
-                  <button type="button" className="estimateTextAction" aria-label={`View estimate reference for ${line.description}`} onClick={(event) => {
+                  <span><small>Estimated cost</small><strong>{dollars(estimated.landedCost)}</strong></span>
+                  <span><small>Actual cost</small><strong>{dollars(actual)}</strong></span>
+                  <span><small>Remaining budget</small><strong className={actual > estimated.landedCost ? "projectOverBudget" : ""}>{dollars(money(estimated.landedCost - actual))}</strong></span>
+
+                  {/* <button type="button" className="estimateTextAction" aria-label={`View estimate reference for ${line.description}`} onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
                     setReferenceLine(line);
-                  }}>Estimate reference</button>
+                  }}>Estimate reference</button> */}
                 </summary>
                 <div className="projectActualCostContent">
                 <div className="projectActualCostToolbar">
@@ -196,20 +219,27 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
           </details>
         );
       })}
-      <section className="projectCostScope">
-        <header><h3>Unexpected / Out-of-scope costs</h3><strong>{dollars(unexpectedTotal)}</strong>
-          <button type="button" className="estimateTextAction" disabled={busy || readOnly} onClick={() => openNew(null)}>Add unexpected cost</button></header>
-        <p className="projectCostHint">Includes omitted work and pending change-order costs. These count toward job actuals now and may be reallocated later. The accepted estimate is unchanged.</p>
-        {costRows(unexpected)}
-      </section>
+      <details className="projectCostScope">
+        <summary className="projectScopeSummary">
+          <span className="projectScopeTitle"><strong>Unexpected / Out-of-scope costs</strong><small>{unexpected.length} actual-cost {unexpected.length === 1 ? "row" : "rows"}</small></span>
+          <span><small>Actual cost</small><strong>{dollars(unexpectedTotal)}</strong></span>
+        </summary>
+        <div className="projectActualCostContent">
+          <div className="projectActualCostToolbar">
+            <button type="button" className="estimateTextAction" disabled={busy || readOnly} onClick={() => openNew(null)}>Add an unexpected cost</button>
+          </div>
+          {costRows(unexpected)}
+        </div>
+      </details>
       <section className="projectCostScope">
         <header><h3>Bill reconciliation</h3><Link href="/finances/bills">Manage / assign bills in Finances</Link></header>
         <div className="projectScopeTableWrapper"><table className="invoiceTable projectScopeTable">
-          <thead><tr><th>Bill / Vendor</th><th>Bill date</th><th>Total</th><th>Allocated</th><th>Unallocated balance</th></tr></thead>
-          <tbody>{bills.map((bill) => <tr key={bill.billId}><td>{bill.billNo} ({bill.billId}) / {bill.companyName ?? "Not specified"}</td>
-            <td>{bill.billDate}</td><td>{bill.amount === null ? "Invalid amount" : dollars(bill.amount)}</td><td>{dollars(bill.allocatedAmount)}</td>
+          <thead><tr><th>Bill / Vendor</th><th>Bill date</th><th>Bill total</th><th>This job&apos;s cost</th><th>Allocated across all jobs</th><th>Unallocated bill balance</th></tr></thead>
+          <tbody>{attachedBills.map((bill) => <tr key={bill.billId}><td>{bill.billNo} ({bill.billId}) / {bill.companyName ?? "Not specified"}</td>
+            <td>{bill.billDate}</td><td>{bill.amount === null ? "Invalid amount" : dollars(bill.amount)}{bill.isSplit && <small> · Split bill</small>}</td>
+            <td>{dollars(billJobAmount(bill))}</td><td>{dollars(bill.allocatedAmount)}</td>
             <td>{bill.remainingAmount === null ? "Correct bill amount" : dollars(bill.remainingAmount)}</td></tr>)}
-            {bills.length === 0 && <tr><td colSpan={5}>Assign a bill to this project in Finances to start entering actual costs.</td></tr>}</tbody>
+            {attachedBills.length === 0 && <tr><td colSpan={6}>No bills attached yet. Add an actual cost and select an unassigned or split supplier bill.</td></tr>}</tbody>
         </table></div>
       </section>
       {referenceLine && referencePricing && <Modal titleId={`estimateReferenceTitle-${project.projectId}`} title={`Estimate reference: ${referenceLine.description}`} eyebrow="ACCEPTED ESTIMATE" onClose={() => setReferenceLine(null)} closeLabel="Close estimate reference">
@@ -230,15 +260,12 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
                 {project.lines.map((line) => <option key={line.estimateLineItemId} value={line.estimateLineItemId}>{line.scopeName ? `${line.scopeName}: ` : ""}{line.description}</option>)}
               </select>
             </label>
-            <label className="financeImportField">Supplier bill *
-              <select required value={draft.billId} onChange={(event) => {
-                const bill = bills.find((item) => item.billId === event.target.value);
-                setDraft({ ...draft, billId: event.target.value, costDate: draft.costDate || bill?.billDate || "" });
-              }}>
-                <option value="">Choose a bill assigned to this project</option>
-                {bills.map((bill) => <option key={bill.billId} value={bill.billId} disabled={bill.amount === null || bill.amount <= 0}>{bill.billNo} ({bill.billId}) / {bill.companyName ?? "Vendor unspecified"}</option>)}
-              </select>
-            </label>
+            <div className="financeImportField"><span>Supplier bill *</span>
+              <button type="button" className="financeImportCancel" disabled={busy} onClick={() => setBillPickerOpen(true)}>
+                {selectedBill ? `Change supplier bill: ${selectedBill.billNo} (${selectedBill.billId})` : "Find supplier bill"}
+              </button>
+              {selectedBill && <small>{selectedBill.companyName ?? "Vendor unspecified"} · {selectedBill.billDate}</small>}
+            </div>
             <label className="financeImportField">Description *<input required maxLength={300} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>
             <label className="financeImportField">Cost date *<input type="date" required value={draft.costDate} onChange={(event) => setDraft({ ...draft, costDate: event.target.value })} /></label>
             <label className="financeImportField">Actual quantity *<input type="number" required min="0.0001" max="1000000" step="0.0001" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} /></label>
@@ -248,13 +275,25 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
             <label className="financeImportField">Actual tax amount *<input type="number" required min="0" max="1000000" step="0.01" value={draft.taxAmount} onChange={(event) => setDraft({ ...draft, taxAmount: event.target.value })} /></label>
           </div>
           <p className="projectCostHint">Job tax reference: {project.taxPercent}%. Enter the tax amount from the bill; do not repeat the full bill tax or freight on each partial allocation.</p>
+          {selectedBill && <BillSplitToggle billId={selectedBill.billId} isSplit={selectedBill.isSplit} disabled={busy || selectedBill.readOnly} />}
+          {selectedBill && <p className="projectCostHint">Changing split mode is saved immediately for the whole bill, even if this cost form is cancelled.</p>}
+          {selectedBill?.isSplit && <p className="projectCostHint">Split bill: only this job&apos;s allocated cost rows count toward its actuals. Other jobs can allocate the remaining balance. Unallocated amounts stay in Finances, not in any job.</p>}
+          {selectedBill && !selectedBill.isSplit && selectedBill.projectId === null && <p className="projectCostHint">Saving attaches this bill to the job. Its full total ({selectedBill.amount === null ? "Invalid amount" : dollars(selectedBill.amount)}) counts toward project actuals; only this row&apos;s amount counts toward the selected work item. The remaining balance can be allocated to more lines in this job.</p>}
+          <p className="projectCostHint">Removing an allocation leaves its bill attached to the job.</p>
           <p>Total actual cost: <strong>{Number.isFinite(draftTotal) ? dollars(draftTotal) : "Enter valid numbers"}</strong>
             {available !== null && <> / Bill balance available for this row: <strong>{dollars(available)}</strong></>}</p>
           {error && <p className="financeImportError" role="alert">{error}</p>}
+          {selectedBillIssue && <p className="financeImportError" role="alert">{selectedBillIssue}</p>}
           <div className="financeImportActions"><button type="button" className="financeImportCancel" disabled={busy} onClick={() => { setDraft(null); setError(null); }}>Cancel</button>
-            <button type="submit" className="financeImportSubmit" disabled={busy || bills.length === 0 || (available !== null && draftTotal > available)}>{busy ? "Saving..." : "Save actual cost"}</button></div>
+            <button type="submit" className="financeImportSubmit" disabled={busy || !selectedBill || selectedBillIssue !== null || (available !== null && draftTotal > available)}>{busy ? "Saving..." : selectedBill && !selectedBill.isSplit && selectedBill.projectId === null ? "Attach bill & save actual cost" : "Save actual cost"}</button></div>
           {available !== null && draftTotal > available && <p className="financeImportError" role="alert">This row exceeds the remaining bill balance.</p>}
         </form>
+        {billPickerOpen && <SupplierBillPicker bills={bills} projectId={project.projectId} original={original}
+          onClose={() => setBillPickerOpen(false)} onSelect={(bill) => {
+            setDraft({ ...draft, billId: bill.billId, costDate: draft.costDate || bill.billDate });
+            setBillPickerOpen(false);
+            setError(null);
+          }} />}
       </Modal>}
     </section>
   );

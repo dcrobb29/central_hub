@@ -23,6 +23,9 @@ GO
 IF COL_LENGTH(N'dbo.Bills', N'ProjectID') IS NULL
     ALTER TABLE dbo.Bills ADD ProjectID int NULL;
 GO
+IF COL_LENGTH(N'dbo.Bills', N'IsSplit') IS NULL
+    ALTER TABLE dbo.Bills ADD IsSplit bit NOT NULL CONSTRAINT DF_Bills_IsSplit DEFAULT 0 WITH VALUES;
+GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_Bills_Projects')
 BEGIN

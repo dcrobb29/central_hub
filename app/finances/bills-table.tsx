@@ -10,6 +10,7 @@ import type { ProjectOption } from "@/app/lib/projects";
 import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
 import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
 import Modal from "@/app/components/modal";
+import BillSplitToggle from "@/app/components/bill-split-toggle";
 
 type Column = TableColumn<Bill>;
 
@@ -33,6 +34,7 @@ type BillDraft = Omit<Bill, "projectId" | "projectName"> & { projectId: string }
 const EMPTY_BILL: BillDraft = {
   id: "",
   projectId: "",
+  isSplit: false,
   billNo: "",
   billDate: "",
   billDueDate: "",
@@ -47,7 +49,7 @@ const EMPTY_BILL: BillDraft = {
 };
 
 type BillField = {
-  key: keyof BillDraft;
+  key: Exclude<keyof BillDraft, "isSplit">;
   label: string;
   required?: boolean;
   type?: "text" | "date" | "number";
@@ -122,6 +124,7 @@ function compareBills(left: Bill, right: Bill, key: keyof Bill) {
 function toDraft(bill: Bill): BillDraft {
   return {
     id: bill.id,
+    isSplit: bill.isSplit,
     projectId: bill.projectId == null ? "" : String(bill.projectId),
     billNo: bill.billNo,
     billDate: bill.billDate,
@@ -290,10 +293,12 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
                 </td>)}
                 <td>
                   <div className="estimateActionsInner">
-                    <button type="button" className="estimateTextAction" disabled={projectOptions.some((project) => project.projectId === bill.projectId && project.projectStatus === "Complete")} onClick={() => openEditForm(bill)}>Edit</button>
-                    <button type="button" className="estimateDangerAction" disabled={projectOptions.some((project) => project.projectId === bill.projectId && project.projectStatus === "Complete")} onClick={() => { setDeleteError(null); setDeletingBill(bill); }}>Delete</button>
-                    {bill.projectId !== null && <Link href={`/projects?projectId=${bill.projectId}#project-${bill.projectId}`} className="estimateTextAction">Allocate costs</Link>}
+                    <button type="button" className="estimateTextAction" disabled={allocations.find((item) => item.billId === bill.id)?.readOnly} onClick={() => openEditForm(bill)}>Edit</button>
+                    <button type="button" className="estimateDangerAction" disabled={allocations.find((item) => item.billId === bill.id)?.readOnly} onClick={() => { setDeleteError(null); setDeletingBill(bill); }}>Delete</button>
+                    {(bill.projectId !== null || bill.isSplit) && <Link href={bill.projectId !== null ? `/projects?projectId=${bill.projectId}#project-${bill.projectId}` : "/projects"} className="estimateTextAction">Allocate costs</Link>}
                   </div>
+                  <BillSplitToggle billId={bill.id} isSplit={bill.isSplit} disabled={allocations.find((item) => item.billId === bill.id)?.readOnly} />
+                  {bill.isSplit && <small className="billAllocationBalance">Only allocated costs count toward each job.</small>}
                 </td>
               </tr>
             ))}
@@ -320,10 +325,11 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
                 <div className="financeImportFields">
                   <label className="financeImportField">
                     Project
-                    <select value={billDraft.projectId} onChange={(event) => setBillDraft((current) => ({ ...current, projectId: event.target.value }))}>
+                    <select disabled={billDraft.isSplit} value={billDraft.projectId} onChange={(event) => setBillDraft((current) => ({ ...current, projectId: event.target.value }))}>
                       <option value="">Unassigned</option>
                       {projectOptions.map((project) => <option value={project.projectId} key={project.projectId} disabled={project.projectStatus === "Complete"}>{project.projectName}{project.projectStatus === "Complete" ? " (Complete - read-only)" : ""}</option>)}
                     </select>
+                    {billDraft.isSplit && <small>Split bill: assign its cost rows to jobs in Project Management.</small>}
                   </label>
                 </div>
               </fieldset>

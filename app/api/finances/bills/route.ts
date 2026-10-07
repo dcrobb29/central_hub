@@ -27,6 +27,9 @@ export function parseBillInput(body: unknown): BillInput {
 
 export function describeBillSqlError(error: unknown): { message: string; status: number } {
   if (isCompletedProjectError(error)) return { message: COMPLETED_PROJECT_MESSAGE, status: 409 };
+  if (error instanceof Error && error.message.includes("CK_Bills_SplitOwnership")) {
+    return { message: "Split bills cannot have a single project assignment. Allocate costs in Projects & Jobs, or disable split mode first.", status: 409 };
+  }
   if (typeof error === "object" && error !== null && "number" in error && [51021, 51022].includes(Number(error.number))) {
     return { message: Number(error.number) === 51021
       ? "Remove active cost allocations in Projects & Jobs before changing this bill's project"

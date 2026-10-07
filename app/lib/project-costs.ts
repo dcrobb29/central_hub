@@ -1,5 +1,5 @@
 import { getPool, sql } from "@/app/lib/db";
-import { actualCostTotal, ProjectCostError, type ProjectCostInput } from "@/app/lib/project-cost-pricing";
+import { actualCostTotal, ProjectBillAssignmentError, ProjectCostError, type ProjectCostInput } from "@/app/lib/project-cost-pricing";
 import { COMPLETED_PROJECT_MESSAGE } from "@/app/lib/project-status";
 import { rollbackIfActive } from "@/app/lib/sql-transactions";
 
@@ -13,6 +13,10 @@ export type AllocationBill = {
   billId: string;
   billNo: string;
   projectId: number | null;
+  projectName: string | null;
+  isSplit: boolean;
+  allocatedProjectIds: number[];
+  readOnly: boolean;
   billDate: string;
   companyName: string | null;
   amount: number | null;
@@ -22,16 +26,26 @@ export type AllocationBill = {
 
 export async function getAllocationBills(): Promise<AllocationBill[]> {
   const pool = await getPool();
-  return (await pool.request().query<AllocationBill>(`
-    SELECT RTRIM(b.id) AS billId, RTRIM(b.[Bill No]) AS billNo, b.ProjectID AS projectId,
+  const result = await pool.request().query<Omit<AllocationBill, "allocatedProjectIds"> & { allocatedProjects: string }>(`
+    SELECT RTRIM(b.id) AS billId, RTRIM(b.[Bill No]) AS billNo, b.ProjectID AS projectId, p.ProjectName AS projectName,
       CONVERT(varchar(10), b.[Bill Date], 23) AS billDate, NULLIF(RTRIM(b.[Company Name]), '') AS companyName,
       totals.Amount AS amount, COALESCE(a.Allocated, 0) AS allocatedAmount,
       totals.Amount - COALESCE(a.Allocated, 0) AS remainingAmount
+      , b.IsSplit AS isSplit,
+      COALESCE((SELECT STRING_AGG(CONVERT(varchar(max), ids.ProjectID), ',')
+        FROM (SELECT DISTINCT ProjectID FROM dbo.ProjectBillCosts WHERE BillID = b.id AND IsActive = 1) ids), '') AS allocatedProjects,
+      CAST(CASE WHEN EXISTS (SELECT 1 FROM dbo.Projects p WHERE p.ProjectStatus = 'Complete'
+        AND (p.ProjectID = b.ProjectID OR EXISTS (SELECT 1 FROM dbo.ProjectBillCosts c
+          WHERE c.BillID = b.id AND c.ProjectID = p.ProjectID AND c.IsActive = 1))) THEN 1 ELSE 0 END AS bit) AS readOnly
     FROM dbo.Bills b
+    LEFT JOIN dbo.Projects p ON p.ProjectID = b.ProjectID
     CROSS APPLY (SELECT TRY_CONVERT(decimal(19,2), NULLIF(REPLACE(REPLACE(RTRIM(b.[Bill Amount]), '$', ''), ',', ''), '')) AS Amount) totals
     OUTER APPLY (SELECT SUM(c.Amount) AS Allocated FROM dbo.ProjectBillCosts c WHERE c.BillID = b.id AND c.IsActive = 1) a
     ORDER BY b.[Bill Date] DESC, b.id
-  `)).recordset;
+  `);
+  return result.recordset.map(({ allocatedProjects, ...bill }) => ({
+    ...bill, allocatedProjectIds: allocatedProjects ? allocatedProjects.split(",").map(Number) : [],
+  }));
 }
 
 export async function getProjectBillCosts(): Promise<ProjectBillCost[]> {
@@ -58,14 +72,17 @@ export async function saveProjectBillCost(input: ProjectCostInput, costId: numbe
       .query<{ ProjectID: number; ProjectStatus: string }>("SELECT ProjectID, ProjectStatus FROM dbo.Projects WITH (UPDLOCK, HOLDLOCK) WHERE ProjectID = @projectId");
     if (!project.recordset[0]) throw new ProjectCostError("The project no longer exists");
     if (project.recordset[0].ProjectStatus === "Complete") throw new ProjectCostError(COMPLETED_PROJECT_MESSAGE);
-    const bills = await transaction.request().input("projectId", sql.Int, input.projectId)
-      .query<{ id: string; amount: number | null }>(`
-        SELECT RTRIM(id) AS id,
+    const bills = await transaction.request().input("projectId", sql.Int, input.projectId).input("billId", sql.NChar(10), input.billId)
+      .query<{ id: string; projectId: number | null; isSplit: boolean; amount: number | null }>(`
+        SELECT RTRIM(id) AS id, ProjectID AS projectId, IsSplit AS isSplit,
           TRY_CONVERT(decimal(19,2), NULLIF(REPLACE(REPLACE(RTRIM([Bill Amount]), '$', ''), ',', ''), '')) AS amount
-        FROM dbo.Bills WITH (UPDLOCK, HOLDLOCK) WHERE ProjectID = @projectId ORDER BY id
+        FROM dbo.Bills WITH (UPDLOCK, HOLDLOCK) WHERE ProjectID = @projectId OR id = @billId ORDER BY id
       `);
     const bill = bills.recordset.find((candidate) => candidate.id === input.billId);
-    if (!bill) throw new ProjectCostError("Assign this bill to the project in Finances before adding costs");
+    if (!bill) throw new ProjectCostError("The selected bill no longer exists");
+    if (!bill.isSplit && bill.projectId !== null && bill.projectId !== input.projectId) {
+      throw new ProjectBillAssignmentError("This bill is already assigned to another job. Choose an unassigned bill or one attached to this job.");
+    }
     if (bill.amount === null || bill.amount <= 0) throw new ProjectCostError("This bill must have a valid positive total before allocating costs");
     if (costId !== null) {
       const existing = await transaction.request().input("costId", sql.Int, costId).input("projectId", sql.Int, input.projectId)
@@ -89,6 +106,10 @@ export async function saveProjectBillCost(input: ProjectCostInput, costId: numbe
     const amount = actualCostTotal(input);
     if (Math.round(allocated.recordset[0].amount * 100) + Math.round(amount * 100) > Math.round(bill.amount * 100)) {
       throw new ProjectCostError("These costs exceed the bill total. Reduce the allocation or correct the bill in Finances.");
+    }
+    if (!bill.isSplit && bill.projectId === null) {
+      await transaction.request().input("billId", sql.NChar(10), input.billId).input("projectId", sql.Int, input.projectId)
+        .query("UPDATE dbo.Bills SET ProjectID = @projectId WHERE id = @billId AND ProjectID IS NULL");
     }
     const request = transaction.request()
       .input("costId", sql.Int, costId).input("projectId", sql.Int, input.projectId)

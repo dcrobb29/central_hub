@@ -1,10 +1,13 @@
 import { getPool, sql } from "@/app/lib/db";
 import type { ProjectOption } from "@/app/lib/projects";
+import { rollbackIfActive } from "@/app/lib/sql-transactions";
+import { ProjectBillAssignmentError } from "@/app/lib/project-cost-pricing";
 
 export type Bill = {
   id: string;
   projectId: number | null;
   projectName: string | null;
+  isSplit: boolean;
   billNo: string;
   billDate: string;
   billDueDate: string | null;
@@ -24,7 +27,8 @@ export async function getBills(): Promise<Bill[]> {
     SELECT
       RTRIM([id]) AS id,
       b.ProjectID AS projectId,
-      p.ProjectName AS projectName,
+      CASE WHEN b.IsSplit = 1 THEN N'Split across jobs' ELSE p.ProjectName END AS projectName,
+      b.IsSplit AS isSplit,
       RTRIM([Bill No]) AS billNo,
       CONVERT(char(10), [Bill Date], 23) AS billDate,
       CONVERT(char(10), [Bill Due Date], 23) AS billDueDate,
@@ -139,4 +143,27 @@ export async function deleteBill(id: string): Promise<void> {
   await pool.request()
     .input("id", sql.NChar(10), id)
     .query(`DELETE FROM dbo.Bills WHERE [id] = @id`);
+}
+
+export async function setBillSplitMode(id: string, isSplit: boolean): Promise<void> {
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+  try {
+    const bill = await transaction.request().input("id", sql.NChar(10), id)
+      .query<{ ProjectID: number | null }>("SELECT ProjectID FROM dbo.Bills WITH (UPDLOCK, HOLDLOCK) WHERE id = @id");
+    if (!bill.recordset[0]) throw new ProjectBillAssignmentError("The bill no longer exists");
+    const allocations = await transaction.request().input("id", sql.NChar(10), id)
+      .query<{ ProjectID: number }>("SELECT DISTINCT ProjectID FROM dbo.ProjectBillCosts WITH (UPDLOCK, HOLDLOCK) WHERE BillID = @id AND IsActive = 1");
+    if (!isSplit && allocations.recordset.length > 1) {
+      throw new ProjectBillAssignmentError("This bill has allocations in multiple jobs. Remove or reallocate them to one job before disabling split mode.");
+    }
+    await transaction.request().input("id", sql.NChar(10), id).input("isSplit", sql.Bit, isSplit)
+      .input("projectId", sql.Int, isSplit ? null : allocations.recordset[0]?.ProjectID ?? bill.recordset[0].ProjectID)
+      .query("UPDATE dbo.Bills SET IsSplit = @isSplit, ProjectID = @projectId WHERE id = @id");
+    await transaction.commit();
+  } catch (error) {
+    await rollbackIfActive(transaction);
+    throw error;
+  }
 }

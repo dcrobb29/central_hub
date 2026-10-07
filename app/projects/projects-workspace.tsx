@@ -44,7 +44,7 @@ export default function ProjectsWorkspace({ projects, costs, bills, financials, 
           <p className="salesEyebrow">PROJECTS &amp; JOBS</p>
           <h1>Project management</h1>
         </div>
-        <p className="salesWorkflowNote">Won estimates carry their accepted scope into a project.</p>
+        {/* <p className="salesWorkflowNote">Won estimates carry their accepted scope into a project.</p> */}
       </header>
 
       <div className="engagementTabs" role="tablist" aria-label="Project type">
@@ -98,7 +98,7 @@ export default function ProjectsWorkspace({ projects, costs, bills, financials, 
               <ProjectCostPanel
                 project={project}
                 costs={costs.filter((cost) => cost.projectId === project.projectId)}
-                bills={bills.filter((bill) => bill.projectId === project.projectId)}
+                bills={bills}
                 financials={financials.find((summary) => summary.projectId === project.projectId)}
               />
               {project.internalNotes && (

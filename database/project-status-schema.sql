@@ -59,7 +59,7 @@ GO
 -- cannot bypass the lock. HOLDLOCK serializes these checks with status updates.
 DECLARE @targets TABLE (TableName sysname, ProjectJoin nvarchar(max));
 INSERT INTO @targets VALUES
-    ('Bills', 'p.ProjectID = c.ProjectID'),
+    ('Bills', 'p.ProjectID = c.ProjectID OR p.ProjectID IN (SELECT bc.ProjectID FROM dbo.ProjectBillCosts bc WHERE bc.BillID = c.id AND bc.IsActive = 1)'),
     ('Invoices', 'p.ProjectID = c.ProjectID'),
     ('ProjectBillCosts', 'p.ProjectID = c.ProjectID'),
     ('ProjectActualCosts', 'p.ProjectID = c.ProjectID'),

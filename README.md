@@ -114,6 +114,52 @@ one-time approval. All fixture data is rolled back at the end.
 
 ## Bill-backed project actuals
 
+### Split vendor bills (exception)
+
+The actual-cost form uses **Find supplier bill**, a searchable modal with 20
+results per page rather than a long dropdown. Search bill number, ID, vendor,
+date, or assigned job. It includes fully/partially unallocated bills even when
+attached to another job, explaining why those are not selectable and allowing
+explicit split mode (unless completion locks the bill). Search/paging never
+reattaches a bill. Fully allocated bills are excluded except the bill on the cost
+row being edited, whose original allocation is added back to its available balance.
+Escape closes the bill picker without closing the underlying cost form.
+
+Single-job billing is the default. For a monthly rental or combined vendor bill,
+enable **Split across jobs** in the Bills table or the selected supplier bill in
+the actual-cost form. This is an immediate bill-level setting, independent of
+saving/cancelling the cost form. Enabling it clears the bill's single project
+assignment but preserves existing cost rows. The bill becomes selectable in other
+jobs. Enter each job's actual quantity, price, freight, and tax manually; equipment
+days do not automatically determine a proration.
+
+In split mode each project's costs, paid/unpaid costs, profit, and remaining budget
+include **only its active allocations**, not the whole bill. Line/scope actuals
+still use their allocated rows. The combined allocations cannot exceed the bill
+total. Unallocated split balances remain visible in Finances and are not charged
+to any job. Removing a split allocation removes that amount from its job's actuals.
+Single-job bills retain the existing full-bill accounting.
+
+Disable split mode only when allocations belong to at most one job. That job
+becomes the sole bill owner and receives the full bill cost again; a bill with no
+allocations becomes unassigned. Bills with allocations in completed jobs cannot
+change mode, amount, payment date, or other bill fields without reopening those
+jobs. Other non-completed jobs may still allocate the unused split balance.
+Base-job and pending change-order costs within one job can use existing estimate
+lines and Unexpected / Out-of-scope rows without enabling cross-job splitting;
+formal change-order tracking is not implemented yet.
+
+For an existing database, apply these scripts **in this order, in one transaction**
+with `SET XACT_ABORT ON` using an admin connection:
+1. [database/split-bills-schema.sql](database/split-bills-schema.sql)
+2. [database/project-bill-costs-schema.sql](database/project-bill-costs-schema.sql)
+3. [database/project-status-schema.sql](database/project-status-schema.sql)
+
+For a fresh database apply the original finance/workflow/cost schemas first, then
+the three scripts above. Reapply this split migration after rerunning the original
+project-finances schema, which contains the pre-split version of the summary view.
+Existing bills default to single-job mode; none are automatically split.
+
 ### Job status and completion
 
 Apply [database/project-status-schema.sql](database/project-status-schema.sql)
@@ -157,11 +203,24 @@ SELECT/INSERT/UPDATE on `ProjectBillCosts`. The script is rerunnable and leaves
 existing estimates, bills, and the older unlinked `ProjectActualCosts` table
 untouched. The older table is not included in this new bill-backed workflow.
 
-In **Finances > Bills**, assign a bill to its project, then select **Allocate costs**
-to open that project in **Projects & Jobs**. Add actual-cost rows beneath accepted
+Import vendor bills in **Finances > Bills**, then add actual costs in **Projects & Jobs**.
+Select an unassigned bill or one already attached to the job. Saving an allocation
+attaches an unassigned bill to the job in the same transaction; cancelling or a
+failed save does not attach it. Bills attached to another job cannot be selected
+or reassigned by this workflow unless explicitly changed to split mode. The same bill remains selectable for multiple
+cost lines within its job, subject to its remaining balance. Removing an allocation
+leaves the bill attached; detach it explicitly in Finances after removing all active
+allocations if necessary. Manual project assignment in Finances remains available.
+Add actual-cost rows beneath accepted
 estimate lines or under **Unexpected / Out-of-scope costs**. Each row requires a
 bill, description, cost date, quantity, unit, actual unit cost, freight amount, and
 manually entered tax amount. Scopes and estimate lines are collapsed by default.
+**Unexpected / Out-of-scope costs** is also a collapsed accordion on every job,
+even before any unexpected costs are recorded. Its parent shows the actual-cost
+total and row count; expand it to see billed rows and **Add an unexpected cost**.
+This is an actual-cost container, not an added estimate scope: it has no assigned
+revenue or estimated cost and does not change the accepted estimate or customer
+price. Unexpected costs still count toward job actuals and can be reallocated later.
 Expand a project, then a scope (such as 2" Waterline), then a work item to reach
 its actual costs. Scope parents show actual cost and remaining budget; nested
 accordions expand independently without toggling their ancestors. Click the line
@@ -187,10 +246,10 @@ remaining budgets indicate overruns. Quantity comparison includes only matching
 units, case-insensitively, and warns about other units without excluding their
 costs. Recurring budgets are shown as quoted, not multiplied by occurrences.
 
-Project actual cost is the **full total of project-assigned bills**, paid or unpaid,
+For single-job bills, project actual cost is the **full total of project-assigned bills**, paid or unpaid,
 not that total plus its allocations. Unallocated bill balances therefore affect
 the project budget immediately but do not affect individual line/scope actuals.
-Unexpected costs have no estimated budget and may be edited/reallocated later.
+Split bills instead contribute only the job's allocations. Unexpected costs have no estimated budget and may be edited/reallocated later.
 Outgoing customer invoices remain separate project-level billed/paid/unpaid
 revenue. No invoice parsing, automatic cost allocation, or change-order approval
 workflow is included.
@@ -198,7 +257,7 @@ workflow is included.
 Bill totals, allocated totals, and unallocated balances are visible in both
 Projects & Jobs and Finances. Partial allocation is allowed; allocations exceeding
 the bill total are rejected transactionally. Only bills assigned to the same
-project and lines from its accepted revision can be selected. Editing/reallocating
+project (or unassigned bills attached on Save) and lines from its accepted revision can be selected. Editing/reallocating
 a row preserves its identity; removing an allocation is soft removal and restores
 bill allocation capacity, but does not delete or reduce the source bill cost.
 Bills with allocation history cannot be deleted. Database protection prevents

@@ -87,7 +87,7 @@ test("phased actuals reconcile bills, preserve revenue, and reallocate without d
   assert.equal(financials.income, 900);
   await assert.rejects(() => costs.saveProjectBillCost(input(projectId, lineId, { unitCost: 10, freightAmount: 0, taxAmount: 0 })), /exceed the bill total/);
   await assert.rejects(() => costs.saveProjectBillCost(input(projectId, 2_147_483_647)), /accepted estimate/);
-  await assert.rejects(() => costs.saveProjectBillCost(input(projectId, lineId, { billId: "MISSING" })), /Assign this bill/);
+  await assert.rejects(() => costs.saveProjectBillCost(input(projectId, lineId, { billId: "MISSING" })), /no longer exists/);
   await costs.saveProjectBillCost(input(projectId, lineId, { quantity: 5, unitCost: 8.1, taxAmount: 2.15 }), second);
   const rows = (await costs.getProjectBillCosts()).filter((cost) => cost.projectId === projectId);
   assert.equal(rows.length, 2);
@@ -107,7 +107,103 @@ test("bill total cannot be reduced below allocated actual costs", { skip: !enabl
   await assert.rejects(() => tx.request().query("UPDATE dbo.Bills SET [Bill Amount] = '100.00' WHERE id = 'COSTTEST01'"), (error) => error.number === 51022);
 }));
 
+test("unassigned bill attaches on save, stays reusable and never double-counts project costs", { skip: !enabled }, async () => fixture(async ({ tx, costs, projects, projectId, lineId }) => {
+  await tx.request().query("UPDATE dbo.Bills SET ProjectID = NULL WHERE id = 'COSTTEST01'");
+  const bill = async () => (await costs.getAllocationBills()).find((item) => item.billId === "COSTTEST01");
+  assert.equal((await bill()).projectId, null);
+  await assert.rejects(() => costs.saveProjectBillCost(input(projectId, 2_147_483_647)), /accepted estimate/);
+  await assert.rejects(() => costs.saveProjectBillCost(input(projectId, lineId, { quantity: 100 })), /exceed the bill total/);
+  assert.equal((await bill()).projectId, null);
+  const first = await costs.saveProjectBillCost(input(projectId, lineId));
+  assert.equal((await bill()).projectId, projectId);
+  const second = await costs.saveProjectBillCost(input(projectId, null, { quantity: 5, unitCost: 8.1, taxAmount: 2.15 }));
+  assert.equal((await bill()).allocatedAmount, 524.78);
+  assert.equal((await projects.getProjectFinancialSummary()).find((item) => item.projectId === projectId).costs, 600);
+  const otherProjectId = await projects.createProject("Other bill allocation fixture");
+  await assert.rejects(() => costs.saveProjectBillCost(input(otherProjectId, null)), /already assigned to another job/);
+  assert.equal((await bill()).projectId, projectId);
+  await costs.removeProjectBillCost(projectId, first);
+  await costs.removeProjectBillCost(projectId, second);
+  assert.equal((await bill()).allocatedAmount, 0);
+  assert.equal((await bill()).projectId, projectId);
+}));
+
+test("completed job cannot claim an unassigned bill", { skip: !enabled }, async () => fixture(async ({ tx, costs, projects, projectId, lineId }) => {
+  await tx.request().query("UPDATE dbo.Bills SET ProjectID = NULL WHERE id = 'COSTTEST01'");
+  await projects.updateProjectStatus(projectId, "Complete");
+  await assert.rejects(() => costs.saveProjectBillCost(input(projectId, lineId)), /Complete and read-only/);
+  assert.equal((await costs.getAllocationBills()).find((item) => item.billId === "COSTTEST01").projectId, null);
+}));
+
 test("bill project cannot change while active actual costs reference it", { skip: !enabled }, async () => fixture(async ({ tx, costs, projectId, lineId }) => {
   await costs.saveProjectBillCost(input(projectId, lineId));
   await assert.rejects(() => tx.request().query("UPDATE dbo.Bills SET ProjectID = NULL WHERE id = 'COSTTEST01'"), (error) => error.number === 51021);
+}));
+
+test("split bills distribute only allocations across jobs and track paid costs without double counting", { skip: !enabled }, async () => fixture(async ({ tx, costs, bills, projects, projectId, lineId }) => {
+  const first = await costs.saveProjectBillCost(input(projectId, lineId));
+  assert.equal((await projects.getProjectFinancialSummary()).find((p) => p.projectId === projectId).costs, 600);
+  await bills.setBillSplitMode("COSTTEST01", true);
+  const otherId = await projects.createProject("Split rental site B fixture");
+  const thirdId = await projects.createProject("Split rental site C fixture");
+  const second = await costs.saveProjectBillCost(input(otherId, null, { quantity: 1, unitCost: 200, freightAmount: 0, taxAmount: 0 }));
+  await costs.saveProjectBillCost(input(thirdId, null, { quantity: 1, unitCost: 50, freightAmount: 0, taxAmount: 0 }));
+  const shared = (await costs.getAllocationBills()).find((b) => b.billId === "COSTTEST01");
+  assert.equal(shared.isSplit, true);
+  assert.equal(shared.projectId, null);
+  assert.deepEqual(shared.allocatedProjectIds.sort((a, b) => a - b), [projectId, otherId, thirdId]);
+  assert.equal(shared.allocatedAmount, 532.13);
+  assert.equal(shared.remainingAmount, 67.87);
+  let summaries = await projects.getProjectFinancialSummary();
+  assert.equal(summaries.find((p) => p.projectId === projectId).costs, 282.13);
+  assert.equal(summaries.find((p) => p.projectId === otherId).costs, 200);
+  assert.equal(summaries.find((p) => p.projectId === thirdId).costs, 50);
+  assert.equal(summaries.find((p) => p.projectId === projectId).income, 900);
+  await assert.rejects(() => costs.saveProjectBillCost(input(otherId, null, { quantity: 1, unitCost: 68, freightAmount: 0, taxAmount: 0 })), /exceed the bill total/);
+  await assert.rejects(() => bills.setBillSplitMode("COSTTEST01", false), /multiple jobs/);
+  await tx.request().query("UPDATE dbo.Bills SET [Bill Paid Date] = '2026-10-06' WHERE id = 'COSTTEST01'");
+  summaries = await projects.getProjectFinancialSummary();
+  assert.equal(summaries.find((p) => p.projectId === otherId).paidCosts, 200);
+  assert.equal(summaries.find((p) => p.projectId === otherId).unpaidCosts, 0);
+  await costs.removeProjectBillCost(otherId, second);
+  assert.equal((await projects.getProjectFinancialSummary()).find((p) => p.projectId === otherId).costs, 0);
+  await costs.removeProjectBillCost(projectId, first);
+  await bills.setBillSplitMode("COSTTEST01", false);
+  const single = (await costs.getAllocationBills()).find((b) => b.billId === "COSTTEST01");
+  assert.equal(single.projectId, thirdId);
+  assert.equal(single.isSplit, false);
+  assert.equal((await projects.getProjectFinancialSummary()).find((p) => p.projectId === thirdId).costs, 600);
+}));
+
+test("empty split bill can return to unassigned single-job mode", { skip: !enabled }, async () => fixture(async ({ bills, costs }) => {
+  await bills.setBillSplitMode("COSTTEST01", true);
+  await bills.setBillSplitMode("COSTTEST01", false);
+  const bill = (await costs.getAllocationBills()).find((b) => b.billId === "COSTTEST01");
+  assert.equal(bill.isSplit, false);
+  assert.equal(bill.projectId, null);
+}));
+
+test("shared bill with completed allocation disables bill editing but permits other jobs to use its balance", { skip: !enabled }, async () => fixture(async ({ bills, costs, projects, projectId, lineId }) => {
+  await bills.setBillSplitMode("COSTTEST01", true);
+  await costs.saveProjectBillCost(input(projectId, lineId));
+  await projects.updateProjectStatus(projectId, "Complete");
+  const otherId = await projects.createProject("Shared rental active fixture");
+  await costs.saveProjectBillCost(input(otherId, null, { quantity: 1, unitCost: 20, freightAmount: 0, taxAmount: 0 }));
+  assert.equal((await costs.getAllocationBills()).find((b) => b.billId === "COSTTEST01").readOnly, true);
+  await assert.rejects(() => bills.setBillSplitMode("COSTTEST01", true), (error) => error.number === 51030);
+}));
+
+test("split bill payment edits are blocked when an allocated job is completed", { skip: !enabled }, async () => fixture(async ({ tx, bills, costs, projects, projectId, lineId }) => {
+  await bills.setBillSplitMode("COSTTEST01", true);
+  await costs.saveProjectBillCost(input(projectId, lineId));
+  await projects.updateProjectStatus(projectId, "Complete");
+  await assert.rejects(() => tx.request().query("UPDATE dbo.Bills SET [Bill Paid Date] = '2026-10-06' WHERE id = 'COSTTEST01'"), (error) => error.number === 51030);
+}));
+
+test("split bill total cannot fall below allocations across all jobs", { skip: !enabled }, async () => fixture(async ({ tx, bills, costs, projects, projectId, lineId }) => {
+  await bills.setBillSplitMode("COSTTEST01", true);
+  await costs.saveProjectBillCost(input(projectId, lineId));
+  const otherId = await projects.createProject("Shared rental total fixture");
+  await costs.saveProjectBillCost(input(otherId, null, { quantity: 1, unitCost: 200, freightAmount: 0, taxAmount: 0 }));
+  await assert.rejects(() => tx.request().query("UPDATE dbo.Bills SET [Bill Amount] = '400.00' WHERE id = 'COSTTEST01'"), (error) => error.number === 51022);
 }));

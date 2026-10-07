@@ -62,7 +62,7 @@ BEGIN
     SET NOCOUNT ON;
     IF EXISTS (
         SELECT 1 FROM inserted b JOIN dbo.ProjectBillCosts c ON c.BillID = b.id AND c.IsActive = 1
-        WHERE b.ProjectID IS NULL OR b.ProjectID <> c.ProjectID
+        WHERE b.IsSplit = 0 AND (b.ProjectID IS NULL OR b.ProjectID <> c.ProjectID)
     )
         THROW 51021, 'Remove the active cost allocations before changing this bill''s project.', 1;
     IF EXISTS (

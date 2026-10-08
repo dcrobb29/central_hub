@@ -7,7 +7,9 @@ export function billBalanceForRow(bill: AllocationBill, original?: { billId: str
 export function billSelectionIssue(bill: AllocationBill, projectId: number, original?: { billId: string; amount: number }): string | null {
   if (bill.amount === null || bill.amount <= 0) return "Correct the bill total in Finances first.";
   if (!bill.isSplit && bill.projectId !== null && bill.projectId !== projectId) {
-    return bill.readOnly ? "Attached to a completed job. Reopen that job before changing bill ownership."
+    if (bill.readOnly) return "Attached to a completed job. Reopen that job before changing bill ownership.";
+    return bill.allocatedProjectIds.length === 0 && bill.allocatedAmount === 0
+      ? "Attached to another job with no active allocations. Set its Project to Unassigned in Finances to move it without split mode."
       : "Attached to another job. Enable split mode to allocate its balance here.";
   }
   if ((billBalanceForRow(bill, original) ?? 0) <= 0) return "No unallocated balance remains.";

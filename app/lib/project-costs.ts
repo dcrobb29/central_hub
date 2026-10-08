@@ -2,6 +2,7 @@ import { getPool, sql } from "@/app/lib/db";
 import { actualCostTotal, ProjectBillAssignmentError, ProjectCostError, type ProjectCostInput } from "@/app/lib/project-cost-pricing";
 import { COMPLETED_PROJECT_MESSAGE } from "@/app/lib/project-status";
 import { rollbackIfActive } from "@/app/lib/sql-transactions";
+import type { Transaction } from "mssql";
 
 export type ProjectBillCost = ProjectCostInput & {
   costId: number;
@@ -61,6 +62,14 @@ export async function getProjectBillCosts(): Promise<ProjectBillCost[]> {
   `)).recordset;
 }
 
+async function unassignEmptyBill(transaction: Transaction, projectId: number, billId: string): Promise<void> {
+  await transaction.request().input("projectId", sql.Int, projectId).input("billId", sql.NChar(10), billId).query(`
+    UPDATE dbo.Bills SET ProjectID = NULL
+    WHERE id = @billId AND ProjectID = @projectId AND IsSplit = 0
+      AND NOT EXISTS (SELECT 1 FROM dbo.ProjectBillCosts WHERE BillID = @billId AND IsActive = 1)
+  `);
+}
+
 export async function saveProjectBillCost(input: ProjectCostInput, costId: number | null = null): Promise<number> {
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
@@ -73,10 +82,14 @@ export async function saveProjectBillCost(input: ProjectCostInput, costId: numbe
     if (!project.recordset[0]) throw new ProjectCostError("The project no longer exists");
     if (project.recordset[0].ProjectStatus === "Complete") throw new ProjectCostError(COMPLETED_PROJECT_MESSAGE);
     const bills = await transaction.request().input("projectId", sql.Int, input.projectId).input("billId", sql.NChar(10), input.billId)
+      .input("costId", sql.Int, costId)
       .query<{ id: string; projectId: number | null; isSplit: boolean; amount: number | null }>(`
         SELECT RTRIM(id) AS id, ProjectID AS projectId, IsSplit AS isSplit,
           TRY_CONVERT(decimal(19,2), NULLIF(REPLACE(REPLACE(RTRIM([Bill Amount]), '$', ''), ',', ''), '')) AS amount
-        FROM dbo.Bills WITH (UPDLOCK, HOLDLOCK) WHERE ProjectID = @projectId OR id = @billId ORDER BY id
+        FROM dbo.Bills WITH (UPDLOCK, HOLDLOCK)
+        WHERE ProjectID = @projectId OR id = @billId OR id IN (
+          SELECT BillID FROM dbo.ProjectBillCosts WHERE ProjectBillCostID = @costId AND ProjectID = @projectId AND IsActive = 1
+        ) ORDER BY id
       `);
     const bill = bills.recordset.find((candidate) => candidate.id === input.billId);
     if (!bill) throw new ProjectCostError("The selected bill no longer exists");
@@ -84,10 +97,12 @@ export async function saveProjectBillCost(input: ProjectCostInput, costId: numbe
       throw new ProjectBillAssignmentError("This bill is already assigned to another job. Choose an unassigned bill or one attached to this job.");
     }
     if (bill.amount === null || bill.amount <= 0) throw new ProjectCostError("This bill must have a valid positive total before allocating costs");
+    let previousBillId: string | null = null;
     if (costId !== null) {
       const existing = await transaction.request().input("costId", sql.Int, costId).input("projectId", sql.Int, input.projectId)
-        .query("SELECT ProjectBillCostID FROM dbo.ProjectBillCosts WITH (UPDLOCK, HOLDLOCK) WHERE ProjectBillCostID = @costId AND ProjectID = @projectId AND IsActive = 1");
+        .query<{ billId: string }>("SELECT RTRIM(BillID) AS billId FROM dbo.ProjectBillCosts WITH (UPDLOCK, HOLDLOCK) WHERE ProjectBillCostID = @costId AND ProjectID = @projectId AND IsActive = 1");
       if (!existing.recordset[0]) throw new ProjectCostError("The cost row no longer exists in this project");
+      previousBillId = existing.recordset[0].billId;
     }
     if (input.estimateLineItemId !== null) {
       const line = await transaction.request().input("lineId", sql.Int, input.estimateLineItemId).input("projectId", sql.Int, input.projectId)
@@ -131,6 +146,9 @@ export async function saveProjectBillCost(input: ProjectCostInput, costId: numbe
       WHERE ProjectBillCostID = @costId AND ProjectID = @projectId AND IsActive = 1;
       SELECT costId FROM @updated;
     `);
+    if (previousBillId !== null && previousBillId !== input.billId) {
+      await unassignEmptyBill(transaction, input.projectId, previousBillId);
+    }
     await transaction.commit();
     return result.recordset[0].costId;
   } catch (error) {
@@ -141,9 +159,29 @@ export async function saveProjectBillCost(input: ProjectCostInput, costId: numbe
 
 export async function removeProjectBillCost(projectId: number, costId: number): Promise<void> {
   const pool = await getPool();
-  const result = await pool.request().input("projectId", sql.Int, projectId).input("costId", sql.Int, costId).query(`
-    UPDATE dbo.ProjectBillCosts SET IsActive = 0, UpdatedAt = SYSUTCDATETIME()
-    WHERE ProjectID = @projectId AND ProjectBillCostID = @costId AND IsActive = 1
-  `);
-  if (result.rowsAffected[0] !== 1) throw new ProjectCostError("The cost row no longer exists in this project");
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+  try {
+    const project = await transaction.request().input("projectId", sql.Int, projectId)
+      .query<{ ProjectStatus: string }>("SELECT ProjectStatus FROM dbo.Projects WITH (UPDLOCK, HOLDLOCK) WHERE ProjectID = @projectId");
+    if (!project.recordset[0]) throw new ProjectCostError("The project no longer exists");
+    if (project.recordset[0].ProjectStatus === "Complete") throw new ProjectCostError(COMPLETED_PROJECT_MESSAGE);
+    const bill = await transaction.request().input("projectId", sql.Int, projectId).input("costId", sql.Int, costId)
+      .query<{ billId: string }>(`
+        SELECT RTRIM(id) AS billId FROM dbo.Bills WITH (UPDLOCK, HOLDLOCK)
+        WHERE id IN (SELECT BillID FROM dbo.ProjectBillCosts
+          WHERE ProjectID = @projectId AND ProjectBillCostID = @costId AND IsActive = 1)
+      `);
+    if (!bill.recordset[0]) throw new ProjectCostError("The cost row no longer exists in this project");
+    const result = await transaction.request().input("projectId", sql.Int, projectId).input("costId", sql.Int, costId).query(`
+      UPDATE dbo.ProjectBillCosts SET IsActive = 0, UpdatedAt = SYSUTCDATETIME()
+      WHERE ProjectID = @projectId AND ProjectBillCostID = @costId AND IsActive = 1
+    `);
+    if (result.rowsAffected[0] !== 1) throw new ProjectCostError("The cost row no longer exists in this project");
+    await unassignEmptyBill(transaction, projectId, bill.recordset[0].billId);
+    await transaction.commit();
+  } catch (error) {
+    await rollbackIfActive(transaction);
+    throw error;
+  }
 }

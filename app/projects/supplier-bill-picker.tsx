@@ -24,7 +24,7 @@ export default function SupplierBillPicker({ bills, projectId, original, onSelec
       <input type="search" autoFocus value={search} placeholder="Bill number, ID, vendor, date, or job"
         onChange={(event) => { setSearch(event.target.value); setPage(0); }} />
     </label>
-    <p className="projectCostHint">Bills with available balances are shown, including those attached to other jobs. Those bills require explicit split mode before selection. Changing split mode is saved immediately and changes job totals.</p>
+    <p className="projectCostHint">Bills with available balances are shown, including those attached to other jobs. Remove their last allocation to release them, or set their Project to Unassigned in Finances if they have no allocations. Use split mode only to share a bill across jobs. Changing split mode is saved immediately and changes job totals.</p>
     <p role="status">{matches.length} matching bills{matches.length > 0 && ` · Showing ${currentPage * PAGE_SIZE + 1}-${currentPage * PAGE_SIZE + visible.length}`}</p>
     <div className="projectScopeTableWrapper"><table className="invoiceTable projectScopeTable">
       <thead><tr><th>Bill / Vendor</th><th>Date</th><th>Total</th><th>Available balance</th><th>Assignment</th><th>Action</th></tr></thead>

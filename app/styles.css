@@ -219,6 +219,19 @@
   border-bottom-color: #176347;
 }
 
+.listViewToolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.listViewControls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.listStatusToggle { display: flex; flex-wrap: wrap; gap: 2px; padding: 2px; border: 1px solid #d0dad4; border-radius: 4px; }
+.listStatusToggle button, .listFilterButton { display: inline-flex; align-items: center; gap: 4px; padding: 6px 8px; border: 0; border-radius: 3px; background: transparent; color: #435c50; font-size: 12px; cursor: pointer; }
+.listStatusToggle button[aria-pressed="true"] { background: #e0ebe4; color: #176347; font-weight: 600; }
+.listStatusToggle button:hover, .listFilterButton:hover { background: #edf4ef; }
+.listStatusToggle button:focus-visible, .listFilterButton:focus-visible { outline: 2px solid #294b3f; outline-offset: 2px; }
+.listStatusToggle span { font-size: 11px; }
+.listFilterButton { border: 1px solid #d0dad4; }
+.listFilterIndicator { width: 6px; height: 6px; border-radius: 50%; background: #176347; }
+.listFiltersDialog { max-width: 440px; }
+.listFiltersDialog > .financeImportField { margin-bottom: 12px; }
+
 .salesEstimateTableWrapper {
   flex: 1;
   min-height: 0;
@@ -640,7 +653,7 @@
 .projectCostScope { border: 1px solid #d0dad4; border-radius: 4px; padding: 12px; margin-top: 14px; }
 .projectScopeSummary { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; cursor: pointer; color: #20362d; }
 .projectScopeSummary::before,
-.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; flex: 0 0 auto; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); }
+summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; flex: 0 0 auto; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); }
 .projectCostScope[open] > .projectScopeSummary::before,
 .projectCostLine[open] > .projectEstimateSummary::before { transform: rotate(45deg); }
 .projectScopeSummary > span { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
@@ -650,13 +663,35 @@
 .projectCostScope > header, .projectActualCostToolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; justify-content: space-between; }
 .projectCostScope h3, .projectCostLine h4 { margin: 0; color: #20362d; }
 .projectCostScope > header p { font-size: 12px; }
-.projectCostLine { margin-top: 12px; padding: 12px; border-top: 1px solid #d0dad4; background: #f9fbfa; }
-.projectEstimateSummary { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; cursor: pointer; color: #20362d; }
-.projectEstimateSummary > span { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
-.projectEstimateSummary > .projectEstimateTitle { flex: 1; min-width: 160px; }
+.projectCostLinesViewport { margin-top: 12px; max-height: 60vh; overflow: auto; scroll-padding-top: 40px; border: 1px solid #d0dad4; border-radius: 3px; }
+.projectCostLinesViewport:focus-visible { outline: 2px solid #294b3f; outline-offset: 2px; }
+.projectCostLines { --project-cost-columns: 24px minmax(220px, 2fr) repeat(2, minmax(132px, 1fr)) repeat(3, minmax(128px, 1fr)); min-width: 940px; }
+.projectCostLineHeader, .projectEstimateSummary { display: grid; grid-template-columns: var(--project-cost-columns); align-items: center; padding: 0 8px; }
+.projectCostLineHeader { position: sticky; top: 0; z-index: 1; background: #e8efeb; color: #435c50; border-bottom: 1px solid #bdcbc3; }
+.projectCostLineHeader > small { padding: 8px; font-size: 11px; font-weight: 600; border-left: 1px solid #d0dad4; }
+.projectCostLineHeader > small:nth-child(n+3) { text-align: right; }
+.projectCostLine { margin: 0; padding: 0; border-bottom: 1px solid #d0dad4; background: #fff; }
+.projectCostLine:last-child { border-bottom: 0; }
+.projectCostLine:nth-child(odd) { background: #f9fbfa; }
+.projectEstimateSummary { min-height: 38px; cursor: pointer; color: #20362d; list-style: none; }
+.projectEstimateSummary::-webkit-details-marker { display: none; }
+.projectEstimateSummary::before { justify-self: center; }
+.projectEstimateSummary:hover, .projectCostLine[open] > .projectEstimateSummary { background: #edf4ef; }
+.projectEstimateSummary > span { display: flex; flex-direction: column; justify-content: center; gap: 2px; align-self: stretch; min-width: 0; padding: 4px 8px; border-left: 1px solid #d0dad4; font-size: 12px; line-height: 1.25; }
+.projectEstimateSummary > span:not(.projectEstimateTitle) { text-align: right; font-variant-numeric: tabular-nums; }
+.projectEstimateSummary > span:not(.projectEstimateTitle) > strong { white-space: nowrap; font-weight: 500; }
+.projectEstimateSummary > .projectEstimateTitle { overflow-wrap: anywhere; }
 .projectEstimateSummary small { color: #687a73; font-size: 11px; }
-.projectEstimateSummary:focus-visible { outline: 2px solid #294b3f; outline-offset: 4px; }
+.projectEstimateSummary small.projectOverBudget { color: #a12f25; }
+.projectEstimateSummary:focus-visible { outline: 2px solid #294b3f; outline-offset: -2px; }
+.projectEstimateEmpty { cursor: default; }
+.projectAddCostButton { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 28px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: #294b3f; cursor: pointer; }
+.projectAddCostButton:hover:not(:disabled) { background: #dce9e0; }
+.projectAddCostButton:focus-visible { outline: 2px solid #294b3f; outline-offset: -2px; }
+.projectAddCostButton:disabled { opacity: .45; cursor: not-allowed; }
+.projectCostAddRow { padding-top: 4px; }
 .projectActualCostContent { margin-top: 14px; padding-top: 12px; border-top: 1px solid #d0dad4; }
+.projectCostLine > .projectActualCostContent { margin: 0; padding: 10px 12px 12px 40px; background: #fff; }
 .projectActualCostToolbar { font-size: 12px; }
 .projectCostLine .projectScopeTableWrapper, .projectCostScope > .projectScopeTableWrapper { margin: 12px 0 0; }
 .projectCostLine caption { text-align: left; padding: 8px 0; font-size: 11px; color: #687a73; }

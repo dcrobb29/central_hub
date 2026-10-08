@@ -114,6 +114,31 @@ one-time approval. All fixture data is rolled back at the end.
 
 ## Bill-backed project actuals
 
+### Project and estimate list controls
+
+Status toggles sit beside the Projects / Recurring tabs. Projects support All,
+Upcoming, Active, and Completed; estimates support All, Not approved, and
+Approved. Approved means Won; Not approved includes Draft and Lost estimates.
+Counts reflect the selected engagement type before search/column filters.
+Filters & sort opens a shared modal for status and quoted-total/name ordering;
+changes apply immediately. Estimate modal sorting and table-header sorting use
+the same state. Reset clears the selected list's filters and sorting, including
+estimate search/column filters. Status selection carries across engagement tabs;
+estimate search and sorting remain independent per tab. Missing project totals
+sort last in either direction. Amount-range controls can extend the modal without
+adding another toolbar or table header.
+
+Cost lines use a compact spreadsheet-style layout within each expandable scope,
+with one shared header for estimated/remaining quantities and estimated/actual/
+remaining costs. The header stays visible while scrolling long scopes; narrow
+screens scroll horizontally to preserve column alignment. Items with no actual
+costs have a circled plus on the left that opens the cost-entry form directly.
+Items with costs keep their expandable chevron (focus the row and press
+Enter/Space for keyboard access) to view, edit, or remove allocations. A circled
+plus below the last actual-cost row adds another cost; unexpected costs use the
+same bottom add control. Add controls are disabled for completed jobs. Long descriptions
+wrap rather than being truncated, and quantity-unit warnings remain visible.
+
 ### Split vendor bills (exception)
 
 The actual-cost form uses **Find supplier bill**, a searchable modal with 20
@@ -208,9 +233,18 @@ Select an unassigned bill or one already attached to the job. Saving an allocati
 attaches an unassigned bill to the job in the same transaction; cancelling or a
 failed save does not attach it. Bills attached to another job cannot be selected
 or reassigned by this workflow unless explicitly changed to split mode. The same bill remains selectable for multiple
-cost lines within its job, subject to its remaining balance. Removing an allocation
-leaves the bill attached; detach it explicitly in Finances after removing all active
-allocations if necessary. Manual project assignment in Finances remains available.
+cost lines within its job, subject to its remaining balance. Removing an allocation,
+or editing it to use a different bill, automatically clears the old single-job
+bill's project assignment when no active allocations remain anywhere on that bill.
+This happens in the same transaction and removes the full bill total from the old
+job's financials; the bill becomes **Unassigned** and can attach to another job
+without split mode. Bills with remaining allocations stay attached. Split bills
+keep their split setting and count only their remaining allocations. Completed
+jobs must be reopened before removing or moving their allocations.
+Existing zero-allocation assignments are not bulk-cleared: bills may have been
+assigned directly in Finances without any allocation rows. For those bills, edit
+the bill in **Finances > Bills** and set **Project** to **Unassigned** before
+selecting it in another job. Manual project assignment remains available.
 Add actual-cost rows beneath accepted
 estimate lines or under **Unexpected / Out-of-scope costs**. Each row requires a
 bill, description, cost date, quantity, unit, actual unit cost, freight amount, and

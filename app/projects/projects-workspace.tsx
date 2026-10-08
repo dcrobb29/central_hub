@@ -6,6 +6,7 @@ import type { AllocationBill, ProjectBillCost } from "@/app/lib/project-costs";
 import type { ProjectFinancialSummary } from "@/app/lib/projects";
 import ProjectCostPanel from "./project-cost-panel";
 import ProjectStatusSelector from "./project-status-selector";
+import ListViewControls from "@/app/components/list-view-controls";
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
@@ -32,10 +33,23 @@ export default function ProjectsWorkspace({ projects, costs, bills, financials, 
   const [activeTab, setActiveTab] = useState<"Project" | "Service">(
     projects.find((project) => project.projectId === initialProjectId)?.engagementType ?? "Project",
   );
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [sort, setSort] = useState("");
 
   const oneTimeProjects = projects.filter((project) => project.engagementType === "Project");
   const recurringProjects = projects.filter((project) => project.engagementType === "Service");
-  const visibleProjects = activeTab === "Project" ? oneTimeProjects : recurringProjects;
+  const tabProjects = activeTab === "Project" ? oneTimeProjects : recurringProjects;
+  const visibleProjects = tabProjects.filter((project) => statusFilter === "All" || project.projectStatus === statusFilter);
+  if (sort) visibleProjects.sort((left, right) => {
+    const byAmount = sort.startsWith("amount");
+    if (byAmount && (left.quotedTotal == null || right.quotedTotal == null)) {
+      if (left.quotedTotal == null && right.quotedTotal == null) return 0;
+      return left.quotedTotal == null ? 1 : -1;
+    }
+    const comparison = byAmount ? (left.quotedTotal ?? 0) - (right.quotedTotal ?? 0)
+      : left.projectName.localeCompare(right.projectName, undefined, { numeric: true, sensitivity: "base" });
+    return sort.endsWith("desc") ? -comparison : comparison;
+  });
 
   return (
     <div className="projectsWorkspace">
@@ -47,30 +61,39 @@ export default function ProjectsWorkspace({ projects, costs, bills, financials, 
         {/* <p className="salesWorkflowNote">Won estimates carry their accepted scope into a project.</p> */}
       </header>
 
-      <div className="engagementTabs" role="tablist" aria-label="Project type">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "Project"}
-          className={`engagementTab${activeTab === "Project" ? " engagementTabActive" : ""}`}
-          onClick={() => setActiveTab("Project")}
-        >
-          Projects ({oneTimeProjects.length})
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "Service"}
-          className={`engagementTab${activeTab === "Service" ? " engagementTabActive" : ""}`}
-          onClick={() => setActiveTab("Service")}
-        >
-          Recurring ({recurringProjects.length})
-        </button>
+      <div className="listViewToolbar">
+        <div className="engagementTabs" role="tablist" aria-label="Project type">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "Project"}
+            className={`engagementTab${activeTab === "Project" ? " engagementTabActive" : ""}`}
+            onClick={() => setActiveTab("Project")}
+          >
+            Projects ({oneTimeProjects.length})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "Service"}
+            className={`engagementTab${activeTab === "Service" ? " engagementTabActive" : ""}`}
+            onClick={() => setActiveTab("Service")}
+          >
+            Recurring ({recurringProjects.length})
+          </button>
+        </div>
+        <ListViewControls id="projects" label="Projects" status={statusFilter} onStatusChange={setStatusFilter}
+          statuses={["All", "Upcoming", "Active", "Complete"].map((value) => ({
+            value, label: value === "Complete" ? "Completed" : value,
+            count: tabProjects.filter((project) => value === "All" || project.projectStatus === value).length,
+          }))}
+          sort={sort} onSortChange={setSort} active={statusFilter !== "All" || Boolean(sort)}
+          onReset={() => { setStatusFilter("All"); setSort(""); }} />
       </div>
 
       {visibleProjects.length === 0 ? (
         <div className="projectsEmptyState">
-          {activeTab === "Project" ? "Won one-time estimates will appear here as projects." : "Won recurring estimates will appear here as projects."}
+          {tabProjects.length > 0 ? "No projects match this status filter." : activeTab === "Project" ? "Won one-time estimates will appear here as projects." : "Won recurring estimates will appear here as projects."}
         </div>
       ) : (
         <div className="projectList">

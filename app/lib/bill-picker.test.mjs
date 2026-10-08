@@ -42,6 +42,15 @@ test("completion and invalid totals cannot be bypassed through bill selection", 
   assert.equal(billSelectionIssue(bill({ isSplit: true, readOnly: true, remainingAmount: 50 }), 1), null);
 });
 
+test("zero-allocation assignment explains how to move without enabling split mode", () => {
+  const assigned = bill({ projectId: 2, projectName: "Site B" });
+  assert.match(billSelectionIssue(assigned, 1), /Project to Unassigned in Finances/);
+  assert.equal(billSelectionIssue(assigned, 2), null);
+  assert.equal(billSelectionIssue({ ...assigned, projectId: null }, 1), null);
+  assert.match(billSelectionIssue({ ...assigned, allocatedProjectIds: [2] }, 1), /Enable split mode/);
+  assert.match(billSelectionIssue({ ...assigned, readOnly: true }, 1), /completed job/);
+});
+
 test("search handles hundreds of bills without dropping late results", () => {
   const rows = Array.from({ length: 250 }, (_, index) => bill({ billId: `B${index}`, billNo: `NUMBER${index}` }));
   assert.equal(searchAllocationBills(rows, "").length, 250);

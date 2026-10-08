@@ -22,6 +22,7 @@ import type { ScopeTemplateDetails, ScopeTemplateSummary } from "@/app/lib/scope
 import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
 import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
 import Modal from "@/app/components/modal";
+import ListViewControls from "@/app/components/list-view-controls";
 import { ESTIMATE_NOTES_MAX_LENGTH } from "@/app/lib/estimate-notes";
 import {
   defaultUnitAbbreviation,
@@ -189,11 +190,14 @@ export default function EstimateWorkspace({ estimates, unitPresets }: { estimate
   const [scopeTemplateQuantity, setScopeTemplateQuantity] = useState(1);
   const [scopeTemplateError, setScopeTemplateError] = useState<string | null>(null);
 
+  const [approvalFilter, setApprovalFilter] = useState("All");
   const projectEstimates = estimates.filter((estimate) => estimate.engagementType === "Project");
   const recurringEstimates = estimates.filter((estimate) => estimate.engagementType === "Service");
+  const matchesApproval = (estimate: EstimateSummary) => approvalFilter === "All"
+    || (approvalFilter === "Approved" ? estimate.status === "Won" : estimate.status !== "Won");
 
-  const projectTable = useFilterableTable(projectEstimates, PROJECT_COLUMNS, { searchableValue, compare: compareEstimates });
-  const recurringTable = useFilterableTable(recurringEstimates, RECURRING_COLUMNS, { searchableValue, compare: compareEstimates });
+  const projectTable = useFilterableTable(projectEstimates.filter(matchesApproval), PROJECT_COLUMNS, { searchableValue, compare: compareEstimates });
+  const recurringTable = useFilterableTable(recurringEstimates.filter(matchesApproval), RECURRING_COLUMNS, { searchableValue, compare: compareEstimates });
 
   const activeColumns = activeEngagementTab === "Project" ? PROJECT_COLUMNS : RECURRING_COLUMNS;
   const {
@@ -202,6 +206,7 @@ export default function EstimateWorkspace({ estimates, unitPresets }: { estimate
     columnFilters,
     setColumnFilters,
     sort,
+    setSort,
     toggleSort,
     openFilter,
     setOpenFilter,
@@ -210,6 +215,13 @@ export default function EstimateWorkspace({ estimates, unitPresets }: { estimate
     clearFilters,
     hasActiveFilters,
   } = activeEngagementTab === "Project" ? projectTable : recurringTable;
+  const tabEstimates = activeEngagementTab === "Project" ? projectEstimates : recurringEstimates;
+  const modalSort = !sort ? "" : sort.key === "estimateName" ? `name-${sort.direction}`
+    : sort.key === "quotedTotal" ? `amount-${sort.direction}` : "custom";
+  function resetListFilters() {
+    setApprovalFilter("All");
+    clearFilters();
+  }
 
   const pricing = calculateEstimate({
     markupMode,
@@ -709,25 +721,38 @@ export default function EstimateWorkspace({ estimates, unitPresets }: { estimate
         <a className="estimateTextAction" href="/sales/scope-templates">Scope Templates</a>
       </div>
 
-      <div className="engagementTabs" role="tablist" aria-label="Estimate type">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeEngagementTab === "Project"}
-          className={`engagementTab${activeEngagementTab === "Project" ? " engagementTabActive" : ""}`}
-          onClick={() => setActiveEngagementTab("Project")}
-        >
-          Projects ({projectEstimates.length})
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeEngagementTab === "Service"}
-          className={`engagementTab${activeEngagementTab === "Service" ? " engagementTabActive" : ""}`}
-          onClick={() => setActiveEngagementTab("Service")}
-        >
-          Recurring ({recurringEstimates.length})
-        </button>
+      <div className="listViewToolbar">
+        <div className="engagementTabs" role="tablist" aria-label="Estimate type">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeEngagementTab === "Project"}
+            className={`engagementTab${activeEngagementTab === "Project" ? " engagementTabActive" : ""}`}
+            onClick={() => setActiveEngagementTab("Project")}
+          >
+            Projects ({projectEstimates.length})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeEngagementTab === "Service"}
+            className={`engagementTab${activeEngagementTab === "Service" ? " engagementTabActive" : ""}`}
+            onClick={() => setActiveEngagementTab("Service")}
+          >
+            Recurring ({recurringEstimates.length})
+          </button>
+        </div>
+        <ListViewControls id="estimates" label="Estimates" status={approvalFilter} onStatusChange={setApprovalFilter}
+          statuses={["All", "Not approved", "Approved"].map((value) => ({
+            value, label: value, count: tabEstimates.filter((estimate) => value === "All"
+              || (value === "Approved" ? estimate.status === "Won" : estimate.status !== "Won")).length,
+          }))}
+          sort={modalSort} onSortChange={(value) => {
+            if (!value) setSort(null);
+            else if (value === "name-asc" || value === "name-desc") setSort({ key: "estimateName", direction: value === "name-asc" ? "asc" : "desc" });
+            else if (value === "amount-asc" || value === "amount-desc") setSort({ key: "quotedTotal", direction: value === "amount-asc" ? "asc" : "desc" });
+          }}
+          active={approvalFilter !== "All" || hasActiveFilters} onReset={resetListFilters} />
       </div>
 
       <p className="salesWorkflowNote">Draft estimates retain their pricing inputs and line items. Marking one won sends it straight to Projects &amp; Jobs using the engagement type chosen when it was created.</p>
@@ -749,8 +774,8 @@ export default function EstimateWorkspace({ estimates, unitPresets }: { estimate
         <span className="invoiceResultCount" aria-live="polite">
           {visibleEstimates.length} of {activeEngagementTab === "Project" ? projectEstimates.length : recurringEstimates.length} estimates
         </span>
-        {hasActiveFilters && (
-          <button type="button" className="invoiceClearButton" onClick={clearFilters}>Clear</button>
+        {(hasActiveFilters || approvalFilter !== "All") && (
+          <button type="button" className="invoiceClearButton" onClick={resetListFilters}>Clear</button>
         )}
       </div>
 

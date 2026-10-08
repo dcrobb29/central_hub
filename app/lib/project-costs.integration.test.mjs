@@ -107,7 +107,7 @@ test("bill total cannot be reduced below allocated actual costs", { skip: !enabl
   await assert.rejects(() => tx.request().query("UPDATE dbo.Bills SET [Bill Amount] = '100.00' WHERE id = 'COSTTEST01'"), (error) => error.number === 51022);
 }));
 
-test("unassigned bill attaches on save, stays reusable and never double-counts project costs", { skip: !enabled }, async () => fixture(async ({ tx, costs, projects, projectId, lineId }) => {
+test("unassigned bill attaches on save and the last removal releases it for another job", { skip: !enabled }, async () => fixture(async ({ tx, costs, projects, projectId, lineId }) => {
   await tx.request().query("UPDATE dbo.Bills SET ProjectID = NULL WHERE id = 'COSTTEST01'");
   const bill = async () => (await costs.getAllocationBills()).find((item) => item.billId === "COSTTEST01");
   assert.equal((await bill()).projectId, null);
@@ -123,9 +123,59 @@ test("unassigned bill attaches on save, stays reusable and never double-counts p
   await assert.rejects(() => costs.saveProjectBillCost(input(otherProjectId, null)), /already assigned to another job/);
   assert.equal((await bill()).projectId, projectId);
   await costs.removeProjectBillCost(projectId, first);
+  assert.equal((await bill()).projectId, projectId);
+  assert.equal((await projects.getProjectFinancialSummary()).find((item) => item.projectId === projectId).costs, 600);
   await costs.removeProjectBillCost(projectId, second);
   assert.equal((await bill()).allocatedAmount, 0);
-  assert.equal((await bill()).projectId, projectId);
+  assert.equal((await bill()).projectId, null);
+  assert.equal((await bill()).isSplit, false);
+  assert.equal((await projects.getProjectFinancialSummary()).find((item) => item.projectId === projectId).costs, 0);
+  assert.equal((await projects.getProjectFinancialSummary()).find((item) => item.projectId === projectId).income, 900);
+  await costs.saveProjectBillCost(input(otherProjectId, null));
+  assert.equal((await bill()).projectId, otherProjectId);
+  assert.equal((await bill()).isSplit, false);
+  assert.equal((await projects.getProjectFinancialSummary()).find((item) => item.projectId === otherProjectId).costs, 600);
+}));
+
+test("moving allocations releases only the emptied old bill and failed moves preserve ownership", { skip: !enabled }, async () => fixture(async ({ tx, costs, projects, projectId, lineId }) => {
+  await tx.request().query(`
+    INSERT INTO dbo.Bills (id, [Bill No], [Bill Date], [Bill Amount])
+    VALUES ('COSTTEST02', 'TEST02', '2026-10-05', '700.00')
+  `);
+  const first = await costs.saveProjectBillCost(input(projectId, lineId));
+  const second = await costs.saveProjectBillCost(input(projectId, null, { quantity: 1, unitCost: 20, freightAmount: 0, taxAmount: 0 }));
+  const bill = async (id) => (await costs.getAllocationBills()).find((item) => item.billId === id);
+  await assert.rejects(() => costs.saveProjectBillCost(input(projectId, lineId, { billId: "COSTTEST02", quantity: 100 }), first), /exceed the bill total/);
+  assert.equal((await bill("COSTTEST01")).projectId, projectId);
+  assert.equal((await bill("COSTTEST02")).projectId, null);
+  await costs.saveProjectBillCost(input(projectId, lineId), first);
+  assert.equal((await bill("COSTTEST01")).projectId, projectId);
+  await costs.saveProjectBillCost(input(projectId, lineId, { billId: "COSTTEST02" }), first);
+  assert.equal((await bill("COSTTEST01")).projectId, projectId);
+  assert.equal((await bill("COSTTEST02")).projectId, projectId);
+  await costs.saveProjectBillCost(input(projectId, null, { billId: "COSTTEST02", quantity: 1, unitCost: 20, freightAmount: 0, taxAmount: 0 }), second);
+  assert.equal((await bill("COSTTEST01")).projectId, null);
+  assert.equal((await bill("COSTTEST01")).allocatedAmount, 0);
+  assert.equal((await bill("COSTTEST02")).projectId, projectId);
+  assert.equal((await projects.getProjectFinancialSummary()).find((item) => item.projectId === projectId).costs, 700);
+}));
+
+test("last removal keeps split mode and completed jobs cannot release their bills", { skip: !enabled }, async () => fixture(async ({ bills, costs, projects, projectId, lineId }) => {
+  const first = await costs.saveProjectBillCost(input(projectId, lineId));
+  await assert.rejects(() => costs.removeProjectBillCost(projectId, 2_147_483_647), /no longer exists/);
+  await projects.updateProjectStatus(projectId, "Complete");
+  await assert.rejects(() => costs.removeProjectBillCost(projectId, first), /Complete and read-only/);
+  await assert.rejects(() => costs.saveProjectBillCost(input(projectId, lineId), first), /Complete and read-only/);
+  let bill = (await costs.getAllocationBills()).find((item) => item.billId === "COSTTEST01");
+  assert.equal(bill.projectId, projectId);
+  assert.equal(bill.allocatedAmount, 282.13);
+  await projects.updateProjectStatus(projectId, "Active");
+  await bills.setBillSplitMode("COSTTEST01", true);
+  await costs.removeProjectBillCost(projectId, first);
+  bill = (await costs.getAllocationBills()).find((item) => item.billId === "COSTTEST01");
+  assert.equal(bill.isSplit, true);
+  assert.equal(bill.projectId, null);
+  assert.equal(bill.allocatedAmount, 0);
 }));
 
 test("completed job cannot claim an unassigned bill", { skip: !enabled }, async () => fixture(async ({ tx, costs, projects, projectId, lineId }) => {

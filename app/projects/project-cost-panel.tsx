@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CirclePlus } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "@/app/components/modal";
@@ -121,13 +122,18 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
     } finally { setBusy(false); }
   }
 
-  function costRows(rows: ProjectBillCost[]) {
-    if (rows.length === 0) return <p className="projectCostHint">
-      {/* No actual-cost rows yet. */}
-      </p>;
+  function addCostButton(line: ProjectScopeLine | null) {
+    const label = line ? `Add actual cost for ${line.description}` : "Add an unexpected cost";
+    return <button type="button" className="projectAddCostButton" disabled={busy || readOnly}
+      aria-label={label} title={label} onClick={() => openNew(line)}>
+      <CirclePlus size={18} aria-hidden="true" />
+    </button>;
+  }
+
+  function costRows(rows: ProjectBillCost[], line: ProjectScopeLine | null) {
     return (
       <div className="projectScopeTableWrapper">
-        <table className="invoiceTable projectScopeTable">
+        {rows.length > 0 && <table className="invoiceTable projectScopeTable">
           <caption>Bill-backed actual costs</caption>
           <thead><tr><th>Date / Bill</th><th>Description</th><th>Actual quantity</th><th>Unit cost</th><th>Freight</th><th>Tax amount</th><th>Total actual</th><th>Actions</th></tr></thead>
           <tbody>{rows.map((cost) => <tr key={cost.costId}>
@@ -137,7 +143,8 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
             <td><button type="button" className="estimateTextAction" disabled={busy || readOnly} onClick={() => edit(cost)}>Edit / Reallocate</button>{" "}
               <button type="button" className="estimateDangerAction" disabled={busy || readOnly} onClick={() => void remove(cost)}>Remove allocation</button></td>
           </tr>)}</tbody>
-        </table>
+        </table>}
+        <div className="projectCostAddRow">{addCostButton(line)}</div>
       </div>
     );
   }
@@ -187,35 +194,49 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
               <span><small>Actual cost</small><strong>{dollars(scopeActual)}</strong></span>
               <span><small>Remaining budget</small><strong className={scopeActual > scopeEstimated ? "projectOverBudget" : ""}>{dollars(money(scopeEstimated - scopeActual))}</strong></span>
             </summary>
-            {lines.map((line) => {
-              const estimated = pricing.lines[project.lines.indexOf(line)];
-              const rows = costs.filter((cost) => cost.estimateLineItemId === line.estimateLineItemId);
-              const actual = money(rows.reduce((sum, cost) => sum + cost.amount, 0));
-              const purchased = matchingQuantity(rows, line.unitName);
-              return <details className="projectCostLine" key={line.estimateLineItemId}>
-                <summary className="projectEstimateSummary">
-                  <span className="projectEstimateTitle"><strong>{line.description}</strong><small>{line.lineType} · {rows.length} actual-cost {rows.length === 1 ? "row" : "rows"}</small></span>
-                  <span><small>Estimated quantity</small><strong>{quantity.format(line.quantity)} {line.unitName}</strong></span>
-                  <span><small>Remaining quantity</small><strong>{quantity.format(line.quantity - purchased.quantity)} {line.unitName}</strong>
-                    {purchased.hasOtherUnits && <small className="projectOverBudget">Other units excluded from quantity only</small>}</span>
-                  <span><small>Estimated cost</small><strong>{dollars(estimated.landedCost)}</strong></span>
-                  <span><small>Actual cost</small><strong>{dollars(actual)}</strong></span>
-                  <span><small>Remaining budget</small><strong className={actual > estimated.landedCost ? "projectOverBudget" : ""}>{dollars(money(estimated.landedCost - actual))}</strong></span>
+            <div className="projectCostLinesViewport" role="region" aria-label={`${scopeName ?? "Ungrouped"} cost lines`} tabIndex={0}>
+              <div className="projectCostLines">
+                <div className="projectCostLineHeader">
+                  <span aria-hidden="true" />
+                  <small>Work item</small>
+                  <small>Estimated quantity</small>
+                  <small>Remaining quantity</small>
+                  <small>Estimated cost</small>
+                  <small>Actual cost</small>
+                  <small>Remaining budget</small>
+                </div>
+                {lines.map((line) => {
+                  const estimated = pricing.lines[project.lines.indexOf(line)];
+                  const rows = costs.filter((cost) => cost.estimateLineItemId === line.estimateLineItemId);
+                  const actual = money(rows.reduce((sum, cost) => sum + cost.amount, 0));
+                  const purchased = matchingQuantity(rows, line.unitName);
+                  const cells = <>
+                      <span className="projectEstimateTitle"><strong>{line.description}</strong><small>{line.lineType} · {rows.length} actual-cost {rows.length === 1 ? "row" : "rows"}</small></span>
+                      <span aria-label={`Estimated quantity: ${quantity.format(line.quantity)} ${line.unitName}`}><strong>{quantity.format(line.quantity)} {line.unitName}</strong></span>
+                      <span aria-label={`Remaining quantity: ${quantity.format(line.quantity - purchased.quantity)} ${line.unitName}`}><strong>{quantity.format(line.quantity - purchased.quantity)} {line.unitName}</strong>
+                        {purchased.hasOtherUnits && <small className="projectOverBudget">Other units excluded from quantity only</small>}</span>
+                      <span aria-label={`Estimated cost: ${dollars(estimated.landedCost)}`}><strong>{dollars(estimated.landedCost)}</strong></span>
+                      <span aria-label={`Actual cost: ${dollars(actual)}`}><strong>{dollars(actual)}</strong></span>
+                      <span aria-label={`Remaining budget: ${dollars(money(estimated.landedCost - actual))}`}><strong className={actual > estimated.landedCost ? "projectOverBudget" : ""}>{dollars(money(estimated.landedCost - actual))}</strong></span>
 
-                  {/* <button type="button" className="estimateTextAction" aria-label={`View estimate reference for ${line.description}`} onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setReferenceLine(line);
-                  }}>Estimate reference</button> */}
-                </summary>
-                <div className="projectActualCostContent">
-                <div className="projectActualCostToolbar">
-                  <button type="button" className="estimateTextAction" disabled={busy || readOnly} onClick={() => openNew(line)}>Add actual cost</button>
-                </div>
-                {costRows(rows)}
-                </div>
-              </details>;
-            })}
+                  </>;
+                  if (rows.length === 0) return <div className="projectCostLine" key={line.estimateLineItemId}>
+                    <div className="projectEstimateSummary projectEstimateEmpty">
+                      {addCostButton(line)}
+                      {cells}
+                    </div>
+                  </div>;
+                  return <details className="projectCostLine" key={line.estimateLineItemId}>
+                    <summary className="projectEstimateSummary">
+                      {cells}
+                    </summary>
+                    <div className="projectActualCostContent">
+                      {costRows(rows, line)}
+                    </div>
+                  </details>;
+                })}
+              </div>
+            </div>
           </details>
         );
       })}
@@ -225,10 +246,7 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
           <span><small>Actual cost</small><strong>{dollars(unexpectedTotal)}</strong></span>
         </summary>
         <div className="projectActualCostContent">
-          <div className="projectActualCostToolbar">
-            <button type="button" className="estimateTextAction" disabled={busy || readOnly} onClick={() => openNew(null)}>Add an unexpected cost</button>
-          </div>
-          {costRows(unexpected)}
+          {costRows(unexpected, null)}
         </div>
       </details>
       <section className="projectCostScope">
@@ -279,7 +297,7 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
           {selectedBill && <p className="projectCostHint">Changing split mode is saved immediately for the whole bill, even if this cost form is cancelled.</p>}
           {selectedBill?.isSplit && <p className="projectCostHint">Split bill: only this job&apos;s allocated cost rows count toward its actuals. Other jobs can allocate the remaining balance. Unallocated amounts stay in Finances, not in any job.</p>}
           {selectedBill && !selectedBill.isSplit && selectedBill.projectId === null && <p className="projectCostHint">Saving attaches this bill to the job. Its full total ({selectedBill.amount === null ? "Invalid amount" : dollars(selectedBill.amount)}) counts toward project actuals; only this row&apos;s amount counts toward the selected work item. The remaining balance can be allocated to more lines in this job.</p>}
-          <p className="projectCostHint">Removing an allocation leaves its bill attached to the job.</p>
+          <p className="projectCostHint">Removing or moving the last allocation from a single-job bill makes that bill Unassigned and removes its full total from this job. Bills with other allocations stay attached; split bills keep split mode.</p>
           <p>Total actual cost: <strong>{Number.isFinite(draftTotal) ? dollars(draftTotal) : "Enter valid numbers"}</strong>
             {available !== null && <> / Bill balance available for this row: <strong>{dollars(available)}</strong></>}</p>
           {error && <p className="financeImportError" role="alert">{error}</p>}

@@ -91,6 +91,7 @@ export function useFilterableTable<T>(rows: T[], columns: TableColumn<T>[], { se
     columnFilters,
     setColumnFilters,
     sort,
+    setSort,
     toggleSort,
     openFilter,
     setOpenFilter,

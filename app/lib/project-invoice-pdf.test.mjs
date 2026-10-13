@@ -57,3 +57,63 @@ test("multiline customer invoice notes paginate and retain final total",async()=
   assert.ok(text.includes("LASTCUSTOMERNOTE")); assert.ok(text.includes("Invoice total: $125.00"));
   assert.ok(!text.includes("NEVERPUBLIC"));
 });
+test("custom invoice settings apply template branding, payment terms, and custom titles",async()=>{
+  const customSettings = {
+    organizationId: 1,
+    templateStyle: "classic",
+    accentColor: "#1e3a8a",
+    invoiceTitle: "TAX STATEMENT",
+    companyName: "Acme Industrial Corp",
+    companyAddressLine1: "500 Enterprise Way",
+    companyCity: "Portland",
+    companyState: "OR",
+    companyZip: "97201",
+    companyPhone: "(503) 555-9000",
+    companyEmail: "ar@acmeindustrial.com",
+    taxNumber: "TAX-998877",
+    paymentTerms: "Net 45",
+    paymentInstructions: "REMITTANCEINSTRUCTIONMARKER",
+    defaultCustomerNotes: "ACMEFOOTERNOTE",
+    emailSubjectTemplate: "Invoice {invoiceNo}",
+    emailBodyTemplate: "Body",
+    showShippingAddress: true,
+    showProjectName: true,
+    showItemizedScopes: true,
+  };
+  const pdf = await renderProjectInvoicePdf(invoice, billing, customSettings);
+  assert.ok(pdf.toString("ascii", 0, 5) === "%PDF-");
+  const text = pdfText(pdf);
+  for (const marker of [
+    "TAX STATEMENT",
+    "Acme Industrial Corp",
+    "500 Enterprise Way",
+    "Portland, OR, 97201",
+    "ar@acmeindustrial.com",
+    "Tax ID: TAX-998877",
+    "Payment terms: Net 45",
+    "REMITTANCEINSTRUCTIONMARKER",
+    "ACMEFOOTERNOTE",
+    "Invoice total: $125.00",
+  ]) {
+    assert.ok(text.includes(marker), `Expected PDF text to include '${marker}'`);
+  }
+});
+test("compact and minimal styles render valid PDFs with correct totals",async()=>{
+  for (const style of ["compact", "minimal", "modern"]) {
+    const pdf = await renderProjectInvoicePdf(invoice, billing, {
+      templateStyle: style,
+      accentColor: "#059669",
+      invoiceTitle: "INVOICE",
+      companyName: `${style.toUpperCase()} CO`,
+      paymentTerms: "Due on receipt",
+      showShippingAddress: false,
+      showProjectName: false,
+      showItemizedScopes: true,
+    });
+    assert.ok(pdf.toString("ascii", 0, 5) === "%PDF-");
+    const text = pdfText(pdf);
+    assert.ok(text.includes(`${style.toUpperCase()} CO`));
+    assert.ok(text.includes("Invoice total: $125.00"));
+  }
+});
+

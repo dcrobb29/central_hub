@@ -21,6 +21,7 @@ const COLUMNS: Column[] = [
   { key: "invoiceDate", label: "Invoice Date" },
   { key: "invoiceDueDate", label: "Due Date" },
   { key: "invoicePaidDate", label: "Paid Date" },
+  { key: "lastEmailedAt", label: "Email Status" },
   { key: "invoiceAmount", label: "Amount" },
   { key: "firstName", label: "First Name" },
   { key: "lastName", label: "Last Name" },
@@ -37,7 +38,7 @@ const COLUMNS: Column[] = [
   { key: "shippingAddressZip", label: "Shipping Zip" },
 ];
 
-type InvoiceDraft = Omit<Invoice, "id" | "projectId" | "projectName" | "customerId" | "billingManaged"> & { projectId: string; customerId: string };
+type InvoiceDraft = Omit<Invoice, "id" | "organizationId" | "projectId" | "projectName" | "customerId" | "billingManaged"> & { projectId: string; customerId: string };
 type InvoiceField = {
   key: Exclude<keyof InvoiceDraft, "projectId" | "customerId">;
   label: string;
@@ -108,6 +109,11 @@ function parseAmount(value: unknown) {
 function formatValue(key: keyof Invoice, value: Invoice[keyof Invoice]) {
   if (key === "projectName" && (value == null || value === "")) return "Unassigned";
   if (key === "invoicePaidDate" && (value == null || value === "")) return "Unpaid";
+  if (key === "lastEmailedAt") {
+    if (value == null || value === "") return "Unsent";
+    const date = new Date(String(value));
+    return Number.isNaN(date.getTime()) ? String(value).trim() : `Sent ${date.toLocaleDateString()}`;
+  }
   if (value == null || value === "") return "";
   if (key === "invoiceAmount") {
     const numeric = parseAmount(value);
@@ -122,6 +128,9 @@ function formatValue(key: keyof Invoice, value: Invoice[keyof Invoice]) {
 }
 
 function searchableValue(key: keyof Invoice, value: Invoice[keyof Invoice]) {
+  if (key === "lastEmailedAt") {
+    return value ? `sent emailed ${value}` : "unsent not emailed";
+  }
   const raw = String(value ?? "").trim();
   const display = formatValue(key, value);
   return `${raw} ${display}`.toLocaleLowerCase();
@@ -137,7 +146,7 @@ function compareInvoices(left: Invoice, right: Invoice, key: keyof Invoice) {
     if (Number.isNaN(rightAmount)) return -1;
     return leftAmount - rightAmount;
   }
-  if (key === "invoiceDate" || key === "invoiceDueDate" || key === "invoicePaidDate") {
+  if (key === "invoiceDate" || key === "invoiceDueDate" || key === "invoicePaidDate" || key === "lastEmailedAt") {
     const leftDate = Date.parse(String(leftValue ?? ""));
     const rightDate = Date.parse(String(rightValue ?? ""));
     if (Number.isNaN(leftDate)) return Number.isNaN(rightDate) ? 0 : 1;
@@ -189,6 +198,8 @@ export default function InvoiceTable({ className, invoices, projectOptions, cust
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [emailingInvoice, setEmailingInvoice] = useState<Invoice | null>(null);
   const [emailOverride, setEmailOverride] = useState("");
+  const [emailSubjectOverride, setEmailSubjectOverride] = useState("");
+  const [emailNote, setEmailNote] = useState("");
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailStatusMessage, setEmailStatusMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const selectedCustomer = customers.find((customer) => String(customer.customerId) === invoiceDraft.customerId);
@@ -244,6 +255,17 @@ export default function InvoiceTable({ className, invoices, projectOptions, cust
     setInvoiceDraft(EMPTY_INVOICE);
     setEditingInvoiceId(null);
     setIsImportOpen(true);
+    fetch("/api/finances/invoices/next-number")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.nextInvoiceNumber) {
+          setInvoiceDraft((curr) => ({
+            ...curr,
+            invoiceNo: curr.invoiceNo || data.nextInvoiceNumber,
+          }));
+        }
+      })
+      .catch(() => {});
   }
 
   function openEditForm(invoice: Invoice) {
@@ -286,6 +308,8 @@ export default function InvoiceTable({ className, invoices, projectOptions, cust
   function openEmailDialog(invoice: Invoice) {
     const customer = customers.find((c) => c.customerId === invoice.customerId);
     setEmailOverride(customer?.email || "");
+    setEmailSubjectOverride("");
+    setEmailNote("");
     setEmailStatusMessage(null);
     setEmailingInvoice(invoice);
   }
@@ -298,7 +322,11 @@ export default function InvoiceTable({ className, invoices, projectOptions, cust
       const response = await fetch(`/api/finances/invoices/${emailingInvoice.id}/email`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recipientEmail: emailOverride }),
+        body: JSON.stringify({
+          recipientEmail: emailOverride,
+          subjectOverride: emailSubjectOverride.trim() || undefined,
+          customNote: emailNote.trim() || undefined,
+        }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to send invoice email");
@@ -307,6 +335,10 @@ export default function InvoiceTable({ className, invoices, projectOptions, cust
         text: `Invoice sent to ${data.recipientEmail}!${sim}`,
         isError: false,
       });
+      // Update local invoice state
+      emailingInvoice.lastEmailedAt = new Date().toISOString();
+      emailingInvoice.lastEmailedTo = data.recipientEmail;
+      router.refresh();
     } catch (err) {
       setEmailStatusMessage({
         text: err instanceof Error ? err.message : "Unable to send invoice email",
@@ -369,7 +401,22 @@ export default function InvoiceTable({ className, invoices, projectOptions, cust
             ) : paginatedInvoices.map((invoice) => (
               <tr key={invoice.id}>
                 {COLUMNS.map((column) => (
-                  <td key={column.key}>{formatValue(column.key, invoice[column.key])}</td>
+                  <td key={column.key}>
+                    {column.key === "lastEmailedAt" ? (
+                      invoice.lastEmailedAt ? (
+                        <span
+                          className="invoiceEmailedBadge"
+                          title={`Last sent to ${invoice.lastEmailedTo || "customer"} on ${new Date(invoice.lastEmailedAt).toLocaleString()}`}
+                        >
+                          ✓ Sent {new Date(invoice.lastEmailedAt).toLocaleDateString()}
+                        </span>
+                      ) : (
+                        <span style={{ color: "var(--muted, #6c757d)", fontSize: "0.82rem" }}>Not sent</span>
+                      )
+                    ) : (
+                      formatValue(column.key, invoice[column.key])
+                    )}
+                  </td>
                 ))}
                 <td>
                   <div className="estimateActionsInner">
@@ -520,8 +567,13 @@ export default function InvoiceTable({ className, invoices, projectOptions, cust
         >
           <p className="financeImportHint">
             Send Invoice <strong>{emailingInvoice.invoiceNo}</strong> as a PDF attachment to the customer.
+            {emailingInvoice.lastEmailedAt && (
+              <span style={{ display: "block", marginTop: "4px", color: "var(--color-success, #28a745)" }}>
+                Previously sent on {new Date(emailingInvoice.lastEmailedAt).toLocaleDateString()} to {emailingInvoice.lastEmailedTo || "customer"}.
+              </span>
+            )}
           </p>
-          <div style={{ margin: "16px 0" }}>
+          <div style={{ display: "grid", gap: "12px", margin: "16px 0" }}>
             <label className="financeImportField">
               Recipient Email Address *
               <input
@@ -533,9 +585,27 @@ export default function InvoiceTable({ className, invoices, projectOptions, cust
                 required
               />
             </label>
-            <p className="financeImportHint" style={{ marginTop: 4 }}>
-              Default address pulled from customer record or project. You can change it here for this transmission.
-            </p>
+            <label className="financeImportField">
+              Subject Override (optional)
+              <input
+                type="text"
+                value={emailSubjectOverride}
+                onChange={(e) => setEmailSubjectOverride(e.target.value)}
+                placeholder="Leave blank to use organization template"
+                disabled={isSendingEmail}
+              />
+            </label>
+            <label className="financeImportField">
+              Personal Note / Message (optional)
+              <textarea
+                value={emailNote}
+                onChange={(e) => setEmailNote(e.target.value)}
+                placeholder="Add an optional personal message to include in the email body..."
+                disabled={isSendingEmail}
+                rows={3}
+                style={{ resize: "vertical", fontFamily: "inherit", fontSize: "0.9rem" }}
+              />
+            </label>
           </div>
           {emailStatusMessage && (
             <p className={emailStatusMessage.isError ? "financeImportError" : "billingNotice"} role="alert">

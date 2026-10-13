@@ -64,6 +64,23 @@ export default function ProjectBillingModal({ projectId, projectName, initialTab
   const [busySendingInvoiceId, setBusySendingInvoiceId] = useState<number | null>(null);
 
   useEffect(() => {
+    if (tab === "invoice" && existingInvoiceId === null && !invoiceNo.trim()) {
+      let isSubscribed = true;
+      fetch("/api/finances/invoices/next-number")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((body) => {
+          if (isSubscribed && body?.nextInvoiceNumber) {
+            setInvoiceNo((curr) => curr.trim() || body.nextInvoiceNumber);
+          }
+        })
+        .catch(() => {});
+      return () => {
+        isSubscribed = false;
+      };
+    }
+  }, [tab, existingInvoiceId, invoiceNo]);
+
+  useEffect(() => {
     const controller = new AbortController();
     async function load() {
       try {

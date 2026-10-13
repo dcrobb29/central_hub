@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { addInvoice, type InvoiceInput } from "@/app/lib/invoices";
+import { addInvoice, getInvoices, type InvoiceInput } from "@/app/lib/invoices";
 import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
 import { amountValue, describeValidationError, isoDateValue, optionalIsoDateValue, optionalProjectId, textValue, ValidationError } from "@/app/lib/validation";
 import { optionalCustomerId } from "@/app/lib/customer-fields";
 import { NotesValidationError, parseNotes } from "@/app/lib/document-notes";
+import { getActiveOrganizationId } from "@/app/lib/auth";
 
 // Shared by POST (create) and the [id] route's PUT (update) so both stay in lockstep.
 export function parseInvoiceInput(body: unknown): InvoiceInput {
@@ -11,11 +12,12 @@ export function parseInvoiceInput(body: unknown): InvoiceInput {
     throw new ValidationError("invalid");
   }
   const input = body as Record<string, unknown>;
+  const rawInvoiceNo = typeof input.invoiceNo === "string" ? input.invoiceNo.trim() : "";
   return {
     internalNotes: "internalNotes" in input ? parseNotes(input.internalNotes, "Internal notes") : undefined,
     customerNotes: "customerNotes" in input ? parseNotes(input.customerNotes, "Customer notes") : undefined,
     customerId: "customerId" in input ? optionalCustomerId(input.customerId) : undefined,
-    invoiceNo: textValue(input.invoiceNo, 10, true),
+    invoiceNo: rawInvoiceNo ? textValue(rawInvoiceNo, 10, true) : "",
     projectId: optionalProjectId(input.projectId),
     invoiceDate: isoDateValue(input.invoiceDate),
     invoiceDueDate: isoDateValue(input.invoiceDueDate),
@@ -49,9 +51,20 @@ export function describeInvoiceSqlError(error: unknown): { message: string; stat
     return { message: "The selected project or customer no longer exists", status: 400 };
   }
   if (typeof error === "object" && error !== null && "number" in error && [2601, 2627].includes(Number(error.number))) {
-    return { message: "An invoice with a duplicate key already exists", status: 409 };
+    return { message: "An invoice with this invoice number already exists for your organization", status: 409 };
   }
   return { message: "Unable to save invoice. Check database insert permissions.", status: 500 };
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const organizationId = await getActiveOrganizationId(request);
+    const invoices = await getInvoices({ organizationId });
+    return NextResponse.json(invoices);
+  } catch (error) {
+    console.error("Failed to fetch invoices", error);
+    return NextResponse.json({ error: "Unable to fetch invoices" }, { status: 500 });
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -65,7 +78,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const id = await addInvoice(invoiceInput);
+    const organizationId = await getActiveOrganizationId(request);
+    const id = await addInvoice(invoiceInput, organizationId);
     return NextResponse.json({ id }, { status: 201 });
   } catch (error) {
     console.error("Invoice save failed", error);

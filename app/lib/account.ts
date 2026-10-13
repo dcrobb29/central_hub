@@ -1,4 +1,8 @@
 import { getPool, sql } from "@/app/lib/db";
+import {
+  type OrganizationInvoiceSettings,
+  getOrganizationInvoiceSettings,
+} from "./invoice-settings";
 
 import { hashPassword, PRACTICE_PASSWORD } from "./auth";
 
@@ -101,6 +105,7 @@ export type OrganizationSettingsData = {
   accessRoles: AccessRoleWithPermissions[];
   allPermissions: { permissionKey: string; description: string }[];
   allPersonnelRoles: { id: number; name: string }[];
+  invoiceSettings: OrganizationInvoiceSettings;
 };
 
 export async function getCurrentSession(emailOverride?: string): Promise<AccountSession> {
@@ -371,7 +376,7 @@ export async function unlinkMembershipEmployee(
 export async function getOrganizationSettings(organizationId: number): Promise<OrganizationSettingsData> {
   const pool = await getPool();
 
-  const [orgRes, subRes, membersRes, empsRes, rolesRes, permsRes, pRolesRes] = await Promise.all([
+  const [orgRes, subRes, membersRes, empsRes, rolesRes, permsRes, pRolesRes, invoiceSettings] = await Promise.all([
     pool.request()
       .input("organizationId", sql.Int, organizationId)
       .query<{
@@ -500,6 +505,7 @@ export async function getOrganizationSettings(organizationId: number): Promise<O
     pool.request().query<{ RoleID: number; RoleName: string }>(`
       SELECT RoleID, RoleName FROM dbo.Roles ORDER BY RoleName ASC
     `),
+    getOrganizationInvoiceSettings(organizationId),
   ]);
 
   const orgRow = orgRes.recordset[0];
@@ -601,6 +607,7 @@ export async function getOrganizationSettings(organizationId: number): Promise<O
       id: r.RoleID,
       name: r.RoleName,
     })),
+    invoiceSettings,
   };
 }
 

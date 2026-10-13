@@ -2,6 +2,7 @@ import "./styles.css";
 import Link from "next/link";
 import UserProfile from "./components/user-profile";
 import HeaderCompanyName from "./components/header-company-name";
+import SampleDataToggle from "./components/sample-data-toggle";
 import { AccountSessionProvider } from "./components/account-session-context";
 
 export default function Header() {
@@ -12,7 +13,10 @@ export default function Header() {
           <img className="logo" src="/logo.png" alt="Logo" />
         </Link>
         <HeaderCompanyName />
-        <UserProfile />
+        <div className="headerRight">
+          <SampleDataToggle />
+          <UserProfile />
+        </div>
       </div>
     </AccountSessionProvider>
   );

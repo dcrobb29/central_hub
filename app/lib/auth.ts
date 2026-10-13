@@ -194,3 +194,52 @@ export async function listLocalUsersForLogin(): Promise<LocalLoginOption[]> {
     return [];
   }
 }
+
+export async function getActiveOrganizationId(
+  request?: Request | { cookies?: { get(name: string): { value: string } | undefined } }
+): Promise<number> {
+  try {
+    let token: string | undefined;
+    if (request && "cookies" in request && typeof request.cookies?.get === "function") {
+      token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+    } else {
+      const { cookies } = await import("next/headers");
+      const cookieStore = await cookies();
+      token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    }
+    if (token) {
+      const payload = verifySessionToken(token);
+      if (payload?.email) {
+        const pool = await getPool();
+        const userResult = await pool.request()
+          .input("email", sql.NVarChar(254), payload.email.trim().toLowerCase())
+          .query<{ OrganizationID: number }>(`
+            SELECT TOP (1) m.OrganizationID
+            FROM dbo.Users u
+            JOIN dbo.OrganizationMemberships m ON m.UserID = u.UserID AND m.IsActive = 1
+            WHERE u.NormalizedEmail = LOWER(LTRIM(RTRIM(@email)))
+          `);
+        if (userResult.recordset[0]?.OrganizationID) {
+          return userResult.recordset[0].OrganizationID;
+        }
+      }
+    }
+  } catch {
+    // In background scripts or unit tests without Next.js request context, ignore error and fall back
+  }
+
+  try {
+    const pool = await getPool();
+    const fallback = await pool.request().query<{ OrganizationID: number }>(`
+      SELECT TOP (1) OrganizationID FROM dbo.Organizations WHERE Status != 'Archived' ORDER BY OrganizationID ASC
+    `);
+    if (fallback.recordset[0]?.OrganizationID) {
+      return fallback.recordset[0].OrganizationID;
+    }
+  } catch {
+    // ignore
+  }
+
+  return 1;
+}
+

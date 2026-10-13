@@ -9,6 +9,7 @@ import {
   setEmployeeActiveStatus,
   deleteOrArchiveEmployee,
 } from "@/app/lib/account";
+import { updateOrganizationInvoiceSettings } from "@/app/lib/invoice-settings";
 
 export async function GET(request: NextRequest) {
   try {
@@ -121,6 +122,17 @@ export async function POST(request: NextRequest) {
       const result = await deleteOrArchiveEmployee(organizationId, employeeId);
       const settings = await getOrganizationSettings(organizationId);
       return NextResponse.json({ ...settings, notification: result.message });
+    }
+
+    if (action === "update-invoice-settings") {
+      const invoiceSettings = body.invoiceSettings;
+      if (!invoiceSettings || typeof invoiceSettings !== "object") {
+        return NextResponse.json({ error: "Invoice settings are required" }, { status: 400 });
+      }
+
+      await updateOrganizationInvoiceSettings(organizationId, invoiceSettings);
+      const settings = await getOrganizationSettings(organizationId);
+      return NextResponse.json({ ...settings, notification: "Invoice template settings updated successfully." });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });

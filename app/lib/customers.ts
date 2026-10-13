@@ -1,18 +1,24 @@
 import { getPool, sql } from "@/app/lib/db";
 import { CUSTOMER_FIELD_GROUPS, type Customer, type CustomerDetails } from "@/app/lib/customer-fields";
+import { getActiveOrganizationId } from "@/app/lib/auth";
 
 export class CustomerError extends Error {}
 
-export async function getCustomers(): Promise<Customer[]> {
+export async function getCustomers(organizationId?: number): Promise<Customer[]> {
+  const orgId = organizationId ?? (await getActiveOrganizationId());
   const pool = await getPool();
-  const result = await pool.request().query<Customer>(`
+  const result = await pool.request()
+    .input("orgId", sql.Int, orgId)
+    .query<Customer>(`
     SELECT CustomerID AS customerId, FirstName AS firstName, LastName AS lastName, CompanyName AS companyName,
       Email AS email, Phone AS phone, IsActive AS isActive,
       BillingAddressLine1 AS billingAddressLine1, BillingAddressLine2 AS billingAddressLine2,
       BillingAddressCity AS billingAddressCity, BillingAddressState AS billingAddressState, BillingAddressZip AS billingAddressZip,
       ShippingAddressLine1 AS shippingAddressLine1, ShippingAddressLine2 AS shippingAddressLine2,
       ShippingAddressCity AS shippingAddressCity, ShippingAddressState AS shippingAddressState, ShippingAddressZip AS shippingAddressZip
-    FROM dbo.Customers ORDER BY COALESCE(CompanyName, FirstName), LastName, CustomerID
+    FROM dbo.Customers
+    WHERE OrganizationID = @orgId
+    ORDER BY COALESCE(CompanyName, FirstName), LastName, CustomerID
   `);
   return result.recordset;
 }

@@ -9,9 +9,10 @@ import {
   allocateCents, billingCents, BillingError, calculateBillingAllocations,
   type BillingMethod, type BillingSelection, type BillingUnit, type ScopeStatus,
 } from "@/app/lib/project-billing-pricing";
+import { allocateNextInvoiceNumber } from "@/app/lib/invoice-settings";
 
 type BillingProject = {
-  projectId: number; projectName: string; customerId: number | null; projectStatus: ProjectStatus;
+  projectId: number; organizationId: number; projectName: string; customerId: number | null; projectStatus: ProjectStatus;
   engagementType: "Project" | "Service"; revisionId: number | null; startDate: string | null;
   endDate: string | null; frequency: RecurringFrequency | null;
 };
@@ -26,7 +27,7 @@ export type ProjectBilling = {
 
 async function lockProject(transaction: sql.Transaction, projectId: number): Promise<BillingProject> {
   const result = await transaction.request().input("projectId", sql.Int, projectId).query<BillingProject>(`
-    SELECT ProjectID AS projectId, ProjectName AS projectName, CustomerID AS customerId, ProjectStatus AS projectStatus,
+    SELECT ProjectID AS projectId, OrganizationID AS organizationId, ProjectName AS projectName, CustomerID AS customerId, ProjectStatus AS projectStatus,
       EngagementType AS engagementType, AcceptedEstimateRevisionID AS revisionId,
       CONVERT(char(10),ExpectedStartDate,23) AS startDate, CONVERT(char(10),ExpectedEndDate,23) AS endDate,
       RecurrenceFrequency AS frequency
@@ -249,23 +250,35 @@ export async function issueProjectInvoice(input: IssueProjectInvoice): Promise<n
     if (legacy) invoiceId = legacy.invoiceId;
     else {
       if (!project.customerId) throw new BillingError("Choose a billing customer on this project before issuing an invoice.");
-      const customer = await transaction.request().input("customerId", sql.Int, project.customerId)
-        .query("SELECT CustomerID FROM dbo.Customers WITH (HOLDLOCK) WHERE CustomerID=@customerId AND IsActive=1");
-      if (!customer.recordset.length) throw new BillingError("The billing customer is archived. Choose an active billing customer first.");
-      const result = await transaction.request().input("projectId", sql.Int, input.projectId).input("customerId", sql.Int, project.customerId)
-        .input("invoiceNo", sql.NChar(10), input.invoiceNo).input("date", sql.Date, input.invoiceDate).input("due", sql.Date, input.dueDate)
+      const customer = await transaction.request()
+        .input("customerId", sql.Int, project.customerId)
+        .input("orgId", sql.Int, project.organizationId)
+        .query("SELECT CustomerID FROM dbo.Customers WITH (HOLDLOCK) WHERE CustomerID=@customerId AND OrganizationID=@orgId AND IsActive=1");
+      if (!customer.recordset.length) throw new BillingError("The billing customer is archived or unavailable. Choose an active billing customer first.");
+
+      const allocatedInvoiceNo = await allocateNextInvoiceNumber(transaction, project.organizationId, input.invoiceNo);
+
+      const result = await transaction.request()
+        .input("organizationId", sql.Int, project.organizationId)
+        .input("projectId", sql.Int, input.projectId)
+        .input("customerId", sql.Int, project.customerId)
+        .input("invoiceNo", sql.NChar(10), allocatedInvoiceNo)
+        .input("date", sql.Date, input.invoiceDate)
+        .input("due", sql.Date, input.dueDate)
         .input("amount", sql.NVarChar(32), total.toFixed(2))
-        .input("internalNotes", sql.NVarChar(4000), internalNotes).input("customerNotes", sql.NVarChar(4000), customerNotes).query<{ invoiceId: number }>(`
-          IF EXISTS (SELECT 1 FROM dbo.Invoices WITH (UPDLOCK,HOLDLOCK) WHERE [Invoice No]=@invoiceNo)
-            THROW 51041, 'This invoice number already exists. Use a unique invoice number.', 1;
-          INSERT INTO dbo.Invoices(ProjectID,CustomerID,IsProjectBilling,[Invoice No],[Invoice Date],[Invoice Due Date],[Invoice Amount],
+        .input("internalNotes", sql.NVarChar(4000), internalNotes)
+        .input("customerNotes", sql.NVarChar(4000), customerNotes)
+        .query<{ invoiceId: number }>(`
+          IF EXISTS (SELECT 1 FROM dbo.Invoices WITH (UPDLOCK,HOLDLOCK) WHERE OrganizationID=@organizationId AND [Invoice No]=@invoiceNo)
+            THROW 51041, 'This invoice number already exists for your organization. Use a unique invoice number.', 1;
+          INSERT INTO dbo.Invoices(OrganizationID,ProjectID,CustomerID,IsProjectBilling,[Invoice No],[Invoice Date],[Invoice Due Date],[Invoice Amount],
             [First Name],[Last Name],[Company Name],[Billing Address Line 1],[Billing Address Line 2],[Billing Address City],
             [Billing Address State],[Billing Address Zip],[Shipping Address Line 1],[Shipping Address Line 2],[Shipping Address City],
             [Shipping Address State],[Shipping Address Zip],InternalNotes,CustomerNotes)
-          SELECT @projectId,CustomerID,1,@invoiceNo,@date,@due,@amount,FirstName,LastName,CompanyName,
+          SELECT @organizationId,@projectId,CustomerID,1,@invoiceNo,@date,@due,@amount,FirstName,LastName,CompanyName,
             BillingAddressLine1,BillingAddressLine2,BillingAddressCity,BillingAddressState,BillingAddressZip,
             ShippingAddressLine1,ShippingAddressLine2,ShippingAddressCity,ShippingAddressState,ShippingAddressZip,@internalNotes,@customerNotes
-          FROM dbo.Customers WHERE CustomerID=@customerId;
+          FROM dbo.Customers WHERE CustomerID=@customerId AND OrganizationID=@organizationId;
           SELECT CONVERT(int,SCOPE_IDENTITY()) AS invoiceId;
         `);
       invoiceId = result.recordset[0].invoiceId;

@@ -1,9 +1,12 @@
 import { getPool, sql } from "@/app/lib/db";
 import type { ProjectOption } from "@/app/lib/projects";
 import { parseNotes } from "@/app/lib/document-notes";
+import { getActiveOrganizationId } from "@/app/lib/auth";
+import { allocateNextInvoiceNumber } from "@/app/lib/invoice-settings";
 
 export type Invoice = {
   id: number;
+  organizationId: number;
   customerId: number | null;
   billingManaged: boolean;
   internalNotes: string | null;
@@ -28,15 +31,41 @@ export type Invoice = {
   shippingAddressCity: string | null;
   shippingAddressState: string | null;
   shippingAddressZip: string | null;
+  lastEmailedAt?: string | null;
+  lastEmailedTo?: string | null;
 };
 
 export type InvoiceProjectOption = ProjectOption & { customerId: number | null };
 
-export async function getInvoices(invoiceId?: number): Promise<Invoice[]> {
+export async function getInvoices(
+  invoiceIdOrFilter?: number | { invoiceId?: number; organizationId?: number },
+  explicitOrgId?: number
+): Promise<Invoice[]> {
+  let invoiceId: number | null = null;
+  let organizationId: number | null = null;
+
+  if (typeof invoiceIdOrFilter === "number") {
+    invoiceId = invoiceIdOrFilter;
+    organizationId = explicitOrgId ?? null;
+  } else if (typeof invoiceIdOrFilter === "object" && invoiceIdOrFilter !== null) {
+    invoiceId = invoiceIdOrFilter.invoiceId ?? null;
+    organizationId = invoiceIdOrFilter.organizationId ?? explicitOrgId ?? null;
+  } else if (explicitOrgId !== undefined) {
+    organizationId = explicitOrgId;
+  }
+
+  if (organizationId === null) {
+    organizationId = await getActiveOrganizationId();
+  }
+
   const pool = await getPool();
-  const result = await pool.request().input("invoiceId", sql.Int, invoiceId ?? null).query<Invoice>(`
+  const result = await pool.request()
+    .input("invoiceId", sql.Int, invoiceId)
+    .input("organizationId", sql.Int, organizationId)
+    .query<Invoice>(`
     SELECT
       [id],
+      i.OrganizationID AS organizationId,
       i.CustomerID AS customerId,
       i.InternalNotes AS internalNotes,
       i.CustomerNotes AS customerNotes,
@@ -60,55 +89,69 @@ export async function getInvoices(invoiceId?: number): Promise<Invoice[]> {
       NULLIF(RTRIM([Shipping Address Line 2]), '') AS shippingAddressLine2,
       NULLIF(RTRIM([Shipping Address City]), '')   AS shippingAddressCity,
       NULLIF(RTRIM([Shipping Address State]), '')  AS shippingAddressState,
-      NULLIF(RTRIM([Shipping Address Zip]), '')    AS shippingAddressZip
+      NULLIF(RTRIM([Shipping Address Zip]), '')    AS shippingAddressZip,
+      CONVERT(varchar(19), i.LastEmailedAt, 120)   AS lastEmailedAt,
+      NULLIF(RTRIM(i.LastEmailedTo), '')           AS lastEmailedTo
     FROM dbo.Invoices i
     LEFT JOIN dbo.Projects p ON p.ProjectID = i.ProjectID
-    WHERE @invoiceId IS NULL OR i.id = @invoiceId
+    WHERE (@invoiceId IS NULL OR i.id = @invoiceId)
+      AND (@organizationId IS NULL OR i.OrganizationID = @organizationId)
     ORDER BY i.[Invoice Date] DESC
   `);
   return result.recordset;
 }
 
-export async function getInvoiceProjectOptions(): Promise<InvoiceProjectOption[]> {
+export async function getInvoiceProjectOptions(organizationId?: number): Promise<InvoiceProjectOption[]> {
+  const orgId = organizationId ?? (await getActiveOrganizationId());
   const pool = await getPool();
-  const result = await pool.request().query<InvoiceProjectOption>(`
+  const result = await pool.request()
+    .input("organizationId", sql.Int, orgId)
+    .query<InvoiceProjectOption>(`
     SELECT ProjectID AS projectId, ProjectName AS projectName, ProjectStatus AS projectStatus, CustomerID AS customerId
     FROM dbo.Projects
+    WHERE OrganizationID = @organizationId
     ORDER BY ProjectName, ProjectID
   `);
   return result.recordset;
 }
 
-export async function addInvoice(input: {
-  internalNotes?: string | null;
-  customerNotes?: string | null;
-  customerId?: number | null;
-  invoiceNo: string;
-  projectId: number | null;
-  invoiceDate: Date;
-  invoiceDueDate: Date;
-  invoicePaidDate: Date | null;
-  invoiceAmount: string | null;
-  firstName: string | null;
-  lastName: string | null;
-  companyName: string | null;
-  billingAddressLine1: string | null;
-  billingAddressLine2: string | null;
-  billingAddressCity: string | null;
-  billingAddressState: string | null;
-  billingAddressZip: string | null;
-  shippingAddressLine1: string | null;
-  shippingAddressLine2: string | null;
-  shippingAddressCity: string | null;
-  shippingAddressState: string | null;
-  shippingAddressZip: string | null;
-}): Promise<number> {
+export async function addInvoice(
+  input: {
+    internalNotes?: string | null;
+    customerNotes?: string | null;
+    customerId?: number | null;
+    invoiceNo: string;
+    projectId: number | null;
+    invoiceDate: Date;
+    invoiceDueDate: Date;
+    invoicePaidDate: Date | null;
+    invoiceAmount: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    companyName: string | null;
+    billingAddressLine1: string | null;
+    billingAddressLine2: string | null;
+    billingAddressCity: string | null;
+    billingAddressState: string | null;
+    billingAddressZip: string | null;
+    shippingAddressLine1: string | null;
+    shippingAddressLine2: string | null;
+    shippingAddressCity: string | null;
+    shippingAddressState: string | null;
+    shippingAddressZip: string | null;
+  },
+  organizationId?: number
+): Promise<number> {
+  const orgId = organizationId ?? (await getActiveOrganizationId());
   const pool = await getPool();
+  const finalInvoiceNo = await allocateNextInvoiceNumber(pool, orgId, input.invoiceNo);
+
   const result = await pool.request()
+    .input("organizationId", sql.Int, orgId)
     .input("internalNotes", sql.NVarChar(4000), parseNotes(input.internalNotes, "Internal notes"))
     .input("customerNotes", sql.NVarChar(4000), parseNotes(input.customerNotes, "Customer notes"))
     .input("customerId", sql.Int, input.customerId ?? null)
-    .input("invoiceNo", sql.NChar(10), input.invoiceNo)
+    .input("invoiceNo", sql.NChar(10), finalInvoiceNo)
     .input("projectId", sql.Int, input.projectId)
     .input("invoiceDate", sql.Date, input.invoiceDate)
     .input("invoiceDueDate", sql.Date, input.invoiceDueDate)
@@ -128,10 +171,12 @@ export async function addInvoice(input: {
     .input("shippingAddressState", sql.NVarChar(100), input.shippingAddressState)
     .input("shippingAddressZip", sql.NVarChar(20), input.shippingAddressZip)
     .query<{ id: number }>(`
-      IF @customerId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.Customers WHERE CustomerID = @customerId AND IsActive = 1)
+      IF @customerId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.Customers WHERE CustomerID = @customerId AND IsActive = 1 AND OrganizationID = @organizationId)
         THROW 51040, 'Choose an active customer. Archived customers cannot be used for new assignments.', 1;
+      IF EXISTS (SELECT 1 FROM dbo.Invoices WITH (UPDLOCK,HOLDLOCK) WHERE OrganizationID = @organizationId AND [Invoice No] = @invoiceNo)
+        THROW 51041, 'This invoice number already exists for your organization. Use a unique invoice number.', 1;
       INSERT INTO dbo.Invoices (
-        CustomerID, InternalNotes, CustomerNotes, [Invoice No], [ProjectID], [Invoice Date], [Invoice Due Date], [Invoice Paid Date], [Invoice Amount],
+        OrganizationID, CustomerID, InternalNotes, CustomerNotes, [Invoice No], [ProjectID], [Invoice Date], [Invoice Due Date], [Invoice Paid Date], [Invoice Amount],
         [First Name], [Last Name], [Company Name],
         [Billing Address Line 1], [Billing Address Line 2], [Billing Address City],
         [Billing Address State], [Billing Address Zip],
@@ -139,7 +184,7 @@ export async function addInvoice(input: {
         [Shipping Address State], [Shipping Address Zip]
       )
       VALUES (
-        @customerId, @internalNotes, @customerNotes, @invoiceNo, @projectId, @invoiceDate, @invoiceDueDate, @invoicePaidDate, @invoiceAmount,
+        @organizationId, @customerId, @internalNotes, @customerNotes, @invoiceNo, @projectId, @invoiceDate, @invoiceDueDate, @invoicePaidDate, @invoiceAmount,
         @firstName, @lastName, @companyName,
         @billingAddressLine1, @billingAddressLine2, @billingAddressCity,
         @billingAddressState, @billingAddressZip,
@@ -153,10 +198,12 @@ export async function addInvoice(input: {
 
 export type InvoiceInput = Parameters<typeof addInvoice>[0];
 
-export async function updateInvoice(id: number, input: InvoiceInput): Promise<void> {
+export async function updateInvoice(id: number, input: InvoiceInput, organizationId?: number): Promise<void> {
+  const orgId = organizationId ?? (await getActiveOrganizationId());
   const pool = await getPool();
   await pool.request()
     .input("id", sql.Int, id)
+    .input("organizationId", sql.Int, orgId)
     .input("internalNotes", sql.NVarChar(4000), parseNotes(input.internalNotes, "Internal notes"))
     .input("customerNotes", sql.NVarChar(4000), parseNotes(input.customerNotes, "Customer notes"))
     .input("internalNotesSpecified", sql.Bit, input.internalNotes !== undefined)
@@ -184,9 +231,11 @@ export async function updateInvoice(id: number, input: InvoiceInput): Promise<vo
     .input("shippingAddressZip", sql.NVarChar(20), input.shippingAddressZip)
     .query(`
       IF @customerId IS NOT NULL
-        AND NOT EXISTS (SELECT 1 FROM dbo.Customers WHERE CustomerID = @customerId AND IsActive = 1)
-        AND NOT EXISTS (SELECT 1 FROM dbo.Invoices WHERE id = @id AND CustomerID = @customerId)
+        AND NOT EXISTS (SELECT 1 FROM dbo.Customers WHERE CustomerID = @customerId AND IsActive = 1 AND OrganizationID = @organizationId)
+        AND NOT EXISTS (SELECT 1 FROM dbo.Invoices WHERE id = @id AND CustomerID = @customerId AND OrganizationID = @organizationId)
         THROW 51040, 'Choose an active customer. Archived customers cannot be used for new assignments.', 1;
+      IF EXISTS (SELECT 1 FROM dbo.Invoices WITH (UPDLOCK,HOLDLOCK) WHERE OrganizationID = @organizationId AND [Invoice No] = @invoiceNo AND id != @id)
+        THROW 51041, 'This invoice number already exists for your organization. Use a unique invoice number.', 1;
       UPDATE dbo.Invoices SET
         InternalNotes = CASE WHEN @internalNotesSpecified=1 THEN @internalNotes ELSE InternalNotes END,
         CustomerNotes = CASE WHEN @customerNotesSpecified=1 THEN @customerNotes ELSE CustomerNotes END,
@@ -210,17 +259,34 @@ export async function updateInvoice(id: number, input: InvoiceInput): Promise<vo
         [Shipping Address City] = @shippingAddressCity,
         [Shipping Address State] = @shippingAddressState,
         [Shipping Address Zip] = @shippingAddressZip
-      WHERE [id] = @id
+      WHERE [id] = @id AND OrganizationID = @organizationId
     `);
 }
 
-export async function deleteInvoice(id: number): Promise<void> {
+export async function deleteInvoice(id: number, organizationId?: number): Promise<void> {
+  const orgId = organizationId ?? (await getActiveOrganizationId());
   const pool = await getPool();
   await pool.request()
     .input("id", sql.Int, id)
+    .input("organizationId", sql.Int, orgId)
     .query(`
       IF EXISTS (SELECT 1 FROM dbo.ProjectIssuedInvoices WHERE InvoiceID=@id)
         THROW 51041, 'Issued project invoices cannot be deleted. Their allocations are part of billing history.', 1;
-      DELETE FROM dbo.Invoices WHERE [id] = @id;
+      DELETE FROM dbo.Invoices WHERE [id] = @id AND OrganizationID = @organizationId;
     `);
 }
+
+export async function recordInvoiceEmailed(id: number, recipientEmail: string): Promise<void> {
+  const pool = await getPool();
+  await pool.request()
+    .input("id", sql.Int, id)
+    .input("recipientEmail", sql.NVarChar(254), recipientEmail.trim())
+    .query(`
+      UPDATE dbo.Invoices
+      SET
+        LastEmailedAt = SYSUTCDATETIME(),
+        LastEmailedTo = @recipientEmail
+      WHERE [id] = @id;
+    `);
+}
+

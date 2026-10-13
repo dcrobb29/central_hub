@@ -4,11 +4,13 @@ import { BillingError, isBillingMethod, isScopeStatus, type BillingSelection } f
 import { isoDateValue, textValue, ValidationError } from "@/app/lib/validation";
 import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
 import { NotesValidationError, parseNotes } from "@/app/lib/document-notes";
+import { ProjectAccessError, requireProject, requireProjectSession } from "@/app/lib/project-access";
 
 function positiveId(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= 2_147_483_647;
 }
 function errorResponse(error: unknown) {
+  if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
   if (isCompletedProjectError(error)) return NextResponse.json({ error: COMPLETED_PROJECT_MESSAGE }, { status: 409 });
   if (error instanceof BillingError || error instanceof ValidationError || error instanceof NotesValidationError) {
     return NextResponse.json({ error: error instanceof ValidationError ? "Check required invoice fields and dates." : error.message }, { status: 400 });
@@ -22,7 +24,11 @@ function errorResponse(error: unknown) {
 export async function GET(request: NextRequest) {
   const projectId = Number(request.nextUrl.searchParams.get("projectId"));
   if (!positiveId(projectId)) return NextResponse.json({ error: "Choose a valid project" }, { status: 400 });
-  try { return NextResponse.json(await getProjectBilling(projectId)); }
+  try {
+    const session = await requireProjectSession(request, "finances.read");
+    await requireProject(projectId, session.organization.organizationId);
+    return NextResponse.json(await getProjectBilling(projectId));
+  }
   catch (error) { return errorResponse(error); }
 }
 export async function POST(request: NextRequest) {
@@ -31,6 +37,8 @@ export async function POST(request: NextRequest) {
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new BillingError("Invalid billing request");
     const input = body as Record<string, unknown>;
     if (!positiveId(input.projectId)) throw new BillingError("Choose a valid project");
+    const session = await requireProjectSession(request, input.action === "completion" ? "projects.write" : "finances.write");
+    await requireProject(input.projectId, session.organization.organizationId);
     if (input.action === "completion") {
       if (!positiveId(input.unitId) || input.scopeId !== null && !positiveId(input.scopeId) || !isScopeStatus(input.status)) {
         throw new BillingError("Choose a valid scope or occurrence and completion status");

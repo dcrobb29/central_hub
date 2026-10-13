@@ -25,9 +25,9 @@ export type AllocationBill = {
   remainingAmount: number | null;
 };
 
-export async function getAllocationBills(): Promise<AllocationBill[]> {
+export async function getAllocationBills(organizationId?: number): Promise<AllocationBill[]> {
   const pool = await getPool();
-  const result = await pool.request().query<Omit<AllocationBill, "allocatedProjectIds"> & { allocatedProjects: string }>(`
+  const result = await pool.request().input("organizationId", sql.Int, organizationId ?? null).query<Omit<AllocationBill, "allocatedProjectIds"> & { allocatedProjects: string }>(`
     SELECT RTRIM(b.id) AS billId, RTRIM(b.[Bill No]) AS billNo, b.ProjectID AS projectId, p.ProjectName AS projectName,
       CONVERT(varchar(10), b.[Bill Date], 23) AS billDate, NULLIF(RTRIM(b.[Company Name]), '') AS companyName,
       totals.Amount AS amount, COALESCE(a.Allocated, 0) AS allocatedAmount,
@@ -42,6 +42,7 @@ export async function getAllocationBills(): Promise<AllocationBill[]> {
     LEFT JOIN dbo.Projects p ON p.ProjectID = b.ProjectID
     CROSS APPLY (SELECT TRY_CONVERT(decimal(19,2), NULLIF(REPLACE(REPLACE(RTRIM(b.[Bill Amount]), '$', ''), ',', ''), '')) AS Amount) totals
     OUTER APPLY (SELECT SUM(c.Amount) AS Allocated FROM dbo.ProjectBillCosts c WHERE c.BillID = b.id AND c.IsActive = 1) a
+    WHERE (@organizationId IS NULL OR b.OrganizationID = @organizationId)
     ORDER BY b.[Bill Date] DESC, b.id
   `);
   return result.recordset.map(({ allocatedProjects, ...bill }) => ({
@@ -49,15 +50,19 @@ export async function getAllocationBills(): Promise<AllocationBill[]> {
   }));
 }
 
-export async function getProjectBillCosts(): Promise<ProjectBillCost[]> {
+export async function getProjectBillCosts(filter: { projectId?: number; organizationId?: number } = {}): Promise<ProjectBillCost[]> {
   const pool = await getPool();
-  return (await pool.request().query<ProjectBillCost>(`
+  return (await pool.request()
+    .input("projectId", sql.Int, filter.projectId ?? null)
+    .input("organizationId", sql.Int, filter.organizationId ?? null).query<ProjectBillCost>(`
     SELECT c.ProjectBillCostID AS costId, c.ProjectID AS projectId, RTRIM(c.BillID) AS billId,
       RTRIM(b.[Bill No]) AS billNo, c.EstimateLineItemID AS estimateLineItemId, c.Description AS description,
       CONVERT(varchar(10), c.CostDate, 23) AS costDate, c.Quantity AS quantity, c.UnitName AS unitName,
       c.UnitCost AS unitCost, c.FreightAmount AS freightAmount, c.TaxAmount AS taxAmount, c.Amount AS amount
     FROM dbo.ProjectBillCosts c JOIN dbo.Bills b ON b.id = c.BillID
     WHERE c.IsActive = 1
+      AND (@projectId IS NULL OR c.ProjectID = @projectId)
+      AND (@organizationId IS NULL OR c.OrganizationID = @organizationId)
     ORDER BY c.CostDate, c.ProjectBillCostID
   `)).recordset;
 }
@@ -134,8 +139,9 @@ export async function saveProjectBillCost(input: ProjectCostInput, costId: numbe
       .input("unitCost", sql.Decimal(19, 4), input.unitCost).input("freight", sql.Decimal(19, 2), input.freightAmount)
       .input("tax", sql.Decimal(19, 2), input.taxAmount).input("amount", sql.Decimal(19, 2), amount);
     const result = await request.query<{ costId: number }>(costId === null ? `
-      INSERT INTO dbo.ProjectBillCosts (ProjectID, BillID, EstimateLineItemID, Description, CostDate, Quantity, UnitName, UnitCost, FreightAmount, TaxAmount, Amount)
-      VALUES (@projectId, @billId, @lineId, @description, @costDate, @quantity, @unitName, @unitCost, @freight, @tax, @amount);
+      INSERT INTO dbo.ProjectBillCosts (ProjectID, BillID, EstimateLineItemID, Description, CostDate, Quantity, UnitName, UnitCost, FreightAmount, TaxAmount, Amount, OrganizationID)
+      SELECT @projectId, @billId, @lineId, @description, @costDate, @quantity, @unitName, @unitCost, @freight, @tax, @amount, OrganizationID
+      FROM dbo.Projects WHERE ProjectID = @projectId;
       SELECT CONVERT(int, SCOPE_IDENTITY()) AS costId;
     ` : `
       DECLARE @updated TABLE (costId int);

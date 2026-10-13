@@ -38,16 +38,17 @@ export async function ensureRecurringVisits(
         WHERE known.ProjectID = @projectId AND known.RecurrenceDate = d.RecurrenceDate
       );
 
-      INSERT INTO dbo.ServiceVisits (ProjectID, VisitDate, RecurrenceDate, Status)
-      SELECT @projectId, d.RecurrenceDate, d.RecurrenceDate, 'Scheduled'
+      INSERT INTO dbo.ServiceVisits (ProjectID, VisitDate, RecurrenceDate, Status, OrganizationID)
+      SELECT @projectId, d.RecurrenceDate, d.RecurrenceDate, 'Scheduled',
+        (SELECT OrganizationID FROM dbo.Projects WHERE ProjectID = @projectId)
       FROM @datesToSchedule d
       WHERE NOT EXISTS (
         SELECT 1 FROM dbo.ServiceVisits v
         WHERE v.ProjectID = @projectId AND v.RecurrenceDate = d.RecurrenceDate
       );
 
-      INSERT INTO dbo.FieldOperationsTasks (ServiceVisitID, TaskName, PlannedLaborHours, SortOrder)
-      SELECT v.ServiceVisitID, N'General work', 0, 0
+      INSERT INTO dbo.FieldOperationsTasks (ServiceVisitID, TaskName, PlannedLaborHours, SortOrder, OrganizationID)
+      SELECT v.ServiceVisitID, N'General work', 0, 0, v.OrganizationID
       FROM dbo.ServiceVisits v
       JOIN @datesToSchedule d ON d.RecurrenceDate = v.RecurrenceDate
       WHERE v.ProjectID = @projectId AND v.Status = 'Scheduled'

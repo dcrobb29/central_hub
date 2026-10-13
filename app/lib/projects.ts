@@ -32,9 +32,11 @@ export async function getProjects(): Promise<ProjectOption[]> {
   return result.recordset;
 }
 
-export async function getProjectFinancialSummary(): Promise<ProjectFinancialSummary[]> {
+export async function getProjectFinancialSummary(filter: { projectId?: number; organizationId?: number } = {}): Promise<ProjectFinancialSummary[]> {
   const pool = await getPool();
-  const result = await pool.request().query<ProjectFinancialSummary>(`
+  const result = await pool.request()
+    .input("projectId", sql.Int, filter.projectId ?? null)
+    .input("organizationId", sql.Int, filter.organizationId ?? null).query<ProjectFinancialSummary>(`
     SELECT
       ProjectID AS projectId,
       ProjectName AS projectName,
@@ -50,6 +52,9 @@ export async function getProjectFinancialSummary(): Promise<ProjectFinancialSumm
       Profit AS profit,
       ProfitMargin AS profitMargin
     FROM dbo.ProjectFinancialSummary
+    WHERE (@projectId IS NULL OR ProjectID = @projectId)
+      AND (@organizationId IS NULL OR EXISTS (SELECT 1 FROM dbo.Projects p
+        WHERE p.ProjectID = dbo.ProjectFinancialSummary.ProjectID AND p.OrganizationID = @organizationId))
     ORDER BY ProjectName, ProjectID
   `);
   return result.recordset;

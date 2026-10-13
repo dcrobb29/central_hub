@@ -9,6 +9,39 @@
   display: flex;
 }
 
+.projectHub { width: 100%; min-width: 0; text-align: left; }
+.projectHubBreadcrumb { margin-bottom: 16px; overflow-wrap: anywhere; }
+.projectHubHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.projectHubHeader h1 { margin: 4px 0 16px; overflow-wrap: anywhere; }
+.projectHubTabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid #cbd8d0; margin-bottom: 20px; }
+.projectHubTabs a { padding: 12px 16px; color: #244d3c; text-decoration: none; border-bottom: 3px solid transparent; }
+.projectHubTabs a[aria-current="page"] { border-color: #176347; font-weight: 700; background: #edf5ef; }
+.projectHubSection { background: #fff; border: 1px solid #d0dad4; border-radius: 6px; padding: 20px; margin-bottom: 20px; min-width: 0; }
+.projectHubSection h2 { margin-top: 0; }
+.projectHubSection p { line-height: 1.5; }
+.projectHubFacts, .projectHubMetrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
+.projectHubFacts dt, .projectHubMetrics span { display: block; color: #53675d; font-size: 13px; }
+.projectHubFacts dd { margin: 5px 0 0; overflow-wrap: anywhere; }
+.projectHubMetrics { margin: 16px 0; }
+.projectHubMetrics strong { display: block; font-size: 22px; margin-top: 5px; }
+.projectHubShortcuts, .projectHubActions, .projectAttachmentActions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 16px 0; }
+.projectHubShortcuts a, .projectWorkspaceLink { display: inline-block; padding: 8px 12px; border: 1px solid #32745f; border-radius: 4px; color: #176347; text-decoration: none; }
+.projectUploadForm { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; padding: 16px 0; }
+.projectUploadForm label { display: grid; gap: 8px; }
+.projectDocumentList { display: grid; gap: 12px; }
+.projectMediaGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.projectAttachmentCard { border: 1px solid #d0dad4; border-radius: 4px; padding: 12px; display: grid; gap: 8px; min-width: 0; }
+.projectAttachmentCard strong, .projectAttachmentCard small { overflow-wrap: anywhere; }
+.projectAttachmentCard img, .projectAttachmentCard video { width: 100%; height: 220px; object-fit: contain; background: #edf0ee; }
+.projectAttachmentActions { margin: 4px 0; }
+.projectHub button:focus-visible, .projectHub a:focus-visible { outline: 2px solid #176347; outline-offset: 3px; }
+.projectHub .fieldWeekBoard { overflow-x: auto; }
+@media (max-width: 650px) {
+  .projectHubHeader { align-items: flex-start; flex-direction: column; }
+  .projectHubSection { padding: 12px; }
+  .projectHubTabs a { padding: 10px; }
+}
+
 .body {
   background-color: #95dde9;
   padding: 20px;
@@ -3350,5 +3383,4 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
   padding: 12px 14px;
   font-size: 12px;
 }
-
 

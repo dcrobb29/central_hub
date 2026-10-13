@@ -38,11 +38,12 @@ export type Invoice = {
 export type InvoiceProjectOption = ProjectOption & { customerId: number | null };
 
 export async function getInvoices(
-  invoiceIdOrFilter?: number | { invoiceId?: number; organizationId?: number },
+  invoiceIdOrFilter?: number | { invoiceId?: number; organizationId?: number; projectId?: number },
   explicitOrgId?: number
 ): Promise<Invoice[]> {
   let invoiceId: number | null = null;
   let organizationId: number | null = null;
+  const projectId = typeof invoiceIdOrFilter === "object" ? invoiceIdOrFilter.projectId ?? null : null;
 
   if (typeof invoiceIdOrFilter === "number") {
     invoiceId = invoiceIdOrFilter;
@@ -62,6 +63,7 @@ export async function getInvoices(
   const result = await pool.request()
     .input("invoiceId", sql.Int, invoiceId)
     .input("organizationId", sql.Int, organizationId)
+    .input("projectId", sql.Int, projectId)
     .query<Invoice>(`
     SELECT
       [id],
@@ -96,6 +98,7 @@ export async function getInvoices(
     LEFT JOIN dbo.Projects p ON p.ProjectID = i.ProjectID
     WHERE (@invoiceId IS NULL OR i.id = @invoiceId)
       AND (@organizationId IS NULL OR i.OrganizationID = @organizationId)
+      AND (@projectId IS NULL OR i.ProjectID = @projectId)
     ORDER BY i.[Invoice Date] DESC
   `);
   return result.recordset;
@@ -289,4 +292,3 @@ export async function recordInvoiceEmailed(id: number, recipientEmail: string): 
       WHERE [id] = @id;
     `);
 }
-

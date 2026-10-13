@@ -40,14 +40,15 @@ async function costAction(body: Record<string, unknown>) {
   if (!response.ok) throw new Error(result.error ?? "Unable to update actual costs");
 }
 
-export default function ProjectCostPanel({ project, costs, bills, financials }: {
+export default function ProjectCostPanel({ project, costs, bills, financials, canEdit = true }: {
   project: ProjectWithEstimate;
   costs: ProjectBillCost[];
   bills: AllocationBill[];
   financials: ProjectFinancialSummary | undefined;
+  canEdit?: boolean;
 }) {
   const router = useRouter();
-  const readOnly = project.projectStatus === "Complete";
+  const readOnly = project.projectStatus === "Complete" || !canEdit;
   const [draft, setDraft] = useState<CostDraft | null>(null);
   const [billPickerOpen, setBillPickerOpen] = useState(false);
   const [referenceLine, setReferenceLine] = useState<ProjectScopeLine | null>(null);
@@ -175,7 +176,7 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
 
   return (
     <section className="projectCostPanel">
-      {readOnly && <p className="projectCostHint" role="status">Complete job: all data is read-only. Change the job status to Active to reopen it.</p>}
+      {readOnly && <p className="projectCostHint" role="status">{project.projectStatus === "Complete" ? "Complete job: all data is read-only. Change the job status to Active to reopen it." : "Your organization role permits viewing costs, not editing them."}</p>}
       <div className="projectActualCostToolbar">
         {/* <strong>Invoiced cost tracking</strong> */}
         <button type="button" className="estimateTextAction" aria-expanded={showFinancialDetails} onClick={() => setShowFinancialDetails(!showFinancialDetails)}>

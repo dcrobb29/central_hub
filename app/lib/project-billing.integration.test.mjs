@@ -8,7 +8,7 @@ import nextEnv from "@next/env";
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier.startsWith("@/app/lib/")) return nextResolve(new URL(`./${specifier.slice("@/app/lib/".length)}.ts`, import.meta.url).href, context);
-    if (specifier === "./validation" && context.parentURL?.endsWith("/customer-fields.ts")) return nextResolve("./validation.ts", context);
+    if (specifier.startsWith("./") && !/\.[a-z]+$/.test(specifier) && context.parentURL?.includes("/app/lib/")) return nextResolve(`${specifier}.ts`, context);
     return nextResolve(specifier, context);
   },
   load(url, context, nextLoad) {

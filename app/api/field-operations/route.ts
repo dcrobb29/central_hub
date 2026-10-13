@@ -14,6 +14,8 @@ import {
   updateFieldOperationsTask,
 } from "@/app/lib/field-operations";
 import { isAssignmentHoursMode } from "@/app/lib/field-capacity";
+import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
+import { requireFieldActionAccess } from "@/app/lib/field-operations-access";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -36,6 +38,7 @@ function validWeek(startDate: string | null, endDate: string | null) {
 }
 
 function errorResponse(error: unknown) {
+  if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
   if (isInactivePlannerError(error) || error instanceof Error && error.message === ACTIVE_PLANNER_MESSAGE) {
     return NextResponse.json({ error: ACTIVE_PLANNER_MESSAGE }, { status: 409 });
   }
@@ -75,7 +78,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Choose a valid seven-day date range" }, { status: 400 });
   }
   try {
-    return NextResponse.json({ visits: await getFieldOperationsSchedule(startDate, endDate) });
+    const session = await requireProjectSession(request, "planning.read");
+    return NextResponse.json({ visits: await getFieldOperationsSchedule(startDate, endDate, session.organization.organizationId) });
   } catch (error) {
     return errorResponse(error);
   }
@@ -88,6 +92,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const session = await requireProjectSession(request, "planning.write");
+    await requireFieldActionAccess(body, session.organization.organizationId);
     if (body.action === "schedule-project") {
       const projectId = positiveInteger(body.projectId);
       if (!projectId || !validDate(body.visitDate)) {

@@ -12,6 +12,56 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Project workspace
+
+Apply `database\project-workspace-schema.sql` with an admin SQL connection before
+using project attachments. The migration adds project/organization-owned
+`ProjectAttachments` metadata; existing files and business records are unchanged.
+
+Use **Open project workspace** on a project card, or visit `/projects/{id}`.
+The portfolio and its existing expandable cards remain available. Project tabs:
+
+- Overview: customer, accepted estimate, dates, notes, and project status.
+- Scope & Finances: the existing cost panel and calculations, project-linked
+  invoices and bills, and the shared completion/invoice modal. Single-job bills
+  count in full; split bills count only this project's allocations. Recurring
+  estimated cost is per accepted occurrence, while recorded financial totals
+  cover the agreement. This is not earned-value or completion-adjusted reporting.
+- Documents: contracts, PDFs, text/CSV and Office documents.
+- Media: JPG/PNG/GIF/WebP images and MP4/WebM/MOV videos. Browser playback depends
+  on the codec; download remains available. Video requests support byte ranges.
+- Schedule: the same weekly planner and task-assignment modal, with the board
+  limited to this project but availability calculated across **all Active jobs
+  in the organization**. Only Active jobs can be scheduled. Changes save to
+  Field Operations immediately; visible planners refresh every 30 seconds and
+  on focus. Crew templates/bulk crew assignment are not implemented.
+- Reporting: a reserved section, not a fabricated percent-complete dashboard.
+
+Tabs load their data on demand. Project documents/media require a verified local
+session, active membership, `projects.read` to view and `projects.write` to upload
+or remove. Finance and planning sections use their corresponding permissions.
+The linked project status/cost/billing and planning mutations validate ownership
+on the server. This does not complete the application's broader SaaS rollout.
+
+Uploads are limited to 100 MB per nonempty file and the listed file types.
+Content is stored under `storage\project-attachments`, outside the legacy
+path-based file explorer, with opaque storage keys. Preview/download requests
+resolve organization-owned metadata rather than trusting browser paths.
+Removal archives metadata and retains the physical file; it is not a permanent
+storage purge. Completed jobs still accept documents/media for afterlife records.
+Excluding sample data removes attachment metadata linked to sample projects;
+uploaded physical content is retained. Existing Files folders are not
+automatically imported or linked. Back up both SQL metadata and local storage.
+Azure Blob storage, scanning/retention policies, and association of existing
+Files content remain follow-up work before public hosting.
+
+Run focused workspace tests with
+`node --test app/lib/project-attachment-policy.test.mjs app/lib/field-capacity.test.mjs`.
+For rollback-only database checks, set `RUN_DB_TESTS=1` and run
+`node --test --test-concurrency=1 app/lib/project-workspace.integration.test.mjs app/lib/project-costs.integration.test.mjs app/lib/project-billing.integration.test.mjs app/lib/recurring-schedule.integration.test.mjs`.
+Run database suites sequentially because their transaction fixtures can contend
+for shared records. The workspace test also removes its temporary uploaded file.
+
 ## Unit presets
 
 Apply [database/units-of-measurement-schema.sql](database/units-of-measurement-schema.sql)

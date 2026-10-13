@@ -61,22 +61,24 @@ type ScheduleRow = {
   customHours: number | null;
 };
 
-export async function getFieldOperationsEquipment(): Promise<FieldOperationsEquipment[]> {
+export async function getFieldOperationsEquipment(organizationId?: number): Promise<FieldOperationsEquipment[]> {
   const pool = await getPool();
-  const result = await pool.request().query<FieldOperationsEquipment>(`
+  const result = await pool.request().input("organizationId", sql.Int, organizationId ?? null).query<FieldOperationsEquipment>(`
     SELECT EquipmentID AS equipmentId, EquipmentName AS equipmentName,
       EquipmentType AS equipmentType, AssetTag AS assetTag
     FROM dbo.Equipment
+    WHERE (@organizationId IS NULL OR OrganizationID = @organizationId)
     ORDER BY EquipmentName, EquipmentID
   `);
   return result.recordset;
 }
 
-export async function getFieldOperationsSchedule(startDate: string, endDate: string): Promise<FieldOperationsVisit[]> {
+export async function getFieldOperationsSchedule(startDate: string, endDate: string, organizationId?: number): Promise<FieldOperationsVisit[]> {
   const pool = await getPool();
   const recurring = await pool.request()
     .input("startDate", sql.Date, asSqlDate(startDate))
     .input("endDate", sql.Date, asSqlDate(endDate))
+    .input("organizationId", sql.Int, organizationId ?? null)
     .query<{ projectId: number; startDate: string; endDate: string; frequency: RecurringFrequency }>(`
       SELECT ProjectID AS projectId, CONVERT(varchar(10), ExpectedStartDate, 23) AS startDate,
         CONVERT(varchar(10), ExpectedEndDate, 23) AS endDate, RecurrenceFrequency AS frequency
@@ -85,6 +87,7 @@ export async function getFieldOperationsSchedule(startDate: string, endDate: str
         AND ProjectStatus = 'Active'
         AND ExpectedStartDate <= @endDate AND ExpectedEndDate >= @startDate
         AND RecurrenceFrequency IS NOT NULL
+        AND (@organizationId IS NULL OR OrganizationID = @organizationId)
       ORDER BY ProjectID
     `);
   if (recurring.recordset.length > 0) {
@@ -100,10 +103,11 @@ export async function getFieldOperationsSchedule(startDate: string, endDate: str
       throw error;
     }
   }
-  await ensureEstimateLaborTasks(startDate, endDate);
+  await ensureEstimateLaborTasks(startDate, endDate, organizationId);
   const result = await pool.request()
     .input("startDate", sql.Date, new Date(`${startDate}T00:00:00.000Z`))
     .input("endDate", sql.Date, new Date(`${endDate}T00:00:00.000Z`))
+    .input("organizationId", sql.Int, organizationId ?? null)
     .query<ScheduleRow>(`
       SELECT
         v.ServiceVisitID AS serviceVisitId,
@@ -130,6 +134,7 @@ export async function getFieldOperationsSchedule(startDate: string, endDate: str
       LEFT JOIN dbo.Equipment q ON q.EquipmentID = a.EquipmentID
       WHERE v.VisitDate >= @startDate AND v.VisitDate <= @endDate
         AND v.Status = 'Scheduled'
+        AND (@organizationId IS NULL OR v.OrganizationID = @organizationId)
       ORDER BY v.VisitDate, v.ServiceVisitID, t.SortOrder, t.FieldOperationsTaskID,
         a.FieldOperationsTaskAssignmentID
     `);
@@ -233,7 +238,7 @@ async function applyPlanningHours(visits: FieldOperationsVisit[]): Promise<void>
  * measured in HR. An untouched zero-hour "General work" placeholder is retired once
  * estimate tasks exist; placeholders with assignments or edits are kept.
  */
-async function ensureEstimateLaborTasks(startDate: string, endDate: string): Promise<void> {
+async function ensureEstimateLaborTasks(startDate: string, endDate: string, organizationId?: number): Promise<void> {
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
   await transaction.begin();
@@ -241,6 +246,7 @@ async function ensureEstimateLaborTasks(startDate: string, endDate: string): Pro
     await transaction.request()
       .input("startDate", sql.Date, asSqlDate(startDate))
       .input("endDate", sql.Date, asSqlDate(endDate))
+      .input("organizationId", sql.Int, organizationId ?? null)
       .query(`
         DECLARE @visits TABLE (ServiceVisitID int PRIMARY KEY, AcceptedEstimateRevisionID int NOT NULL);
         INSERT INTO @visits
@@ -248,13 +254,14 @@ async function ensureEstimateLaborTasks(startDate: string, endDate: string): Pro
         FROM dbo.ServiceVisits v
         JOIN dbo.Projects p ON p.ProjectID = v.ProjectID
         WHERE v.VisitDate >= @startDate AND v.VisitDate <= @endDate AND v.Status = 'Scheduled'
-          AND p.ProjectStatus = 'Active' AND p.AcceptedEstimateRevisionID IS NOT NULL;
+          AND p.ProjectStatus = 'Active' AND p.AcceptedEstimateRevisionID IS NOT NULL
+          AND (@organizationId IS NULL OR v.OrganizationID = @organizationId);
 
-        INSERT INTO dbo.FieldOperationsTasks (ServiceVisitID, TaskName, PlannedLaborHours, SortOrder, EstimateLineItemID)
+        INSERT INTO dbo.FieldOperationsTasks (ServiceVisitID, TaskName, PlannedLaborHours, SortOrder, EstimateLineItemID, OrganizationID)
         SELECT v.ServiceVisitID,
           LEFT(COALESCE(NULLIF(LTRIM(RTRIM(li.Description)), N''), N'Labor line ' + CONVERT(nvarchar(10), li.LineNumber)), 150),
           CASE WHEN li.Quantity > 0 THEN CONVERT(decimal(10,2), li.Quantity) ELSE 0 END,
-          li.LineNumber, li.EstimateLineItemID
+          li.LineNumber, li.EstimateLineItemID, li.OrganizationID
         FROM @visits v
         JOIN dbo.EstimateLineItems li ON li.EstimateRevisionID = v.AcceptedEstimateRevisionID
         WHERE li.LineType = 'Labor' AND UPPER(LTRIM(RTRIM(li.UnitName))) = 'HR'
@@ -323,8 +330,8 @@ export async function scheduleProjectVisit(projectId: number, visitDate: string)
         .input("projectId", sql.Int, projectId)
         .input("visitDate", sql.Date, asSqlDate(visitDate))
         .query<{ ServiceVisitID: number }>(`
-          INSERT INTO dbo.ServiceVisits (ProjectID, VisitDate, Status)
-          VALUES (@projectId, @visitDate, 'Scheduled');
+          INSERT INTO dbo.ServiceVisits (ProjectID, VisitDate, Status, OrganizationID)
+          SELECT @projectId, @visitDate, 'Scheduled', OrganizationID FROM dbo.Projects WHERE ProjectID = @projectId;
           SELECT CONVERT(int, SCOPE_IDENTITY()) AS ServiceVisitID;
         `);
       serviceVisitId = inserted.recordset[0].ServiceVisitID;
@@ -341,8 +348,8 @@ export async function scheduleProjectVisit(projectId: number, visitDate: string)
       await transaction.request()
         .input("serviceVisitId", sql.Int, serviceVisitId)
         .query(`
-          INSERT INTO dbo.FieldOperationsTasks (ServiceVisitID, TaskName, PlannedLaborHours, SortOrder)
-          VALUES (@serviceVisitId, N'General work', 0, 0)
+          INSERT INTO dbo.FieldOperationsTasks (ServiceVisitID, TaskName, PlannedLaborHours, SortOrder, OrganizationID)
+          SELECT @serviceVisitId, N'General work', 0, 0, OrganizationID FROM dbo.ServiceVisits WHERE ServiceVisitID = @serviceVisitId
         `);
     }
     await transaction.commit();
@@ -428,9 +435,10 @@ export async function addFieldOperationsTask(serviceVisitId: number, taskName: s
     .input("taskName", sql.NVarChar(150), taskName)
     .input("plannedLaborHours", sql.Decimal(10, 2), plannedLaborHours)
     .query(`
-      INSERT INTO dbo.FieldOperationsTasks (ServiceVisitID, TaskName, PlannedLaborHours, SortOrder)
+      INSERT INTO dbo.FieldOperationsTasks (ServiceVisitID, TaskName, PlannedLaborHours, SortOrder, OrganizationID)
       SELECT @serviceVisitId, @taskName, @plannedLaborHours,
-        COALESCE(MAX(SortOrder), -1) + 1
+        COALESCE(MAX(SortOrder), -1) + 1,
+        (SELECT OrganizationID FROM dbo.ServiceVisits WHERE ServiceVisitID = @serviceVisitId)
       FROM dbo.FieldOperationsTasks
       WHERE ServiceVisitID = @serviceVisitId AND IsActive = 1
       HAVING EXISTS (SELECT 1 FROM dbo.ServiceVisits WHERE ServiceVisitID = @serviceVisitId AND Status = 'Scheduled')
@@ -497,9 +505,9 @@ export async function assignResourceToTask(taskId: number, resource: { employeeI
     request.input("resourceId", sql.Int, resource.equipmentId);
   }
   const result = await request.query(`
-    INSERT INTO dbo.FieldOperationsTaskAssignments (FieldOperationsTaskID, ${resourceColumn}, HoursMode)
-    SELECT @taskId, @resourceId, 'Split'
-    WHERE EXISTS (
+    INSERT INTO dbo.FieldOperationsTaskAssignments (FieldOperationsTaskID, ${resourceColumn}, HoursMode, OrganizationID)
+    SELECT @taskId, @resourceId, 'Split', t.OrganizationID FROM dbo.FieldOperationsTasks t
+    WHERE t.FieldOperationsTaskID = @taskId AND EXISTS (
       SELECT 1 FROM dbo.FieldOperationsTasks t
       JOIN dbo.ServiceVisits v ON v.ServiceVisitID = t.ServiceVisitID
       WHERE t.FieldOperationsTaskID = @taskId AND t.IsActive = 1 AND v.Status = 'Scheduled'

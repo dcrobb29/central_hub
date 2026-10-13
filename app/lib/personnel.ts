@@ -24,7 +24,7 @@ export type PersonnelData = {
   people: Person[];
 };
 
-export async function getPersonnelData(): Promise<PersonnelData> {
+export async function getPersonnelData(organizationId?: number): Promise<PersonnelData> {
   const pool = await getPool();
   const [rolesResult, employeesResult] = await Promise.all([
     pool.request().query<PersonnelRole>(`
@@ -32,13 +32,14 @@ export async function getPersonnelData(): Promise<PersonnelData> {
       FROM dbo.Roles
       ORDER BY RoleName
     `),
-    pool.request().query<Person>(`
+    pool.request().input("organizationId", sql.Int, organizationId ?? null).query<Person>(`
       SELECT
         CAST(EmployeeID AS nvarchar(20)) AS id,
         EmployeeName AS name,
         CAST(RoleID AS nvarchar(20)) AS roleId,
         CAST(ManagerID AS nvarchar(20)) AS managerId
       FROM dbo.Employees
+      WHERE (@organizationId IS NULL OR OrganizationID = @organizationId)
       ORDER BY EmployeeName
     `),
   ]);

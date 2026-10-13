@@ -69,25 +69,26 @@ export async function ensureProjectBillingSnapshot(transaction: sql.Transaction,
     const status = project.engagementType === "Project" && project.projectStatus === "Complete" ? "Complete" : "Upcoming";
     const inserted = await transaction.request().input("projectId", sql.Int, projectId).input("revisionId", sql.Int, project.revisionId)
       .input("value", sql.Decimal(19, 2), pricing.quotedTotal).input("status", sql.VarChar(16), status)
-      .query<{ unitId: number }>(`INSERT INTO dbo.ProjectBillingUnits(ProjectID,SourceRevisionID,ContractValue,CompletionStatus)
-        OUTPUT inserted.BillingUnitID AS unitId VALUES(@projectId,@revisionId,@value,@status)`);
+      .query<{ unitId: number }>(`INSERT INTO dbo.ProjectBillingUnits(ProjectID,SourceRevisionID,ContractValue,CompletionStatus,OrganizationID)
+        OUTPUT inserted.BillingUnitID AS unitId
+        SELECT @projectId,@revisionId,@value,@status,OrganizationID FROM dbo.Projects WHERE ProjectID=@projectId`);
     for (const [index, scope] of definitions.entries()) {
       await transaction.request().input("unitId", sql.Int, inserted.recordset[0].unitId)
         .input("sourceScopeId", sql.Int, scope.sourceScopeId).input("name", sql.NVarChar(150), scope.scopeName)
         .input("sort", sql.Int, index).input("value", sql.Decimal(19, 2), values[index] / 100).input("status", sql.VarChar(16), status)
-        .query(`INSERT INTO dbo.ProjectBillingScopes(BillingUnitID,SourceScopeID,ScopeName,SortOrder,ContractValue,CompletionStatus)
-          VALUES(@unitId,@sourceScopeId,@name,@sort,@value,@status)`);
+        .query(`INSERT INTO dbo.ProjectBillingScopes(BillingUnitID,SourceScopeID,ScopeName,SortOrder,ContractValue,CompletionStatus,OrganizationID)
+          SELECT @unitId,@sourceScopeId,@name,@sort,@value,@status,OrganizationID FROM dbo.ProjectBillingUnits WHERE BillingUnitID=@unitId`);
     }
   }
   if (project.engagementType === "Service") {
     await transaction.request().input("projectId", sql.Int, projectId).query(`
-      INSERT INTO dbo.ProjectBillingUnits(ProjectID,ServiceVisitID,SourceRevisionID,ContractValue,CompletionStatus)
+      INSERT INTO dbo.ProjectBillingUnits(ProjectID,ServiceVisitID,SourceRevisionID,ContractValue,CompletionStatus,OrganizationID)
       SELECT v.ProjectID,v.ServiceVisitID,t.SourceRevisionID,t.ContractValue,
-        CASE WHEN v.Status='Completed' THEN 'Complete' ELSE 'Upcoming' END
+        CASE WHEN v.Status='Completed' THEN 'Complete' ELSE 'Upcoming' END, v.OrganizationID
       FROM dbo.ServiceVisits v JOIN dbo.ProjectBillingUnits t ON t.ProjectID=v.ProjectID AND t.ServiceVisitID IS NULL
       WHERE v.ProjectID=@projectId AND NOT EXISTS (SELECT 1 FROM dbo.ProjectBillingUnits u WHERE u.ServiceVisitID=v.ServiceVisitID);
-      INSERT INTO dbo.ProjectBillingScopes(BillingUnitID,SourceScopeID,ScopeName,SortOrder,ContractValue,CompletionStatus)
-      SELECT u.BillingUnitID,s.SourceScopeID,s.ScopeName,s.SortOrder,s.ContractValue,u.CompletionStatus
+      INSERT INTO dbo.ProjectBillingScopes(BillingUnitID,SourceScopeID,ScopeName,SortOrder,ContractValue,CompletionStatus,OrganizationID)
+      SELECT u.BillingUnitID,s.SourceScopeID,s.ScopeName,s.SortOrder,s.ContractValue,u.CompletionStatus,u.OrganizationID
       FROM dbo.ProjectBillingUnits u JOIN dbo.ProjectBillingUnits t ON t.ProjectID=u.ProjectID AND t.ServiceVisitID IS NULL
       JOIN dbo.ProjectBillingScopes s ON s.BillingUnitID=t.BillingUnitID
       WHERE u.ProjectID=@projectId AND u.ServiceVisitID IS NOT NULL
@@ -245,7 +246,7 @@ export async function issueProjectInvoice(input: IssueProjectInvoice): Promise<n
       throw new BillingError("Allocations must exactly equal the existing invoice amount.");
     }
     if (!state.method) await transaction.request().input("projectId", sql.Int, input.projectId).input("method", sql.VarChar(16), input.method)
-      .query("INSERT INTO dbo.ProjectBillingSettings(ProjectID,BillingMethod) VALUES(@projectId,@method)");
+      .query("INSERT INTO dbo.ProjectBillingSettings(ProjectID,BillingMethod,OrganizationID) SELECT @projectId,@method,OrganizationID FROM dbo.Projects WHERE ProjectID=@projectId");
     let invoiceId: number;
     if (legacy) invoiceId = legacy.invoiceId;
     else {
@@ -287,11 +288,11 @@ export async function issueProjectInvoice(input: IssueProjectInvoice): Promise<n
       .input("requestId", sql.UniqueIdentifier, input.requestId).input("method", sql.VarChar(16), input.method)
       .input("showScopes", sql.Bit, input.showScopes).input("reconciled", sql.Bit, legacy !== null)
       .input("incomplete", sql.Bit, includesIncompleteWork).input("reason", sql.NVarChar(4000), includesIncompleteWork ? internalNotes : null)
-      .query(`INSERT INTO dbo.ProjectIssuedInvoices(InvoiceID,ProjectID,RequestID,BillingMethod,ShowScopes,IsReconciled,IncludesIncompleteWork,OverrideReason)
-        VALUES(@invoiceId,@projectId,@requestId,@method,@showScopes,@reconciled,@incomplete,@reason)`);
+      .query(`INSERT INTO dbo.ProjectIssuedInvoices(InvoiceID,ProjectID,RequestID,BillingMethod,ShowScopes,IsReconciled,IncludesIncompleteWork,OverrideReason,OrganizationID)
+        SELECT @invoiceId,@projectId,@requestId,@method,@showScopes,@reconciled,@incomplete,@reason,OrganizationID FROM dbo.Projects WHERE ProjectID=@projectId`);
     await transaction.request().input("invoiceId", sql.Int, invoiceId).input("allocations", sql.NVarChar(sql.MAX), JSON.stringify(allocations))
-      .query(`INSERT INTO dbo.ProjectInvoiceAllocations(InvoiceID,BillingScopeID,Amount,OccurrenceDate,CompletionStatusAtIssue)
-        SELECT @invoiceId,j.scopeId,j.amount,v.VisitDate,j.completionStatusAtIssue
+      .query(`INSERT INTO dbo.ProjectInvoiceAllocations(InvoiceID,BillingScopeID,Amount,OccurrenceDate,CompletionStatusAtIssue,OrganizationID)
+        SELECT @invoiceId,j.scopeId,j.amount,v.VisitDate,j.completionStatusAtIssue,s.OrganizationID
         FROM OPENJSON(@allocations) WITH(scopeId int,amount decimal(19,2),completionStatusAtIssue varchar(16)) j
         JOIN dbo.ProjectBillingScopes s ON s.BillingScopeID=j.scopeId
         JOIN dbo.ProjectBillingUnits u ON u.BillingUnitID=s.BillingUnitID

@@ -21,9 +21,11 @@ export type Bill = {
   billingAddressZip: string | null;
 };
 
-export async function getBills(): Promise<Bill[]> {
+export async function getBills(filter: { projectId?: number; organizationId?: number } = {}): Promise<Bill[]> {
   const pool = await getPool();
-  const result = await pool.request().query<Bill>(`
+  const result = await pool.request()
+    .input("projectId", sql.Int, filter.projectId ?? null)
+    .input("organizationId", sql.Int, filter.organizationId ?? null).query<Bill>(`
     SELECT
       RTRIM([id]) AS id,
       b.ProjectID AS projectId,
@@ -42,6 +44,9 @@ export async function getBills(): Promise<Bill[]> {
       NULLIF(RTRIM([Billing Address Zip]), '') AS billingAddressZip
     FROM dbo.Bills b
     LEFT JOIN dbo.Projects p ON p.ProjectID = b.ProjectID
+    WHERE (@organizationId IS NULL OR b.OrganizationID = @organizationId)
+      AND (@projectId IS NULL OR b.ProjectID = @projectId OR (b.IsSplit = 1 AND EXISTS (
+        SELECT 1 FROM dbo.ProjectBillCosts c WHERE c.BillID = b.id AND c.ProjectID = @projectId AND c.IsActive = 1)))
     ORDER BY b.[Bill Date] DESC, b.[Bill No] DESC
   `);
 

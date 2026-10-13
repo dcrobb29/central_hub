@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState, type DragEvent, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
+import Link from "next/link";
 import { ChevronLeft, ChevronRight, Plus, UserRound } from "lucide-react";
 import type { ProjectWithEstimate } from "@/app/lib/estimates";
 import type { FieldOperationsEquipment, FieldOperationsVisit } from "@/app/lib/field-operations";
@@ -54,6 +55,8 @@ export default function FieldOperationsWorkspace({
   equipment,
   initialWeek,
   initialVisits,
+  projectId,
+  canEdit = true,
 }: {
   projects: ProjectWithEstimate[];
   employees: Person[];
@@ -61,12 +64,14 @@ export default function FieldOperationsWorkspace({
   equipment: FieldOperationsEquipment[];
   initialWeek: WeekRange;
   initialVisits: FieldOperationsVisit[];
+  projectId?: number;
+  canEdit?: boolean;
 }) {
   const [weekStart, setWeekStart] = useState(initialWeek.startDate);
   const [visits, setVisits] = useState(initialVisits);
-  const [selectedProjectId, setSelectedProjectId] = useState("");
-  const [schedulingMode, setSchedulingMode] = useState<"drag" | "select">("drag");
-  const activeProjects = projects.filter((project) => project.projectStatus === "Active");
+  const [selectedProjectId, setSelectedProjectId] = useState(projectId ? String(projectId) : "");
+  const [schedulingMode, setSchedulingMode] = useState<"drag" | "select">(projectId ? "select" : "drag");
+  const activeProjects = projects.filter((project) => project.projectStatus === "Active" && (!projectId || project.projectId === projectId));
   const [selectedDate, setSelectedDate] = useState(initialWeek.startDate);
   const [isLoading, setIsLoading] = useState(false);
   const [isScheduling, setIsScheduling] = useState(false);
@@ -77,6 +82,7 @@ export default function FieldOperationsWorkspace({
   const [capacityAvailable, setCapacityAvailable] = useState(true);
   const [assigningVisitId, setAssigningVisitId] = useState<number | null>(null);
   const closeAssignment = useCallback(() => setAssigningVisitId(null), []);
+  const loadSequence = useRef(0);
 
   const dates = useMemo(() => Array.from({ length: 7 }, (_, index) => shiftDate(weekStart, index)), [weekStart]);
   const weekEnd = dates[6];
@@ -90,15 +96,16 @@ export default function FieldOperationsWorkspace({
   const assigningProject = assigningVisit ? projects.find((project) => project.projectId === assigningVisit.projectId) : undefined;
   const visitsByDate = useMemo(() => {
     const grouped = new Map<string, FieldOperationsVisit[]>();
-    for (const visit of activeVisits) {
+    for (const visit of activeVisits.filter((visit) => !projectId || visit.projectId === projectId)) {
       const dayVisits = grouped.get(visit.visitDate) ?? [];
       dayVisits.push(visit);
       grouped.set(visit.visitDate, dayVisits);
     }
     return grouped;
-  }, [activeVisits]);
+  }, [activeVisits, projectId]);
 
   async function changeWeek(nextWeekStart: string) {
+    const sequence = ++loadSequence.current;
     setWeekStart(nextWeekStart);
     setAssigningVisitId(null);
     setSelectedDate(nextWeekStart);
@@ -111,25 +118,56 @@ export default function FieldOperationsWorkspace({
       const response = await fetch(`/api/field-operations?startDate=${nextWeekStart}&endDate=${shiftDate(nextWeekStart, 6)}`);
       const result = await response.json().catch(() => null);
       if (!response.ok) throw new Error(result?.error ?? "Unable to load field schedule");
+      if (sequence !== loadSequence.current) return;
       setVisits(result.visits as FieldOperationsVisit[]);
       setCapacityAvailable(true);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Unable to load field schedule");
+      if (sequence === loadSequence.current) setError(loadError instanceof Error ? loadError.message : "Unable to load field schedule");
     } finally {
-      setIsLoading(false);
+      if (sequence === loadSequence.current) setIsLoading(false);
     }
   }
 
-  async function refreshSchedule() {
+  const refreshSchedule = useCallback(async () => {
+    const sequence = ++loadSequence.current;
     setCapacityAvailable(false);
-    const response = await fetch(`/api/field-operations?startDate=${weekStart}&endDate=${weekEnd}`);
-    const result = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(result?.error ?? "Unable to refresh field schedule");
-    setVisits(result.visits as FieldOperationsVisit[]);
-    setCapacityAvailable(true);
-  }
+    try {
+      const response = await fetch(`/api/field-operations?startDate=${weekStart}&endDate=${weekEnd}`);
+      const result = await response.json().catch(() => null);
+      if (sequence !== loadSequence.current) return;
+      if (!response.ok) throw new Error(result?.error ?? "Unable to refresh field schedule");
+      setVisits(result.visits as FieldOperationsVisit[]);
+      setCapacityAvailable(true);
+      setError(null);
+    } catch (loadError) {
+      if (sequence === loadSequence.current) throw loadError;
+    } finally {
+      if (sequence === loadSequence.current) setIsLoading(false);
+    }
+  }, [weekStart, weekEnd]);
+
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      void refreshSchedule().catch((error: unknown) => {
+        setCapacityAvailable(false);
+        setError(error instanceof Error ? error.message : "Unable to refresh the schedule");
+      });
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    const timer = window.setInterval(refresh, 30_000);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+      window.clearInterval(timer);
+    };
+  }, [refreshSchedule]);
+
+  useEffect(() => () => { ++loadSequence.current; }, []);
 
   async function runAction(action: Record<string, unknown>) {
+    if (!canEdit) throw new Error("You do not have permission to change the schedule.");
     setError(null);
     await sendAction(action);
     await refreshSchedule();
@@ -151,6 +189,7 @@ export default function FieldOperationsWorkspace({
 
   async function dropJob(event: DragEvent<HTMLElement>, visitDate: string) {
     event.preventDefault();
+    if (!canEdit) return;
     try {
       const payload: unknown = JSON.parse(event.dataTransfer.getData("application/json"));
       if (typeof payload !== "object" || payload === null || !("kind" in payload)) return;
@@ -171,8 +210,10 @@ export default function FieldOperationsWorkspace({
       <header className="fieldOperationsHeader">
         <div>
           <p className="salesEyebrow">FIELD OPERATIONS</p>
-          <h1>Weekly field planner</h1>
+          <h1>{projectId ? "Project schedule" : "Weekly field planner"}</h1>
           <p>Only Active jobs appear in this planner. Active recurring jobs are scheduled from their start date and frequency through their expected end date. Move individual visits within the week as needed.</p>
+          {projectId && <p>This board shows only this project. Availability includes all Active jobs in your organization. <Link href="/field-operations">Open company field planner</Link></p>}
+          <p>Changes save immediately. Other open planners refresh every 30 seconds while visible, or when brought back into focus.</p>
         </div>
         <div className="fieldWeekNavigation" aria-label="Choose week">
           <button type="button" aria-label="Previous week" disabled={isLoading} onClick={() => void changeWeek(shiftDate(weekStart, -7))}><ChevronLeft size={18} /></button>
@@ -182,7 +223,7 @@ export default function FieldOperationsWorkspace({
         </div>
       </header>
 
-      <section className="fieldJobPicker">
+      <fieldset className="fieldJobPicker" disabled={!canEdit || isLoading}>
         <div>
           <div className="fieldJobPickerHeader">
             <h2>Jobs</h2>
@@ -242,7 +283,7 @@ export default function FieldOperationsWorkspace({
         </div>}
           </div>
         </div>
-      </section>
+      </fieldset>
 
       {error && <p className="fieldOperationsError" role="alert">{error}</p>}
       {isLoading && <p className="fieldScheduleLoading" role="status">Loading this week&apos;s schedule…</p>}
@@ -274,7 +315,7 @@ export default function FieldOperationsWorkspace({
                     <header>
                       <div className="fieldScheduledJobHeader">
                         <strong
-                          draggable
+                          draggable={canEdit}
                           onDragStart={(event) => startDrag(event, { kind: "visit", serviceVisitId: visit.serviceVisitId })}
                           title="Drag this occurrence onto another day in this week"
                         >{project.projectName}</strong>
@@ -282,10 +323,12 @@ export default function FieldOperationsWorkspace({
                         <button
                           className="fieldUnscheduleButton"
                           type="button"
+                          disabled={!canEdit || isLoading}
                           aria-label={`Remove ${project.projectName} from ${dateLabel(date)}`}
                           title="Remove this visit from the schedule"
                           onClick={() => void runAction({ action: "unschedule-visit", serviceVisitId: visit.serviceVisitId }).catch((actionError: unknown) => setError(actionError instanceof Error ? actionError.message : "Unable to remove visit"))}
                         >×</button>
+                        {!projectId && <Link href={`/projects/${project.projectId}`}>Open project</Link>}
                       </div>
                       <span>{project.engagementType === "Service" ? `${frequencyLabel(project) ?? "Recurring"} service` : "Project"} · {visitPlannedHours.toLocaleString()} assigned labor-hrs / {getEstimatedLaborHours(project.lines).toLocaleString()} estimated labor-hrs (job)</span>
                     </header>
@@ -321,7 +364,7 @@ export default function FieldOperationsWorkspace({
                         );
                       })}
                     </div>
-                    <button type="button" className="fieldAssignOpenButton" onClick={() => setAssigningVisitId(visit.serviceVisitId)}
+                    <button type="button" className="fieldAssignOpenButton" disabled={!canEdit || !capacityAvailable || isLoading} onClick={() => setAssigningVisitId(visit.serviceVisitId)}
                       aria-label={`Assign crew and equipment for ${project.projectName} on ${dateLabel(date)}`}>
                       <UserRound size={14} aria-hidden="true" /> Assign crew &amp; equipment
                     </button>

@@ -12,6 +12,7 @@ import { customerLabel, type Customer } from "@/app/lib/customer-fields";
 import ProjectBillingModal from "./project-billing-modal";
 import { ReceiptText } from "lucide-react";
 import { DocumentNotes } from "@/app/components/document-notes";
+import Link from "next/link";
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
@@ -158,6 +159,7 @@ export default function ProjectsWorkspace({ projects, costs, bills, financials, 
 
 
               </summary>
+              <div className="projectCompletionAction"><Link className="projectWorkspaceLink" href={`/projects/${project.projectId}`}>Open project workspace</Link></div>
               <ProjectCustomerSelector projectId={project.projectId} customerId={project.customerId} customers={customers} readOnly={project.projectStatus === "Complete"} />
               <div className="projectCompletionAction"><button type="button" className="estimateTextAction" disabled={project.quotedTotal === null}
                 onClick={() => setBilling({ projectId: project.projectId, projectName: project.projectName, tab: "completion" })}>

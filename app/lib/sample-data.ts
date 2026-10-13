@@ -1466,6 +1466,8 @@ export async function excludeSampleData(organizationId?: number): Promise<Sample
     if (projectKeys && projectKeys.length > 0) {
       const projList = projectKeys.join(",");
       await transaction.request().input("orgId", sql.Int, orgId).query(`
+        IF OBJECT_ID('dbo.ProjectAttachments', 'U') IS NOT NULL
+          DELETE FROM dbo.ProjectAttachments WHERE OrganizationID = @orgId AND ProjectID IN (${projList});
         DELETE FROM dbo.ProjectBillingSettings WHERE OrganizationID = @orgId AND ProjectID IN (${projList});
         DELETE FROM dbo.ProjectBillingMilestones WHERE OrganizationID = @orgId AND ProjectID IN (${projList});
         DELETE FROM dbo.ProjectResourceAssignments WHERE OrganizationID = @orgId AND ProjectID IN (${projList});

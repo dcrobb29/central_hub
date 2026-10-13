@@ -584,9 +584,12 @@ export async function setEstimatePrintOptions(estimateId: number, options: Estim
     `);
 }
 
-export async function getProjectsWithEstimates(): Promise<ProjectWithEstimate[]> {
+export async function getProjectsWithEstimates(filter: { projectId?: number; organizationId?: number } = {}): Promise<ProjectWithEstimate[]> {
   const pool = await getPool();
-  const result = await pool.request().query<ProjectWithEstimate & { estimateLineItemId: number | null; scopeName: string | null; freightAmount: number | null; lineNumber: number | null; description: string | null; lineType: LineType | null; quantity: number | null; unitName: string | null; unitCost: number | null; lineMarkupPercent: number | null }>(`
+  const result = await pool.request()
+    .input("projectId", sql.Int, filter.projectId ?? null)
+    .input("organizationId", sql.Int, filter.organizationId ?? null)
+    .query<ProjectWithEstimate & { estimateLineItemId: number | null; scopeName: string | null; freightAmount: number | null; lineNumber: number | null; description: string | null; lineType: LineType | null; quantity: number | null; unitName: string | null; unitCost: number | null; lineMarkupPercent: number | null }>(`
     SELECT
       p.ProjectID AS projectId,
       p.CustomerID AS customerId,
@@ -617,6 +620,8 @@ export async function getProjectsWithEstimates(): Promise<ProjectWithEstimate[]>
     LEFT JOIN dbo.Estimates e ON e.EstimateID = r.EstimateID
     LEFT JOIN dbo.EstimateLineItems li ON li.EstimateRevisionID = r.EstimateRevisionID
     LEFT JOIN dbo.EstimateScopesOfWork s ON s.EstimateScopeOfWorkID = li.EstimateScopeOfWorkID
+    WHERE (@projectId IS NULL OR p.ProjectID = @projectId)
+      AND (@organizationId IS NULL OR p.OrganizationID = @organizationId)
     ORDER BY p.ProjectID DESC, li.LineNumber
   `);
 

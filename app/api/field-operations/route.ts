@@ -9,9 +9,11 @@ import {
   moveFieldOperationsAssignment,
   moveFieldOperationsVisit,
   scheduleProjectVisit,
+  setFieldOperationsAssignmentHours,
   unscheduleFieldOperationsVisit,
   updateFieldOperationsTask,
 } from "@/app/lib/field-operations";
+import { isAssignmentHoursMode } from "@/app/lib/field-capacity";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -48,11 +50,18 @@ function errorResponse(error: unknown) {
   }
   if (typeof error === "object" && error !== null && "number" in error) {
     const number = Number(error.number);
+    if (number === 51041 && "message" in error) {
+      return NextResponse.json({ error: String(error.message) }, { status: 409 });
+    }
     if (number === 2601 || number === 2627) {
       return NextResponse.json({ error: "That resource is already assigned to this task" }, { status: 409 });
     }
     if (number === 547) {
       return NextResponse.json({ error: "The selected job, task, employee, or equipment no longer exists" }, { status: 400 });
+    }
+    if (number === 207) {
+      console.error("Field operations schema is out of date", error);
+      return NextResponse.json({ error: "The planner database needs an update. Run database/field-operations-assignment-hours.sql in SSMS, then reload." }, { status: 500 });
     }
   }
   console.error("Field operations request failed", error);
@@ -129,7 +138,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Enter a task name and valid planned hours (0 to 100,000, up to two decimals)" }, { status: 400 });
       }
       if (!await updateFieldOperationsTask(taskId, taskName, plannedLaborHours)) {
-        return NextResponse.json({ error: "The scheduled task no longer exists" }, { status: 404 });
+        return NextResponse.json({ error: "The scheduled task no longer exists, or it comes from the approved estimate and can't be changed here" }, { status: 404 });
       }
       return NextResponse.json({ success: true });
     }
@@ -138,7 +147,7 @@ export async function POST(request: NextRequest) {
       const taskId = positiveInteger(body.taskId);
       if (!taskId) return NextResponse.json({ error: "Choose a valid task" }, { status: 400 });
       if (!await deactivateFieldOperationsTask(taskId)) {
-        return NextResponse.json({ error: "The scheduled task no longer exists" }, { status: 404 });
+        return NextResponse.json({ error: "The scheduled task no longer exists, or it comes from the approved estimate and can't be changed here" }, { status: 404 });
       }
       return NextResponse.json({ success: true });
     }
@@ -151,7 +160,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Choose a valid task and employee or equipment" }, { status: 400 });
       }
       if (!await assignResourceToTask(taskId, employeeId ? { employeeId } : { equipmentId: equipmentId! })) {
-        return NextResponse.json({ error: "The scheduled task no longer exists" }, { status: 404 });
+        return NextResponse.json({ error: "The scheduled task no longer exists, or it comes from the approved estimate and can't be changed here" }, { status: 404 });
       }
       return NextResponse.json({ success: true }, { status: 201 });
     }
@@ -162,6 +171,22 @@ export async function POST(request: NextRequest) {
       if (!assignmentId || !taskId) return NextResponse.json({ error: "Choose a valid assignment and task" }, { status: 400 });
       if (!await moveFieldOperationsAssignment(assignmentId, taskId)) {
         return NextResponse.json({ error: "The assignment or destination task no longer exists" }, { status: 404 });
+      }
+      return NextResponse.json({ success: true });
+    }
+
+    if (body.action === "set-assignment-hours") {
+      const assignmentId = positiveInteger(body.assignmentId);
+      const hoursMode = body.hoursMode;
+      const customHours = body.customHours === null || body.customHours === undefined ? null : Number(body.customHours);
+      if (!assignmentId || !isAssignmentHoursMode(hoursMode)) {
+        return NextResponse.json({ error: "Choose a valid assignment and hours option" }, { status: 400 });
+      }
+      if (hoursMode === "Custom" && (customHours === null || !Number.isFinite(customHours) || customHours < 0 || customHours > 24 || Math.abs(customHours - Number(customHours.toFixed(2))) > 0.0000001)) {
+        return NextResponse.json({ error: "Enter custom hours from 0 to 24 (up to two decimals)" }, { status: 400 });
+      }
+      if (!await setFieldOperationsAssignmentHours(assignmentId, hoursMode, hoursMode === "Custom" ? customHours : null)) {
+        return NextResponse.json({ error: "The assignment no longer exists" }, { status: 404 });
       }
       return NextResponse.json({ success: true });
     }

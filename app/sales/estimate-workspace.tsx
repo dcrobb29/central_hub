@@ -23,7 +23,7 @@ import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-t
 import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
 import Modal from "@/app/components/modal";
 import ListViewControls from "@/app/components/list-view-controls";
-import { ESTIMATE_NOTES_MAX_LENGTH } from "@/app/lib/estimate-notes";
+import { DocumentNotes, DocumentNotesFields } from "@/app/components/document-notes";
 import {
   defaultUnitAbbreviation,
   findUnitPreset,
@@ -920,18 +920,7 @@ export default function EstimateWorkspace({ estimates, unitPresets }: { estimate
                               <span>Grouping: {details.groupingMode === "None" ? "None" : details.groupingMode === "Scope" ? "By scope of work" : "By line type"}</span>
                             </div>
                             {groupedContent}
-                            {details.internalNotes && (
-                              <div className="internalNotes">
-                                <strong>Internal notes</strong>
-                                <p>{details.internalNotes}</p>
-                              </div>
-                            )}
-                            {details.customerNotes && (
-                              <div className="customerNotes">
-                                <strong>Customer notes</strong>
-                                <p>{details.customerNotes}</p>
-                              </div>
-                            )}
+                            <DocumentNotes internalNotes={details.internalNotes} customerNotes={details.customerNotes} />
                           </div>
                         );
                       })() : <p>Could not load this estimate&apos;s scope.</p>}
@@ -1082,18 +1071,10 @@ export default function EstimateWorkspace({ estimates, unitPresets }: { estimate
                   </>
                 )}
               </fieldset>
-              <div className="estimateNotes">
-                <label className="financeImportField" htmlFor="internalNotes">Internal Notes
-                  <textarea id="internalNotes" placeholder="Notes for the team (not shown on the customer PDF)" value={internalNotes} maxLength={ESTIMATE_NOTES_MAX_LENGTH} rows={4} onChange={(event) => setInternalNotes(event.target.value)} />
-                </label>
-                <p className="estimateInternalNote">Optional. Carried into the project when this estimate is won. Up to {ESTIMATE_NOTES_MAX_LENGTH.toLocaleString()} characters.</p>
-              </div>
-              <div className="estimateNotes">
-                <label className="financeImportField" htmlFor="customerNotes">Customer Notes
-                  <textarea id="customerNotes" placeholder="Notes for the customer (shown on the customer PDF)" value={customerNotes} maxLength={ESTIMATE_NOTES_MAX_LENGTH} rows={4} onChange={(event) => setCustomerNotes(event.target.value)} />
-                </label>
-                <p className="estimateInternalNote">Optional. Included on the customer PDF and carried into the project when won. Up to {ESTIMATE_NOTES_MAX_LENGTH.toLocaleString()} characters.</p>
-              </div>
+              <DocumentNotesFields internalNotes={internalNotes} customerNotes={customerNotes}
+                onInternalChange={setInternalNotes} onCustomerChange={setCustomerNotes} disabled={isSaving}
+                internalHint="Carried into the project when this estimate is won."
+                customerHint="Carried into the project when this estimate is won." />
 
               <div className="estimatePreviewTotal">
                 <strong>{money(pricing.quotedTotal)}</strong>

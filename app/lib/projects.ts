@@ -1,5 +1,7 @@
 import { getPool, sql } from "@/app/lib/db";
 import type { ProjectStatus } from "@/app/lib/project-status";
+import { rollbackIfActive } from "@/app/lib/sql-transactions";
+import { ensureProjectBillingSnapshot } from "@/app/lib/project-billing";
 
 export type ProjectOption = {
   projectId: number;
@@ -55,9 +57,25 @@ export async function getProjectFinancialSummary(): Promise<ProjectFinancialSumm
 
 export async function updateProjectStatus(projectId: number, status: ProjectStatus): Promise<boolean> {
   const pool = await getPool();
-  const result = await pool.request().input("projectId", sql.Int, projectId).input("status", sql.VarChar(24), status)
-    .query("UPDATE dbo.Projects SET ProjectStatus = @status WHERE ProjectID = @projectId");
-  return result.rowsAffected[0] === 1;
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+  try {
+    const project = await transaction.request().input("projectId", sql.Int, projectId)
+      .query<{ revisionId: number | null; engagementType: string }>("SELECT AcceptedEstimateRevisionID AS revisionId,EngagementType AS engagementType FROM dbo.Projects WITH(UPDLOCK,HOLDLOCK) WHERE ProjectID=@projectId");
+    if (!project.recordset[0]) { await transaction.commit(); return false; }
+    if (status === "Complete" && project.recordset[0].engagementType === "Project" && project.recordset[0].revisionId) {
+      await ensureProjectBillingSnapshot(transaction, projectId);
+      await transaction.request().input("projectId", sql.Int, projectId).query(`
+        UPDATE dbo.ProjectBillingUnits SET CompletionStatus='Complete' WHERE ProjectID=@projectId AND ServiceVisitID IS NULL;
+        UPDATE s SET CompletionStatus='Complete' FROM dbo.ProjectBillingScopes s
+        JOIN dbo.ProjectBillingUnits u ON u.BillingUnitID=s.BillingUnitID WHERE u.ProjectID=@projectId AND u.ServiceVisitID IS NULL;
+      `);
+    }
+    await transaction.request().input("projectId", sql.Int, projectId).input("status", sql.VarChar(24), status)
+      .query("UPDATE dbo.Projects SET ProjectStatus=@status WHERE ProjectID=@projectId");
+    await transaction.commit();
+    return true;
+  } catch (error) { await rollbackIfActive(transaction); throw error; }
 }
 
 export async function createProject(projectName: string): Promise<number> {
@@ -70,4 +88,17 @@ export async function createProject(projectName: string): Promise<number> {
       SELECT CONVERT(int, SCOPE_IDENTITY()) AS ProjectID;
     `);
   return result.recordset[0].ProjectID;
+}
+
+export async function updateProjectCustomer(projectId: number, customerId: number | null): Promise<boolean> {
+  const pool = await getPool();
+  const result = await pool.request().input("projectId", sql.Int, projectId).input("customerId", sql.Int, customerId)
+    .query(`
+      IF @customerId IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM dbo.Customers WHERE CustomerID = @customerId AND IsActive = 1)
+        AND NOT EXISTS (SELECT 1 FROM dbo.Projects WHERE ProjectID = @projectId AND CustomerID = @customerId)
+        THROW 51040, 'Choose an active customer. Archived customers cannot be used for new assignments.', 1;
+      UPDATE dbo.Projects SET CustomerID = @customerId WHERE ProjectID = @projectId;
+    `);
+  return result.rowsAffected[0] === 1;
 }

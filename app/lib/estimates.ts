@@ -4,6 +4,7 @@ import { rollbackIfActive } from "@/app/lib/sql-transactions";
 import { validateRecurringSchedule } from "@/app/lib/recurring-dates";
 import { getUnitsOfMeasurement } from "@/app/lib/units-of-measurement";
 import { requireUnitAbbreviation } from "@/app/lib/unit-presets";
+import { ensureProjectBillingSnapshot } from "@/app/lib/project-billing";
 import {
   calculateEstimate,
   type EstimateMarkupMode,
@@ -109,6 +110,7 @@ export type ProjectScopeLine = {
 
 export type ProjectWithEstimate = {
   projectId: number;
+  customerId: number | null;
   projectName: string;
   projectStatus: ProjectStatus;
   internalNotes: string | null;
@@ -553,6 +555,7 @@ export async function winEstimate(estimateId: number): Promise<number> {
         SELECT CONVERT(int, SCOPE_IDENTITY()) AS ProjectID;
       `);
     const projectId = projectResult.recordset[0].ProjectID;
+    await ensureProjectBillingSnapshot(transaction, projectId);
     await transaction.request()
       .input("estimateId", sql.Int, estimateId)
       .query("UPDATE dbo.Estimates SET EstimateStatus = 'Won' WHERE EstimateID = @estimateId");
@@ -586,6 +589,7 @@ export async function getProjectsWithEstimates(): Promise<ProjectWithEstimate[]>
   const result = await pool.request().query<ProjectWithEstimate & { estimateLineItemId: number | null; scopeName: string | null; freightAmount: number | null; lineNumber: number | null; description: string | null; lineType: LineType | null; quantity: number | null; unitName: string | null; unitCost: number | null; lineMarkupPercent: number | null }>(`
     SELECT
       p.ProjectID AS projectId,
+      p.CustomerID AS customerId,
       p.ProjectName AS projectName,
       p.ProjectStatus AS projectStatus,
       p.InternalNotes AS internalNotes,
@@ -622,6 +626,7 @@ export async function getProjectsWithEstimates(): Promise<ProjectWithEstimate[]>
     if (!project) {
       project = {
         projectId: row.projectId,
+        customerId: row.customerId,
         projectName: row.projectName,
         projectStatus: row.projectStatus,
         internalNotes: row.internalNotes,

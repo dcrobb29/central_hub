@@ -49,9 +49,9 @@ export function isoDateString(value: unknown): string {
  * `NChar(10)` amount columns used by Invoices/Bills). Pass `required: true`
  * when an empty value should be rejected instead of treated as null.
  */
-export function amountValue(value: unknown, options: { required: true }): string;
-export function amountValue(value: unknown, options?: { required?: boolean }): string | null;
-export function amountValue(value: unknown, { required = false }: { required?: boolean } = {}): string | null {
+export function amountValue(value: unknown, options: { required: true; maxLength?: number }): string;
+export function amountValue(value: unknown, options?: { required?: boolean; maxLength?: number }): string | null;
+export function amountValue(value: unknown, { required = false, maxLength = 10 }: { required?: boolean; maxLength?: number } = {}): string | null {
   if (required) {
     if (typeof value !== "string" || !value.trim()) throw new ValidationError("required");
   } else if (value == null || value === "") {
@@ -60,7 +60,7 @@ export function amountValue(value: unknown, { required = false }: { required?: b
   const amount = Number(value);
   if (!Number.isFinite(amount)) throw new ValidationError("amount");
   const normalized = amount.toFixed(2);
-  if (normalized.length > 10) throw new ValidationError("amount-length");
+  if (normalized.length > maxLength) throw new ValidationError("amount-length");
   return normalized;
 }
 

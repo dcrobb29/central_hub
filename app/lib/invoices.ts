@@ -1,8 +1,13 @@
 import { getPool, sql } from "@/app/lib/db";
 import type { ProjectOption } from "@/app/lib/projects";
+import { parseNotes } from "@/app/lib/document-notes";
 
 export type Invoice = {
   id: number;
+  customerId: number | null;
+  billingManaged: boolean;
+  internalNotes: string | null;
+  customerNotes: string | null;
   projectId: number | null;
   projectName: string | null;
   invoiceNo: string;
@@ -25,11 +30,17 @@ export type Invoice = {
   shippingAddressZip: string | null;
 };
 
-export async function getInvoices(): Promise<Invoice[]> {
+export type InvoiceProjectOption = ProjectOption & { customerId: number | null };
+
+export async function getInvoices(invoiceId?: number): Promise<Invoice[]> {
   const pool = await getPool();
-  const result = await pool.request().query<Invoice>(`
+  const result = await pool.request().input("invoiceId", sql.Int, invoiceId ?? null).query<Invoice>(`
     SELECT
       [id],
+      i.CustomerID AS customerId,
+      i.InternalNotes AS internalNotes,
+      i.CustomerNotes AS customerNotes,
+      CONVERT(bit, CASE WHEN EXISTS (SELECT 1 FROM dbo.ProjectIssuedInvoices h WHERE h.InvoiceID=i.id) THEN 1 ELSE 0 END) AS billingManaged,
       i.ProjectID AS projectId,
       p.ProjectName AS projectName,
       RTRIM([Invoice No])       AS invoiceNo,
@@ -52,15 +63,16 @@ export async function getInvoices(): Promise<Invoice[]> {
       NULLIF(RTRIM([Shipping Address Zip]), '')    AS shippingAddressZip
     FROM dbo.Invoices i
     LEFT JOIN dbo.Projects p ON p.ProjectID = i.ProjectID
+    WHERE @invoiceId IS NULL OR i.id = @invoiceId
     ORDER BY i.[Invoice Date] DESC
   `);
   return result.recordset;
 }
 
-export async function getInvoiceProjectOptions(): Promise<ProjectOption[]> {
+export async function getInvoiceProjectOptions(): Promise<InvoiceProjectOption[]> {
   const pool = await getPool();
-  const result = await pool.request().query<ProjectOption>(`
-    SELECT ProjectID AS projectId, ProjectName AS projectName, ProjectStatus AS projectStatus
+  const result = await pool.request().query<InvoiceProjectOption>(`
+    SELECT ProjectID AS projectId, ProjectName AS projectName, ProjectStatus AS projectStatus, CustomerID AS customerId
     FROM dbo.Projects
     ORDER BY ProjectName, ProjectID
   `);
@@ -68,6 +80,9 @@ export async function getInvoiceProjectOptions(): Promise<ProjectOption[]> {
 }
 
 export async function addInvoice(input: {
+  internalNotes?: string | null;
+  customerNotes?: string | null;
+  customerId?: number | null;
   invoiceNo: string;
   projectId: number | null;
   invoiceDate: Date;
@@ -90,28 +105,33 @@ export async function addInvoice(input: {
 }): Promise<number> {
   const pool = await getPool();
   const result = await pool.request()
+    .input("internalNotes", sql.NVarChar(4000), parseNotes(input.internalNotes, "Internal notes"))
+    .input("customerNotes", sql.NVarChar(4000), parseNotes(input.customerNotes, "Customer notes"))
+    .input("customerId", sql.Int, input.customerId ?? null)
     .input("invoiceNo", sql.NChar(10), input.invoiceNo)
     .input("projectId", sql.Int, input.projectId)
     .input("invoiceDate", sql.Date, input.invoiceDate)
     .input("invoiceDueDate", sql.Date, input.invoiceDueDate)
     .input("invoicePaidDate", sql.Date, input.invoicePaidDate)
-    .input("invoiceAmount", sql.NChar(10), input.invoiceAmount)
-    .input("firstName", sql.NChar(25), input.firstName)
-    .input("lastName", sql.NChar(25), input.lastName)
-    .input("companyName", sql.NChar(10), input.companyName)
-    .input("billingAddressLine1", sql.NChar(50), input.billingAddressLine1)
-    .input("billingAddressLine2", sql.NChar(50), input.billingAddressLine2)
-    .input("billingAddressCity", sql.NChar(50), input.billingAddressCity)
-    .input("billingAddressState", sql.NChar(50), input.billingAddressState)
-    .input("billingAddressZip", sql.NChar(10), input.billingAddressZip)
-    .input("shippingAddressLine1", sql.NChar(50), input.shippingAddressLine1)
-    .input("shippingAddressLine2", sql.NChar(50), input.shippingAddressLine2)
-    .input("shippingAddressCity", sql.NChar(50), input.shippingAddressCity)
-    .input("shippingAddressState", sql.NChar(50), input.shippingAddressState)
-    .input("shippingAddressZip", sql.NChar(10), input.shippingAddressZip)
+    .input("invoiceAmount", sql.NVarChar(32), input.invoiceAmount)
+    .input("firstName", sql.NVarChar(100), input.firstName)
+    .input("lastName", sql.NVarChar(100), input.lastName)
+    .input("companyName", sql.NVarChar(150), input.companyName)
+    .input("billingAddressLine1", sql.NVarChar(200), input.billingAddressLine1)
+    .input("billingAddressLine2", sql.NVarChar(200), input.billingAddressLine2)
+    .input("billingAddressCity", sql.NVarChar(100), input.billingAddressCity)
+    .input("billingAddressState", sql.NVarChar(100), input.billingAddressState)
+    .input("billingAddressZip", sql.NVarChar(20), input.billingAddressZip)
+    .input("shippingAddressLine1", sql.NVarChar(200), input.shippingAddressLine1)
+    .input("shippingAddressLine2", sql.NVarChar(200), input.shippingAddressLine2)
+    .input("shippingAddressCity", sql.NVarChar(100), input.shippingAddressCity)
+    .input("shippingAddressState", sql.NVarChar(100), input.shippingAddressState)
+    .input("shippingAddressZip", sql.NVarChar(20), input.shippingAddressZip)
     .query<{ id: number }>(`
+      IF @customerId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.Customers WHERE CustomerID = @customerId AND IsActive = 1)
+        THROW 51040, 'Choose an active customer. Archived customers cannot be used for new assignments.', 1;
       INSERT INTO dbo.Invoices (
-        [Invoice No], [ProjectID], [Invoice Date], [Invoice Due Date], [Invoice Paid Date], [Invoice Amount],
+        CustomerID, InternalNotes, CustomerNotes, [Invoice No], [ProjectID], [Invoice Date], [Invoice Due Date], [Invoice Paid Date], [Invoice Amount],
         [First Name], [Last Name], [Company Name],
         [Billing Address Line 1], [Billing Address Line 2], [Billing Address City],
         [Billing Address State], [Billing Address Zip],
@@ -119,7 +139,7 @@ export async function addInvoice(input: {
         [Shipping Address State], [Shipping Address Zip]
       )
       VALUES (
-        @invoiceNo, @projectId, @invoiceDate, @invoiceDueDate, @invoicePaidDate, @invoiceAmount,
+        @customerId, @internalNotes, @customerNotes, @invoiceNo, @projectId, @invoiceDate, @invoiceDueDate, @invoicePaidDate, @invoiceAmount,
         @firstName, @lastName, @companyName,
         @billingAddressLine1, @billingAddressLine2, @billingAddressCity,
         @billingAddressState, @billingAddressZip,
@@ -137,27 +157,40 @@ export async function updateInvoice(id: number, input: InvoiceInput): Promise<vo
   const pool = await getPool();
   await pool.request()
     .input("id", sql.Int, id)
+    .input("internalNotes", sql.NVarChar(4000), parseNotes(input.internalNotes, "Internal notes"))
+    .input("customerNotes", sql.NVarChar(4000), parseNotes(input.customerNotes, "Customer notes"))
+    .input("internalNotesSpecified", sql.Bit, input.internalNotes !== undefined)
+    .input("customerNotesSpecified", sql.Bit, input.customerNotes !== undefined)
+    .input("customerId", sql.Int, input.customerId ?? null)
+    .input("customerSpecified", sql.Bit, input.customerId !== undefined)
     .input("invoiceNo", sql.NChar(10), input.invoiceNo)
     .input("projectId", sql.Int, input.projectId)
     .input("invoiceDate", sql.Date, input.invoiceDate)
     .input("invoiceDueDate", sql.Date, input.invoiceDueDate)
     .input("invoicePaidDate", sql.Date, input.invoicePaidDate)
-    .input("invoiceAmount", sql.NChar(10), input.invoiceAmount)
-    .input("firstName", sql.NChar(25), input.firstName)
-    .input("lastName", sql.NChar(25), input.lastName)
-    .input("companyName", sql.NChar(10), input.companyName)
-    .input("billingAddressLine1", sql.NChar(50), input.billingAddressLine1)
-    .input("billingAddressLine2", sql.NChar(50), input.billingAddressLine2)
-    .input("billingAddressCity", sql.NChar(50), input.billingAddressCity)
-    .input("billingAddressState", sql.NChar(50), input.billingAddressState)
-    .input("billingAddressZip", sql.NChar(10), input.billingAddressZip)
-    .input("shippingAddressLine1", sql.NChar(50), input.shippingAddressLine1)
-    .input("shippingAddressLine2", sql.NChar(50), input.shippingAddressLine2)
-    .input("shippingAddressCity", sql.NChar(50), input.shippingAddressCity)
-    .input("shippingAddressState", sql.NChar(50), input.shippingAddressState)
-    .input("shippingAddressZip", sql.NChar(10), input.shippingAddressZip)
+    .input("invoiceAmount", sql.NVarChar(32), input.invoiceAmount)
+    .input("firstName", sql.NVarChar(100), input.firstName)
+    .input("lastName", sql.NVarChar(100), input.lastName)
+    .input("companyName", sql.NVarChar(150), input.companyName)
+    .input("billingAddressLine1", sql.NVarChar(200), input.billingAddressLine1)
+    .input("billingAddressLine2", sql.NVarChar(200), input.billingAddressLine2)
+    .input("billingAddressCity", sql.NVarChar(100), input.billingAddressCity)
+    .input("billingAddressState", sql.NVarChar(100), input.billingAddressState)
+    .input("billingAddressZip", sql.NVarChar(20), input.billingAddressZip)
+    .input("shippingAddressLine1", sql.NVarChar(200), input.shippingAddressLine1)
+    .input("shippingAddressLine2", sql.NVarChar(200), input.shippingAddressLine2)
+    .input("shippingAddressCity", sql.NVarChar(100), input.shippingAddressCity)
+    .input("shippingAddressState", sql.NVarChar(100), input.shippingAddressState)
+    .input("shippingAddressZip", sql.NVarChar(20), input.shippingAddressZip)
     .query(`
+      IF @customerId IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM dbo.Customers WHERE CustomerID = @customerId AND IsActive = 1)
+        AND NOT EXISTS (SELECT 1 FROM dbo.Invoices WHERE id = @id AND CustomerID = @customerId)
+        THROW 51040, 'Choose an active customer. Archived customers cannot be used for new assignments.', 1;
       UPDATE dbo.Invoices SET
+        InternalNotes = CASE WHEN @internalNotesSpecified=1 THEN @internalNotes ELSE InternalNotes END,
+        CustomerNotes = CASE WHEN @customerNotesSpecified=1 THEN @customerNotes ELSE CustomerNotes END,
+        CustomerID = CASE WHEN @customerSpecified = 1 THEN @customerId ELSE CustomerID END,
         [Invoice No] = @invoiceNo,
         [ProjectID] = @projectId,
         [Invoice Date] = @invoiceDate,
@@ -185,5 +218,9 @@ export async function deleteInvoice(id: number): Promise<void> {
   const pool = await getPool();
   await pool.request()
     .input("id", sql.Int, id)
-    .query(`DELETE FROM dbo.Invoices WHERE [id] = @id`);
+    .query(`
+      IF EXISTS (SELECT 1 FROM dbo.ProjectIssuedInvoices WHERE InvoiceID=@id)
+        THROW 51041, 'Issued project invoices cannot be deleted. Their allocations are part of billing history.', 1;
+      DELETE FROM dbo.Invoices WHERE [id] = @id;
+    `);
 }

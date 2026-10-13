@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { CirclePlus } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Modal from "@/app/components/modal";
 import BillSplitToggle from "@/app/components/bill-split-toggle";
@@ -54,22 +54,37 @@ export default function ProjectCostPanel({ project, costs, bills, financials }: 
   const [showFinancialDetails, setShowFinancialDetails] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const pricing = calculateEstimate({
+  const pricing = useMemo(() => calculateEstimate({
     markupMode: "perLine", estimateMarkupPercent: 0, roundingIncrement: 0,
     taxPercent: project.taxPercent, lines: project.lines,
-  });
-  const totalAllocated = money(costs.reduce((sum, cost) => sum + cost.amount, 0));
-  const unexpected = costs.filter((cost) => cost.estimateLineItemId === null);
-  const unexpectedTotal = money(unexpected.reduce((sum, cost) => sum + cost.amount, 0));
-  const attachedBills = bills.filter((bill) => bill.projectId === project.projectId || bill.isSplit && bill.allocatedProjectIds.includes(project.projectId));
+  }), [project.taxPercent, project.lines]);
+
+  const totalAllocated = useMemo(() => money(costs.reduce((sum, cost) => sum + cost.amount, 0)), [costs]);
+  const unexpected = useMemo(() => costs.filter((cost) => cost.estimateLineItemId === null), [costs]);
+  const unexpectedTotal = useMemo(() => money(unexpected.reduce((sum, cost) => sum + cost.amount, 0)), [unexpected]);
+
+  const attachedBills = useMemo(() => bills.filter(
+    (bill) => bill.projectId === project.projectId || (bill.isSplit && bill.allocatedProjectIds.includes(project.projectId)),
+  ), [bills, project.projectId]);
+
   const billJobAmount = (bill: AllocationBill) => bill.isSplit
     ? money(costs.filter((cost) => cost.billId === bill.billId).reduce((sum, cost) => sum + cost.amount, 0))
     : bill.amount ?? 0;
-  const projectBillTotal = money(attachedBills.reduce((sum, bill) => sum + billJobAmount(bill), 0));
-  const hasInvalidBills = attachedBills.some((bill) => bill.amount === null);
+
+  const projectBillTotal = useMemo(() => {
+    return money(attachedBills.reduce((sum, bill) => sum + billJobAmount(bill), 0));
+  }, [attachedBills, costs]);
+
+  const hasInvalidBills = useMemo(() => attachedBills.some((bill) => bill.amount === null), [attachedBills]);
   const unallocated = money(projectBillTotal - totalAllocated);
-  const groups = new Map<string | null, ProjectScopeLine[]>();
-  for (const line of project.lines) groups.set(line.scopeName, [...(groups.get(line.scopeName) ?? []), line]);
+
+  const groups = useMemo(() => {
+    const map = new Map<string | null, ProjectScopeLine[]>();
+    for (const line of project.lines) {
+      map.set(line.scopeName, [...(map.get(line.scopeName) ?? []), line]);
+    }
+    return map;
+  }, [project.lines]);
 
   function openNew(line: ProjectScopeLine | null) {
     setBillPickerOpen(false);

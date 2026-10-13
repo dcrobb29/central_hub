@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
 import { InvalidUnitPresetError } from "@/app/lib/unit-presets";
-import { parseEstimateNotes } from "@/app/lib/estimate-notes";
+import { parseNotes } from "@/app/lib/document-notes";
 import { RECURRENCE_FREQUENCIES, isCalendarDate, validateRecurringSchedule } from "@/app/lib/recurring-dates";
 import {
   createEstimate,
@@ -35,8 +35,8 @@ function decimalPlaces(value: number, places: number) {
 export function parseEstimate(body: Record<string, unknown>): CreateEstimateInput {
   const estimateName = typeof body.estimateName === "string" ? body.estimateName.trim() : "";
   const customerName = typeof body.customerName === "string" ? body.customerName.trim() : "";
-  const internalNotes = parseEstimateNotes(body.internalNotes, "Internal notes");
-  const customerNotes = parseEstimateNotes(body.customerNotes, "Customer notes");
+  const internalNotes = parseNotes(body.internalNotes, "Internal notes");
+  const customerNotes = parseNotes(body.customerNotes, "Customer notes");
   if (!estimateName) throw new Error("Enter an estimate name");
   if (estimateName.length > 150 || customerName.length > 150) throw new Error("Name fields must be 150 characters or fewer");
   if (body.markupMode !== "perLine" && body.markupMode !== "estimate") {

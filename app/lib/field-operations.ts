@@ -4,6 +4,7 @@ import type { RecurringFrequency } from "@/app/lib/recurring-dates";
 import { getCurrentWeekRange } from "@/app/lib/field-operations-dates";
 import { ACTIVE_PLANNER_MESSAGE, COMPLETED_PROJECT_MESSAGE } from "@/app/lib/project-status";
 import { rollbackIfActive } from "@/app/lib/sql-transactions";
+import { isAssignmentHoursMode, resolvePlanningHours, type AssignmentHoursMode, type PlanningRow } from "@/app/lib/field-capacity";
 export type FieldOperationsEquipment = {
   equipmentId: number;
   equipmentName: string;
@@ -17,12 +18,22 @@ export type FieldOperationsAssignment = {
   employeeName: string | null;
   equipmentId: number | null;
   equipmentName: string | null;
+  /** NULL for assignments created before per-assignment hours; they use the task's planned hours. */
+  hoursMode: AssignmentHoursMode | null;
+  customHours: number | null;
+  /** Resolved planned hours for this assignment. */
+  hours: number;
 };
 
 export type FieldOperationsTask = {
   taskId: number;
   taskName: string;
   plannedLaborHours: number;
+  estimateLineItemId: number | null;
+  /** True when remaining hours count down across every visit of the job. */
+  sharedAcrossVisits: boolean;
+  remainingHours: number;
+  equipmentRemainingHours: number;
   assignments: FieldOperationsAssignment[];
 };
 
@@ -40,11 +51,14 @@ type ScheduleRow = {
   taskId: number | null;
   taskName: string | null;
   plannedLaborHours: number | null;
+  estimateLineItemId: number | null;
   assignmentId: number | null;
   employeeId: number | null;
   employeeName: string | null;
   equipmentId: number | null;
   equipmentName: string | null;
+  hoursMode: string | null;
+  customHours: number | null;
 };
 
 export async function getFieldOperationsEquipment(): Promise<FieldOperationsEquipment[]> {
@@ -86,6 +100,7 @@ export async function getFieldOperationsSchedule(startDate: string, endDate: str
       throw error;
     }
   }
+  await ensureEstimateLaborTasks(startDate, endDate);
   const result = await pool.request()
     .input("startDate", sql.Date, new Date(`${startDate}T00:00:00.000Z`))
     .input("endDate", sql.Date, new Date(`${endDate}T00:00:00.000Z`))
@@ -97,11 +112,14 @@ export async function getFieldOperationsSchedule(startDate: string, endDate: str
         t.FieldOperationsTaskID AS taskId,
         t.TaskName AS taskName,
         t.PlannedLaborHours AS plannedLaborHours,
+        t.EstimateLineItemID AS estimateLineItemId,
         a.FieldOperationsTaskAssignmentID AS assignmentId,
         a.EmployeeID AS employeeId,
         e.EmployeeName AS employeeName,
         a.EquipmentID AS equipmentId,
-        q.EquipmentName AS equipmentName
+        q.EquipmentName AS equipmentName,
+        a.HoursMode AS hoursMode,
+        a.CustomHours AS customHours
       FROM dbo.ServiceVisits v
       JOIN dbo.Projects p ON p.ProjectID = v.ProjectID AND p.ProjectStatus = 'Active'
       LEFT JOIN dbo.FieldOperationsTasks t
@@ -135,6 +153,10 @@ export async function getFieldOperationsSchedule(startDate: string, endDate: str
         taskId: row.taskId,
         taskName: row.taskName,
         plannedLaborHours: row.plannedLaborHours,
+        estimateLineItemId: row.estimateLineItemId,
+        sharedAcrossVisits: false,
+        remainingHours: row.plannedLaborHours,
+        equipmentRemainingHours: row.plannedLaborHours,
         assignments: [],
       };
       visit.tasks.push(task);
@@ -146,10 +168,127 @@ export async function getFieldOperationsSchedule(startDate: string, endDate: str
         employeeName: row.employeeName,
         equipmentId: row.equipmentId,
         equipmentName: row.equipmentName,
+        hoursMode: isAssignmentHoursMode(row.hoursMode) ? row.hoursMode : null,
+        customHours: row.customHours,
+        hours: 0,
       });
     }
   }
-  return [...visits.values()];
+  const scheduled = [...visits.values()];
+  await applyPlanningHours(scheduled);
+  return scheduled;
+}
+
+// Remaining hours depend on assignments outside the displayed week, so every active
+// task of each displayed job is loaded before hours are resolved.
+async function applyPlanningHours(visits: FieldOperationsVisit[]): Promise<void> {
+  const projectIds = [...new Set(visits.map((visit) => visit.projectId))];
+  if (projectIds.length === 0) return;
+  const pool = await getPool();
+  const result = await pool.request()
+    .input("projectIds", sql.NVarChar(sql.MAX), JSON.stringify(projectIds))
+    .query<{
+      projectId: number; engagementType: string | null; taskId: number; estimateLineItemId: number | null;
+      plannedLaborHours: number; assignmentId: number | null; employeeId: number | null; equipmentId: number | null;
+      hoursMode: string | null; customHours: number | null;
+    }>(`
+      SELECT v.ProjectID AS projectId, p.EngagementType AS engagementType,
+        t.FieldOperationsTaskID AS taskId, t.EstimateLineItemID AS estimateLineItemId,
+        t.PlannedLaborHours AS plannedLaborHours,
+        a.FieldOperationsTaskAssignmentID AS assignmentId, a.EmployeeID AS employeeId, a.EquipmentID AS equipmentId,
+        a.HoursMode AS hoursMode, a.CustomHours AS customHours
+      FROM dbo.ServiceVisits v
+      JOIN dbo.Projects p ON p.ProjectID = v.ProjectID
+      JOIN dbo.FieldOperationsTasks t ON t.ServiceVisitID = v.ServiceVisitID AND t.IsActive = 1
+      LEFT JOIN dbo.FieldOperationsTaskAssignments a ON a.FieldOperationsTaskID = t.FieldOperationsTaskID AND a.IsActive = 1
+      WHERE v.ProjectID IN (SELECT CONVERT(int, [value]) FROM OPENJSON(@projectIds)) AND v.Status <> 'Skipped'
+    `);
+  const rows: PlanningRow[] = result.recordset.map((row) => ({
+    projectId: row.projectId,
+    isRecurring: row.engagementType === "Service",
+    taskId: row.taskId,
+    estimateLineItemId: row.estimateLineItemId,
+    plannedLaborHours: row.plannedLaborHours,
+    assignmentId: row.assignmentId,
+    kind: row.assignmentId === null ? null : row.employeeId !== null ? "employee" : "equipment",
+    hoursMode: isAssignmentHoursMode(row.hoursMode) ? row.hoursMode : null,
+    customHours: row.customHours,
+  }));
+  const { assignmentHours, taskSummaries } = resolvePlanningHours(rows);
+  for (const visit of visits) {
+    for (const task of visit.tasks) {
+      const summary = taskSummaries.get(task.taskId);
+      if (summary) {
+        task.sharedAcrossVisits = summary.sharedAcrossVisits;
+        task.remainingHours = summary.remainingHours;
+        task.equipmentRemainingHours = summary.equipmentRemainingHours;
+      }
+      for (const assignment of task.assignments) assignment.hours = assignmentHours.get(assignment.assignmentId) ?? 0;
+    }
+  }
+}
+
+/**
+ * Gives each scheduled visit of an Active job one task per approved-estimate Labor line
+ * measured in HR. An untouched zero-hour "General work" placeholder is retired once
+ * estimate tasks exist; placeholders with assignments or edits are kept.
+ */
+async function ensureEstimateLaborTasks(startDate: string, endDate: string): Promise<void> {
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+  try {
+    await transaction.request()
+      .input("startDate", sql.Date, asSqlDate(startDate))
+      .input("endDate", sql.Date, asSqlDate(endDate))
+      .query(`
+        DECLARE @visits TABLE (ServiceVisitID int PRIMARY KEY, AcceptedEstimateRevisionID int NOT NULL);
+        INSERT INTO @visits
+        SELECT v.ServiceVisitID, p.AcceptedEstimateRevisionID
+        FROM dbo.ServiceVisits v
+        JOIN dbo.Projects p ON p.ProjectID = v.ProjectID
+        WHERE v.VisitDate >= @startDate AND v.VisitDate <= @endDate AND v.Status = 'Scheduled'
+          AND p.ProjectStatus = 'Active' AND p.AcceptedEstimateRevisionID IS NOT NULL;
+
+        INSERT INTO dbo.FieldOperationsTasks (ServiceVisitID, TaskName, PlannedLaborHours, SortOrder, EstimateLineItemID)
+        SELECT v.ServiceVisitID,
+          LEFT(COALESCE(NULLIF(LTRIM(RTRIM(li.Description)), N''), N'Labor line ' + CONVERT(nvarchar(10), li.LineNumber)), 150),
+          CASE WHEN li.Quantity > 0 THEN CONVERT(decimal(10,2), li.Quantity) ELSE 0 END,
+          li.LineNumber, li.EstimateLineItemID
+        FROM @visits v
+        JOIN dbo.EstimateLineItems li ON li.EstimateRevisionID = v.AcceptedEstimateRevisionID
+        WHERE li.LineType = 'Labor' AND UPPER(LTRIM(RTRIM(li.UnitName))) = 'HR'
+          AND NOT EXISTS (
+            SELECT 1 FROM dbo.FieldOperationsTasks t WITH (UPDLOCK, HOLDLOCK)
+            WHERE t.ServiceVisitID = v.ServiceVisitID AND t.EstimateLineItemID = li.EstimateLineItemID
+          );
+
+        -- Lines removed from the accepted estimate drop off unless someone is assigned.
+        UPDATE t SET IsActive = 0
+        FROM dbo.FieldOperationsTasks t
+        JOIN @visits v ON v.ServiceVisitID = t.ServiceVisitID
+        WHERE t.IsActive = 1 AND t.EstimateLineItemID IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM dbo.EstimateLineItems li
+            WHERE li.EstimateLineItemID = t.EstimateLineItemID AND li.EstimateRevisionID = v.AcceptedEstimateRevisionID
+          )
+          AND NOT EXISTS (SELECT 1 FROM dbo.FieldOperationsTaskAssignments a WHERE a.FieldOperationsTaskID = t.FieldOperationsTaskID AND a.IsActive = 1);
+
+        UPDATE g SET IsActive = 0
+        FROM dbo.FieldOperationsTasks g
+        JOIN @visits v ON v.ServiceVisitID = g.ServiceVisitID
+        WHERE g.IsActive = 1 AND g.EstimateLineItemID IS NULL AND g.TaskName = N'General work' AND g.PlannedLaborHours = 0
+          AND NOT EXISTS (SELECT 1 FROM dbo.FieldOperationsTaskAssignments a WHERE a.FieldOperationsTaskID = g.FieldOperationsTaskID AND a.IsActive = 1)
+          AND EXISTS (
+            SELECT 1 FROM dbo.FieldOperationsTasks t
+            WHERE t.ServiceVisitID = g.ServiceVisitID AND t.IsActive = 1 AND t.EstimateLineItemID IS NOT NULL
+          );
+      `);
+    await transaction.commit();
+  } catch (error) {
+    await rollbackIfActive(transaction);
+    throw error;
+  }
 }
 
 function asSqlDate(value: string) {
@@ -310,7 +449,7 @@ export async function updateFieldOperationsTask(taskId: number, taskName: string
       SET TaskName = @taskName, PlannedLaborHours = @plannedLaborHours
       FROM dbo.FieldOperationsTasks t
       JOIN dbo.ServiceVisits v ON v.ServiceVisitID = t.ServiceVisitID
-      WHERE t.FieldOperationsTaskID = @taskId AND t.IsActive = 1 AND v.Status = 'Scheduled'
+      WHERE t.FieldOperationsTaskID = @taskId AND t.IsActive = 1 AND t.EstimateLineItemID IS NULL AND v.Status = 'Scheduled'
     `);
   return (result.rowsAffected[0] ?? 0) === 1;
 }
@@ -326,7 +465,7 @@ export async function deactivateFieldOperationsTask(taskId: number): Promise<boo
         SELECT t.FieldOperationsTaskID
         FROM dbo.FieldOperationsTasks t WITH (UPDLOCK, HOLDLOCK)
         JOIN dbo.ServiceVisits v ON v.ServiceVisitID = t.ServiceVisitID
-        WHERE t.FieldOperationsTaskID = @taskId AND t.IsActive = 1 AND v.Status = 'Scheduled'
+        WHERE t.FieldOperationsTaskID = @taskId AND t.IsActive = 1 AND t.EstimateLineItemID IS NULL AND v.Status = 'Scheduled'
       `);
     if (!task.recordset[0]) {
       await transaction.rollback();
@@ -358,14 +497,31 @@ export async function assignResourceToTask(taskId: number, resource: { employeeI
     request.input("resourceId", sql.Int, resource.equipmentId);
   }
   const result = await request.query(`
-    INSERT INTO dbo.FieldOperationsTaskAssignments (FieldOperationsTaskID, ${resourceColumn})
-    SELECT @taskId, @resourceId
+    INSERT INTO dbo.FieldOperationsTaskAssignments (FieldOperationsTaskID, ${resourceColumn}, HoursMode)
+    SELECT @taskId, @resourceId, 'Split'
     WHERE EXISTS (
       SELECT 1 FROM dbo.FieldOperationsTasks t
       JOIN dbo.ServiceVisits v ON v.ServiceVisitID = t.ServiceVisitID
       WHERE t.FieldOperationsTaskID = @taskId AND t.IsActive = 1 AND v.Status = 'Scheduled'
     )
   `);
+  return (result.rowsAffected[0] ?? 0) === 1;
+}
+
+export async function setFieldOperationsAssignmentHours(assignmentId: number, hoursMode: AssignmentHoursMode, customHours: number | null): Promise<boolean> {
+  const pool = await getPool();
+  const result = await pool.request()
+    .input("assignmentId", sql.Int, assignmentId)
+    .input("hoursMode", sql.VarChar(12), hoursMode)
+    .input("customHours", sql.Decimal(10, 2), hoursMode === "Custom" ? customHours : null)
+    .query(`
+      UPDATE a SET HoursMode = @hoursMode, CustomHours = @customHours
+      FROM dbo.FieldOperationsTaskAssignments a
+      JOIN dbo.FieldOperationsTasks t ON t.FieldOperationsTaskID = a.FieldOperationsTaskID
+      JOIN dbo.ServiceVisits v ON v.ServiceVisitID = t.ServiceVisitID
+      WHERE a.FieldOperationsTaskAssignmentID = @assignmentId AND a.IsActive = 1
+        AND t.IsActive = 1 AND v.Status = 'Scheduled'
+    `);
   return (result.rowsAffected[0] ?? 0) === 1;
 }
 

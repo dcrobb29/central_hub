@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 // Add new entries here as more finance tables are built out.
 const NAV_ITEMS = [
+  { href: "/finances/customers", label: "Customers" },
   { href: "/finances/invoices", label: "Invoices" },
   { href: "/finances/bills", label: "Bills" },
   { href: "/finances/project_finances", label: "Project Finances" }

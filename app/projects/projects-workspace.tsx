@@ -1,12 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ProjectWithEstimate } from "@/app/lib/estimates";
 import type { AllocationBill, ProjectBillCost } from "@/app/lib/project-costs";
 import type { ProjectFinancialSummary } from "@/app/lib/projects";
 import ProjectCostPanel from "./project-cost-panel";
 import ProjectStatusSelector from "./project-status-selector";
 import ListViewControls from "@/app/components/list-view-controls";
+import ProjectCustomerSelector from "./project-customer-selector";
+import { customerLabel, type Customer } from "@/app/lib/customer-fields";
+import ProjectBillingModal from "./project-billing-modal";
+import { ReceiptText } from "lucide-react";
+import { DocumentNotes } from "@/app/components/document-notes";
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
@@ -23,11 +28,12 @@ function formatDate(value: string) {
   return new Date(`${value}T00:00:00`).toLocaleDateString();
 }
 
-export default function ProjectsWorkspace({ projects, costs, bills, financials, initialProjectId }: {
+export default function ProjectsWorkspace({ projects, costs, bills, financials, customers, initialProjectId }: {
   projects: ProjectWithEstimate[];
   costs: ProjectBillCost[];
   bills: AllocationBill[];
   financials: ProjectFinancialSummary[];
+  customers: Customer[];
   initialProjectId: number | null;
 }) {
   const [activeTab, setActiveTab] = useState<"Project" | "Service">(
@@ -35,21 +41,47 @@ export default function ProjectsWorkspace({ projects, costs, bills, financials, 
   );
   const [statusFilter, setStatusFilter] = useState("All");
   const [sort, setSort] = useState("");
+  const [billing, setBilling] = useState<{ projectId: number; projectName: string; tab: "completion" | "invoice" } | null>(null);
 
-  const oneTimeProjects = projects.filter((project) => project.engagementType === "Project");
-  const recurringProjects = projects.filter((project) => project.engagementType === "Service");
-  const tabProjects = activeTab === "Project" ? oneTimeProjects : recurringProjects;
-  const visibleProjects = tabProjects.filter((project) => statusFilter === "All" || project.projectStatus === statusFilter);
-  if (sort) visibleProjects.sort((left, right) => {
-    const byAmount = sort.startsWith("amount");
-    if (byAmount && (left.quotedTotal == null || right.quotedTotal == null)) {
-      if (left.quotedTotal == null && right.quotedTotal == null) return 0;
-      return left.quotedTotal == null ? 1 : -1;
+  const customersById = useMemo(() => new Map(customers.map((c) => [c.customerId, c])), [customers]);
+
+  const costsByProjectId = useMemo(() => {
+    const map = new Map<number, ProjectBillCost[]>();
+    for (const cost of costs) {
+      const list = map.get(cost.projectId);
+      if (list) list.push(cost);
+      else map.set(cost.projectId, [cost]);
     }
-    const comparison = byAmount ? (left.quotedTotal ?? 0) - (right.quotedTotal ?? 0)
-      : left.projectName.localeCompare(right.projectName, undefined, { numeric: true, sensitivity: "base" });
-    return sort.endsWith("desc") ? -comparison : comparison;
-  });
+    return map;
+  }, [costs]);
+
+  const financialsByProjectId = useMemo(() => {
+    const map = new Map<number, ProjectFinancialSummary>();
+    for (const f of financials) {
+      map.set(f.projectId, f);
+    }
+    return map;
+  }, [financials]);
+
+  const oneTimeProjects = useMemo(() => projects.filter((project) => project.engagementType === "Project"), [projects]);
+  const recurringProjects = useMemo(() => projects.filter((project) => project.engagementType === "Service"), [projects]);
+  const tabProjects = activeTab === "Project" ? oneTimeProjects : recurringProjects;
+
+  const visibleProjects = useMemo(() => {
+    const list = tabProjects.filter((project) => statusFilter === "All" || project.projectStatus === statusFilter);
+    if (!sort) return list;
+    return [...list].sort((left, right) => {
+      const byAmount = sort.startsWith("amount");
+      if (byAmount && (left.quotedTotal == null || right.quotedTotal == null)) {
+        if (left.quotedTotal == null && right.quotedTotal == null) return 0;
+        return left.quotedTotal == null ? 1 : -1;
+      }
+      const comparison = byAmount
+        ? (left.quotedTotal ?? 0) - (right.quotedTotal ?? 0)
+        : left.projectName.localeCompare(right.projectName, undefined, { numeric: true, sensitivity: "base" });
+      return sort.endsWith("desc") ? -comparison : comparison;
+    });
+  }, [tabProjects, statusFilter, sort]);
 
   return (
     <div className="projectsWorkspace">
@@ -102,7 +134,10 @@ export default function ProjectsWorkspace({ projects, costs, bills, financials, 
               <summary>
                 <span className="projectCardTitle">
                   <strong>{project.projectName}</strong>
-                  <span>{project.customerName ?? "Customer not specified"}</span>
+                  <span>{(() => {
+                    const customer = project.customerId !== null ? customersById.get(project.customerId) : undefined;
+                    return customer ? customerLabel(customer) : project.customerName ?? "Customer not specified";
+                  })()}</span>
                 </span>
                 <ProjectStatusSelector projectId={project.projectId} projectName={project.projectName} status={project.projectStatus} />
                 <div className="projectCardMetaContainer"> 
@@ -114,32 +149,34 @@ export default function ProjectsWorkspace({ projects, costs, bills, financials, 
                 </div>
                 <div className="projectCardTotal">
                   <strong>{project.quotedTotal == null ? "—" : currency.format(project.quotedTotal)}</strong>
+                  <button type="button" className="projectInvoiceButton" disabled={project.quotedTotal === null}
+                    aria-label={`Invoice ${project.projectName}`} onClick={(event) => {
+                      event.preventDefault(); event.stopPropagation();
+                      setBilling({ projectId: project.projectId, projectName: project.projectName, tab: "invoice" });
+                    }}><ReceiptText size={16} aria-hidden="true" />Invoice</button>
                 </div>
 
 
               </summary>
+              <ProjectCustomerSelector projectId={project.projectId} customerId={project.customerId} customers={customers} readOnly={project.projectStatus === "Complete"} />
+              <div className="projectCompletionAction"><button type="button" className="estimateTextAction" disabled={project.quotedTotal === null}
+                onClick={() => setBilling({ projectId: project.projectId, projectName: project.projectName, tab: "completion" })}>
+                Track scope{project.engagementType === "Service" ? " / occurrence" : ""} completion &amp; billing
+              </button></div>
               <ProjectCostPanel
                 project={project}
-                costs={costs.filter((cost) => cost.projectId === project.projectId)}
+                costs={costsByProjectId.get(project.projectId) ?? []}
                 bills={bills}
-                financials={financials.find((summary) => summary.projectId === project.projectId)}
+                financials={financialsByProjectId.get(project.projectId)}
               />
-              {project.internalNotes && (
-                <div className="internalNotes projectInternalNotes">
-                  <strong>Internal notes</strong>
-                  <p>{project.internalNotes}</p>
-                </div>
-              )}
-              {project.customerNotes && (
-                <div className="customerNotes projectCustomerNotes">
-                  <strong>Customer notes</strong>
-                  <p>{project.customerNotes}</p>
-                </div>
-              )}
+              <DocumentNotes internalNotes={project.internalNotes} customerNotes={project.customerNotes}
+                internalClassName="projectInternalNotes" customerClassName="projectCustomerNotes" />
             </details>
           ))}
         </div>
       )}
+      {billing && <ProjectBillingModal key={billing.projectId} projectId={billing.projectId} projectName={billing.projectName}
+        initialTab={billing.tab} onClose={() => setBilling(null)} />}
     </div>
   );
 }

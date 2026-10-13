@@ -7,6 +7,7 @@ import type { ProjectFinancialSummary } from "@/app/lib/projects";
 import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
 import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
 import Modal from "@/app/components/modal";
+import TablePagination from "@/app/components/table-pagination";
 
 type Column = TableColumn<ProjectFinancialSummary>;
 
@@ -65,9 +66,15 @@ export default function ProjectFinancesTable({ rows }: { rows: ProjectFinancialS
     setOpenFilter,
     filterControlRoot,
     visibleRows,
+    paginatedRows,
+    currentPage,
+    setCurrentPage,
+    pageSize,
+    setPageSize,
+    totalPages,
     clearFilters,
     hasActiveFilters,
-  } = useFilterableTable(rows, COLUMNS, { searchableValue, compare: compareProjects });
+  } = useFilterableTable(rows, COLUMNS, { searchableValue, compare: compareProjects, initialPageSize: 50 });
 
   async function submitProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -153,7 +160,7 @@ export default function ProjectFinancesTable({ rows }: { rows: ProjectFinancialS
                   {rows.length === 0 ? "No projects yet. Add a project to get started." : "No projects match these filters."}
                 </td>
               </tr>
-            ) : visibleRows.map((project) => (
+            ) : paginatedRows.map((project) => (
               <tr key={project.projectId}>
                 <td>{project.projectName}</td>
                 <td>{money(project.income)}</td>
@@ -171,6 +178,16 @@ export default function ProjectFinancesTable({ rows }: { rows: ProjectFinancialS
           </tbody>
         </table>
       </div>
+      <TablePagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={visibleRows.length}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={setPageSize}
+        pageSizeOptions={[25, 50, 100]}
+        itemLabel="projects"
+      />
       {isAddingProject && (
         <Modal titleId="addProjectTitle" title="Add project" eyebrow="PROJECT FINANCES" onClose={closeDialog} closeDisabled={isSaving} className="financeProjectDialog">
             <p className="financeImportHint">Projects can be connected to invoices and bills when those records are added. Existing unassigned records stay unassigned.</p>

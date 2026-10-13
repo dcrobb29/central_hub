@@ -3,6 +3,7 @@ import { deleteInvoice, updateInvoice } from "@/app/lib/invoices";
 import { describeValidationError } from "@/app/lib/validation";
 import { describeInvoiceSqlError, parseInvoiceInput } from "../route";
 import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
+import { NotesValidationError } from "@/app/lib/document-notes";
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const invoiceId = Number((await params).id);
@@ -15,7 +16,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   try {
     invoiceInput = parseInvoiceInput(body);
   } catch (error) {
-    return NextResponse.json({ error: describeValidationError(error) }, { status: 400 });
+    return NextResponse.json({ error: error instanceof NotesValidationError ? error.message : describeValidationError(error) }, { status: 400 });
   }
 
   try {
@@ -38,6 +39,9 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
     return NextResponse.json({ id: invoiceId });
   } catch (error) {
     if (isCompletedProjectError(error)) return NextResponse.json({ error: COMPLETED_PROJECT_MESSAGE }, { status: 409 });
+    if (typeof error === "object" && error !== null && "number" in error && Number(error.number) === 51041) {
+      return NextResponse.json({ error: describeInvoiceSqlError(error).message }, { status: 409 });
+    }
     console.error("Invoice deletion failed", error);
     return NextResponse.json({ error: "Unable to delete invoice. Check database delete permissions." }, { status: 500 });
   }

@@ -1,6 +1,7 @@
 import PDFDocument from "pdfkit";
 import type { EstimateDetails, EstimateLine } from "@/app/lib/estimates";
 import { calculateEstimate } from "@/app/lib/estimate-pricing";
+import { renderCustomerNotes } from "@/app/lib/pdf-customer-notes";
 
 const money = (value: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
@@ -138,15 +139,7 @@ export function renderEstimatePdf(estimate: EstimateDetails): Promise<Buffer> {
       doc.font("Helvetica");
     }
 
-    if (estimate.customerNotes?.trim()) {
-      doc.moveDown(1);
-      if (doc.y > doc.page.height - doc.page.margins.bottom - 50) doc.addPage();
-      doc.fillColor("#000000").font("Helvetica-Bold").fontSize(11)
-        .text("Notes", 54, doc.y, { width: 504, align: "left" });
-      doc.moveDown(0.4);
-      doc.font("Helvetica").fontSize(10)
-        .text(estimate.customerNotes, 54, doc.y, { width: 504, align: "left" });
-    }
+    renderCustomerNotes(doc, estimate.customerNotes);
 
     doc.end();
   });

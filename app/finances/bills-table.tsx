@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import Link from "next/link";
@@ -11,6 +11,7 @@ import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-t
 import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
 import Modal from "@/app/components/modal";
 import BillSplitToggle from "@/app/components/bill-split-toggle";
+import TablePagination from "@/app/components/table-pagination";
 
 type Column = TableColumn<Bill>;
 
@@ -150,6 +151,15 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
   const [deletingBill, setDeletingBill] = useState<Bill | null>(null);
   const [isDeletingBill, setIsDeletingBill] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const allocationsByBillId = useMemo(() => {
+    const map = new Map<string, AllocationBill>();
+    for (const item of allocations) {
+      map.set(item.billId, item);
+    }
+    return map;
+  }, [allocations]);
+
   const {
     search,
     setSearch,
@@ -161,9 +171,15 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
     setOpenFilter,
     filterControlRoot,
     visibleRows: visibleBills,
+    paginatedRows: paginatedBills,
+    currentPage,
+    setCurrentPage,
+    pageSize,
+    setPageSize,
+    totalPages,
     clearFilters,
     hasActiveFilters,
-  } = useFilterableTable(bills, COLUMNS, { searchableValue, compare: compareBills });
+  } = useFilterableTable(bills, COLUMNS, { searchableValue, compare: compareBills, initialPageSize: 50 });
 
   async function submitBill(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -282,29 +298,44 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
           <tbody>
             {visibleBills.length === 0 ? (
               <tr><td colSpan={COLUMNS.length + 1} className="invoiceNoResults">{bills.length === 0 ? "No bills found." : "No bills match these filters."}</td></tr>
-            ) : visibleBills.map((bill) => (
-              <tr key={bill.id}>
-                {COLUMNS.map((column) => <td key={column.key}>{formatValue(column.key, bill[column.key])}
-                  {column.key === "billAmount" && (() => {
-                    const allocation = allocations.find((item) => item.billId === bill.id);
-                    return allocation ? <small className="billAllocationBalance">Allocated: {formatValue("billAmount", String(allocation.allocatedAmount))}<br />
-                      Unallocated: {allocation.remainingAmount === null ? "Correct bill amount" : formatValue("billAmount", String(allocation.remainingAmount))}</small> : null;
-                  })()}
-                </td>)}
-                <td>
-                  <div className="estimateActionsInner">
-                    <button type="button" className="estimateTextAction" disabled={allocations.find((item) => item.billId === bill.id)?.readOnly} onClick={() => openEditForm(bill)}>Edit</button>
-                    <button type="button" className="estimateDangerAction" disabled={allocations.find((item) => item.billId === bill.id)?.readOnly} onClick={() => { setDeleteError(null); setDeletingBill(bill); }}>Delete</button>
-                    {(bill.projectId !== null || bill.isSplit) && <Link href={bill.projectId !== null ? `/projects?projectId=${bill.projectId}#project-${bill.projectId}` : "/projects"} className="estimateTextAction">Allocate costs</Link>}
-                  </div>
-                  <BillSplitToggle billId={bill.id} isSplit={bill.isSplit} disabled={allocations.find((item) => item.billId === bill.id)?.readOnly} />
-                  {bill.isSplit && <small className="billAllocationBalance">Only allocated costs count toward each job.</small>}
-                </td>
-              </tr>
-            ))}
+            ) : paginatedBills.map((bill) => {
+              const allocation = allocationsByBillId.get(bill.id);
+              const isReadOnly = Boolean(allocation?.readOnly);
+              return (
+                <tr key={bill.id}>
+                  {COLUMNS.map((column) => <td key={column.key}>{formatValue(column.key, bill[column.key])}
+                    {column.key === "billAmount" && allocation && (
+                      <small className="billAllocationBalance">
+                        Allocated: {formatValue("billAmount", String(allocation.allocatedAmount))}<br />
+                        Unallocated: {allocation.remainingAmount === null ? "Correct bill amount" : formatValue("billAmount", String(allocation.remainingAmount))}
+                      </small>
+                    )}
+                  </td>)}
+                  <td>
+                    <div className="estimateActionsInner">
+                      <button type="button" className="estimateTextAction" disabled={isReadOnly} onClick={() => openEditForm(bill)}>Edit</button>
+                      <button type="button" className="estimateDangerAction" disabled={isReadOnly} onClick={() => { setDeleteError(null); setDeletingBill(bill); }}>Delete</button>
+                      {(bill.projectId !== null || bill.isSplit) && <Link href={bill.projectId !== null ? `/projects?projectId=${bill.projectId}#project-${bill.projectId}` : "/projects"} className="estimateTextAction">Allocate costs</Link>}
+                    </div>
+                    <BillSplitToggle billId={bill.id} isSplit={bill.isSplit} disabled={isReadOnly} />
+                    {bill.isSplit && <small className="billAllocationBalance">Only allocated costs count toward each job.</small>}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+      <TablePagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={visibleBills.length}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={setPageSize}
+        pageSizeOptions={[25, 50, 100]}
+        itemLabel="bills"
+      />
       {isImportOpen && (
         <Modal
           titleId="billImportTitle"

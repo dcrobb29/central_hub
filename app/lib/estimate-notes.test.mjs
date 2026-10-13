@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ESTIMATE_NOTES_MAX_LENGTH, parseEstimateNotes } from "./estimate-notes.ts";
+import { NOTES_MAX_LENGTH as ESTIMATE_NOTES_MAX_LENGTH, parseNotes as parseEstimateNotes } from "./document-notes.ts";
 
 test("notes are optional and blank notes are stored as null", () => {
   for (const value of [undefined, null, "", " \r\n "]) {

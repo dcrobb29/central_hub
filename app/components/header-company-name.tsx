@@ -1,0 +1,10 @@
+"use client";
+
+import { useAccountSession } from "./account-session-context";
+
+export default function HeaderCompanyName() {
+  const { session } = useAccountSession();
+  const companyName = session?.organization?.organizationName || "Resolution";
+
+  return <h1>{companyName}</h1>;
+}

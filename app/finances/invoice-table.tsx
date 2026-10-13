@@ -4,11 +4,14 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import type { FormEvent } from "react";
-import type { Invoice } from "@/app/lib/invoices";
-import type { ProjectOption } from "@/app/lib/projects";
+import type { Invoice, InvoiceProjectOption } from "@/app/lib/invoices";
 import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
 import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
 import Modal from "@/app/components/modal";
+import Link from "next/link";
+import { customerLabel, invoiceCustomerSnapshot, type Customer } from "@/app/lib/customer-fields";
+import { DocumentNotesFields } from "@/app/components/document-notes";
+import TablePagination from "@/app/components/table-pagination";
 
 type Column = TableColumn<Invoice>;
 
@@ -34,9 +37,9 @@ const COLUMNS: Column[] = [
   { key: "shippingAddressZip", label: "Shipping Zip" },
 ];
 
-type InvoiceDraft = Omit<Invoice, "id" | "projectId" | "projectName"> & { projectId: string };
+type InvoiceDraft = Omit<Invoice, "id" | "projectId" | "projectName" | "customerId" | "billingManaged"> & { projectId: string; customerId: string };
 type InvoiceField = {
-  key: Exclude<keyof InvoiceDraft, "projectId">;
+  key: Exclude<keyof InvoiceDraft, "projectId" | "customerId">;
   label: string;
   required?: boolean;
   type?: "text" | "date" | "number";
@@ -44,12 +47,15 @@ type InvoiceField = {
 };
 
 const EMPTY_INVOICE: InvoiceDraft = {
+  customerId: "",
   projectId: "",
   invoiceNo: "",
   invoiceDate: "",
   invoiceDueDate: "",
   invoicePaidDate: "",
   invoiceAmount: "",
+  internalNotes: "",
+  customerNotes: "",
   firstName: "",
   lastName: "",
   companyName: "",
@@ -74,23 +80,23 @@ const INVOICE_FIELD_GROUPS: { title: string; fields: InvoiceField[] }[] = [
     { key: "invoiceAmount", label: "Amount", type: "number" },
   ] },
   { title: "Customer", fields: [
-    { key: "firstName", label: "First Name", maxLength: 25 },
-    { key: "lastName", label: "Last Name", maxLength: 25 },
-    { key: "companyName", label: "Company Name", maxLength: 10 },
+    { key: "firstName", label: "First / Contact Name", maxLength: 100 },
+    { key: "lastName", label: "Last Name", maxLength: 100 },
+    { key: "companyName", label: "Company Name", maxLength: 150 },
   ] },
   { title: "Billing Address", fields: [
-    { key: "billingAddressLine1", label: "Address Line 1", maxLength: 50 },
-    { key: "billingAddressLine2", label: "Address Line 2", maxLength: 50 },
-    { key: "billingAddressCity", label: "City", maxLength: 50 },
-    { key: "billingAddressState", label: "State", maxLength: 50 },
-    { key: "billingAddressZip", label: "ZIP", maxLength: 10 },
+    { key: "billingAddressLine1", label: "Address Line 1", maxLength: 200 },
+    { key: "billingAddressLine2", label: "Address Line 2", maxLength: 200 },
+    { key: "billingAddressCity", label: "City", maxLength: 100 },
+    { key: "billingAddressState", label: "State", maxLength: 100 },
+    { key: "billingAddressZip", label: "ZIP", maxLength: 20 },
   ] },
   { title: "Shipping Address", fields: [
-    { key: "shippingAddressLine1", label: "Address Line 1", maxLength: 50 },
-    { key: "shippingAddressLine2", label: "Address Line 2", maxLength: 50 },
-    { key: "shippingAddressCity", label: "City", maxLength: 50 },
-    { key: "shippingAddressState", label: "State", maxLength: 50 },
-    { key: "shippingAddressZip", label: "ZIP", maxLength: 10 },
+    { key: "shippingAddressLine1", label: "Address Line 1", maxLength: 200 },
+    { key: "shippingAddressLine2", label: "Address Line 2", maxLength: 200 },
+    { key: "shippingAddressCity", label: "City", maxLength: 100 },
+    { key: "shippingAddressState", label: "State", maxLength: 100 },
+    { key: "shippingAddressZip", label: "ZIP", maxLength: 20 },
   ] },
 ];
 
@@ -146,12 +152,15 @@ function compareInvoices(left: Invoice, right: Invoice, key: keyof Invoice) {
 
 function toDraft(invoice: Invoice): InvoiceDraft {
   return {
+    customerId: invoice.customerId == null ? "" : String(invoice.customerId),
     projectId: invoice.projectId == null ? "" : String(invoice.projectId),
     invoiceNo: invoice.invoiceNo,
     invoiceDate: invoice.invoiceDate,
     invoiceDueDate: invoice.invoiceDueDate,
     invoicePaidDate: invoice.invoicePaidDate ?? "",
     invoiceAmount: invoice.invoiceAmount ?? "",
+    internalNotes: invoice.internalNotes ?? "",
+    customerNotes: invoice.customerNotes ?? "",
     firstName: invoice.firstName ?? "",
     lastName: invoice.lastName ?? "",
     companyName: invoice.companyName ?? "",
@@ -168,7 +177,7 @@ function toDraft(invoice: Invoice): InvoiceDraft {
   };
 }
 
-export default function InvoiceTable({ className, invoices, projectOptions }: { className?: string; invoices: Invoice[]; projectOptions: ProjectOption[] }) {
+export default function InvoiceTable({ className, invoices, projectOptions, customers }: { className?: string; invoices: Invoice[]; projectOptions: InvoiceProjectOption[]; customers: Customer[] }) {
   const router = useRouter();
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null);
@@ -178,6 +187,13 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
   const [deletingInvoice, setDeletingInvoice] = useState<Invoice | null>(null);
   const [isDeletingInvoice, setIsDeletingInvoice] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [emailingInvoice, setEmailingInvoice] = useState<Invoice | null>(null);
+  const [emailOverride, setEmailOverride] = useState("");
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [emailStatusMessage, setEmailStatusMessage] = useState<{ text: string; isError: boolean } | null>(null);
+  const selectedCustomer = customers.find((customer) => String(customer.customerId) === invoiceDraft.customerId);
+  const originalCustomerId = invoices.find((invoice) => invoice.id === editingInvoiceId)?.customerId;
+  const editingManagedInvoice = invoices.find((invoice) => invoice.id === editingInvoiceId)?.billingManaged ?? false;
   const {
     search,
     setSearch,
@@ -189,9 +205,15 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
     setOpenFilter,
     filterControlRoot,
     visibleRows: visibleInvoices,
+    paginatedRows: paginatedInvoices,
+    currentPage,
+    setCurrentPage,
+    pageSize,
+    setPageSize,
+    totalPages,
     clearFilters,
     hasActiveFilters,
-  } = useFilterableTable(invoices, COLUMNS, { searchableValue, compare: compareInvoices });
+  } = useFilterableTable(invoices, COLUMNS, { searchableValue, compare: compareInvoices, initialPageSize: 50 });
 
   async function submitInvoice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -261,6 +283,40 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
     setDeleteError(null);
   }
 
+  function openEmailDialog(invoice: Invoice) {
+    const customer = customers.find((c) => c.customerId === invoice.customerId);
+    setEmailOverride(customer?.email || "");
+    setEmailStatusMessage(null);
+    setEmailingInvoice(invoice);
+  }
+
+  async function sendEmailAction() {
+    if (!emailingInvoice) return;
+    setIsSendingEmail(true);
+    setEmailStatusMessage(null);
+    try {
+      const response = await fetch(`/api/finances/invoices/${emailingInvoice.id}/email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipientEmail: emailOverride }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to send invoice email");
+      const sim = data.simulated ? " (Simulation mode - SMTP not yet configured in .env.local)" : "";
+      setEmailStatusMessage({
+        text: `Invoice sent to ${data.recipientEmail}!${sim}`,
+        isError: false,
+      });
+    } catch (err) {
+      setEmailStatusMessage({
+        text: err instanceof Error ? err.message : "Unable to send invoice email",
+        isError: true,
+      });
+    } finally {
+      setIsSendingEmail(false);
+    }
+  }
+
   return (
     <section className="invoiceTablePanel" ref={filterControlRoot}>
       <div className="invoiceTableTools">
@@ -310,15 +366,16 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
           <tbody>
             {visibleInvoices.length === 0 ? (
               <tr><td colSpan={COLUMNS.length + 1} className="invoiceNoResults">{invoices.length === 0 ? "No invoices found." : "No invoices match these filters."}</td></tr>
-            ) : visibleInvoices.map((invoice) => (
+            ) : paginatedInvoices.map((invoice) => (
               <tr key={invoice.id}>
                 {COLUMNS.map((column) => (
                   <td key={column.key}>{formatValue(column.key, invoice[column.key])}</td>
                 ))}
                 <td>
                   <div className="estimateActionsInner">
-                    <button type="button" className="estimateTextAction" disabled={projectOptions.some((project) => project.projectId === invoice.projectId && project.projectStatus === "Complete")} onClick={() => openEditForm(invoice)}>Edit</button>
-                    <button type="button" className="estimateDangerAction" disabled={projectOptions.some((project) => project.projectId === invoice.projectId && project.projectStatus === "Complete")} onClick={() => { setDeleteError(null); setDeletingInvoice(invoice); }}>Delete</button>
+                    <button type="button" className="estimateTextAction" onClick={() => openEmailDialog(invoice)}>Email</button>
+                    <button type="button" className="estimateTextAction" disabled={!invoice.billingManaged && projectOptions.some((project) => project.projectId === invoice.projectId && project.projectStatus === "Complete")} onClick={() => openEditForm(invoice)}>Edit</button>
+                    <button type="button" className="estimateDangerAction" disabled={invoice.billingManaged || projectOptions.some((project) => project.projectId === invoice.projectId && project.projectStatus === "Complete")} onClick={() => { setDeleteError(null); setDeletingInvoice(invoice); }}>Delete</button>
                   </div>
                 </td>
               </tr>
@@ -326,6 +383,16 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
           </tbody>
         </table>
       </div>
+      <TablePagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={visibleInvoices.length}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={setPageSize}
+        pageSizeOptions={[25, 50, 100]}
+        itemLabel="invoices"
+      />
       {isImportOpen && (
         <Modal
           titleId="invoiceImportTitle"
@@ -341,12 +408,42 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
                 : "Fields marked required are needed to save the row."}
             </p>
             <form onSubmit={submitInvoice}>
+              {editingManagedInvoice && <p className="financeImportHint">This invoice has issued project allocations. Its amount, project/customer links, number, and dates are locked. You can update notes, contact/address details and its paid date. Any original advance billing approval reason remains unchanged in Project Management invoice history.</p>}
+              <fieldset className="financeImportGroup">
+                <legend>Saved customer</legend>
+                <label className="financeImportField">
+                  Customer
+                  <select value={invoiceDraft.customerId} disabled={isSavingInvoice || editingManagedInvoice} onChange={(event) => {
+                    const customerId = event.target.value;
+                    const customer = customers.find((item) => String(item.customerId) === customerId);
+                    setInvoiceDraft((current) => ({ ...current, ...(customer ? invoiceCustomerSnapshot(customer) : {}), customerId }));
+                  }}>
+                    <option value="">No saved customer / manual details</option>
+                    {customers.filter((customer) => customer.isActive || customer.customerId === originalCustomerId).map((customer) =>
+                      <option key={customer.customerId} value={customer.customerId} disabled={!customer.isActive && String(customer.customerId) !== invoiceDraft.customerId}>
+                        {customerLabel(customer)}{customer.isActive ? "" : " (Archived)"}
+                      </option>)}
+                  </select>
+                </label>
+                <p className="financeImportHint">Selecting a customer copies their details below. These are saved with this invoice and do not change when the customer is edited. Unlinking keeps the copied details. <Link href="/finances/customers">Manage customers</Link></p>
+                {selectedCustomer && <button type="button" className="estimateTextAction" disabled={isSavingInvoice}
+                  onClick={() => setInvoiceDraft((current) => ({ ...current, ...invoiceCustomerSnapshot(selectedCustomer) }))}>Load current customer details</button>}
+              </fieldset>
               <fieldset className="financeImportGroup">
                 <legend>Project assignment</legend>
                 <div className="financeImportFields">
                   <label className="financeImportField">
                     Project
-                    <select value={invoiceDraft.projectId} onChange={(event) => setInvoiceDraft((current) => ({ ...current, projectId: event.target.value }))}>
+                    <select value={invoiceDraft.projectId} disabled={isSavingInvoice || editingManagedInvoice} onChange={(event) => {
+                      const projectId = event.target.value;
+                      const project = projectOptions.find((item) => String(item.projectId) === projectId);
+                      const customer = customers.find((item) => item.customerId === project?.customerId && item.isActive);
+                      setInvoiceDraft((current) => ({
+                        ...current, projectId,
+                        ...(editingInvoiceId === null && current.customerId === "" && customer
+                          ? { ...invoiceCustomerSnapshot(customer), customerId: String(customer.customerId) } : {}),
+                      }));
+                    }}>
                       <option value="">Unassigned</option>
                       {projectOptions.map((project) => <option value={project.projectId} key={project.projectId} disabled={project.projectStatus === "Complete"}>{project.projectName}{project.projectStatus === "Complete" ? " (Complete - read-only)" : ""}</option>)}
                     </select>
@@ -367,12 +464,21 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
                           maxLength={field.maxLength}
                           step={field.type === "number" ? "0.01" : undefined}
                           required={field.required}
+                          disabled={isSavingInvoice || editingManagedInvoice && ["invoiceNo", "invoiceDate", "invoiceDueDate", "invoiceAmount"].includes(field.key)}
                         />
                       </label>
                     ))}
                   </div>
                 </fieldset>
               ))}
+              <fieldset className="financeImportGroup">
+                <legend>Invoice notes</legend>
+                <DocumentNotesFields internalNotes={invoiceDraft.internalNotes} customerNotes={invoiceDraft.customerNotes} disabled={isSavingInvoice}
+                  onInternalChange={(value) => setInvoiceDraft((current) => ({ ...current, internalNotes: value }))}
+                  onCustomerChange={(value) => setInvoiceDraft((current) => ({ ...current, customerNotes: value }))}
+                  internalHint="Editing these notes does not change the original advance billing approval."
+                  customerHint="Included even when scope amounts are hidden." />
+              </fieldset>
               {importError && <p className="financeImportError" role="alert">{importError}</p>}
               <div className="financeImportActions">
                 <button type="button" className="financeImportCancel" onClick={closeImportDialog} disabled={isSavingInvoice}>Cancel</button>
@@ -399,6 +505,59 @@ export default function InvoiceTable({ className, invoices, projectOptions }: { 
             <button type="button" className="financeImportCancel" onClick={closeDeleteDialog} disabled={isDeletingInvoice}>Cancel</button>
             <button type="button" className="financeImportDanger" onClick={() => void confirmDeleteInvoice()} disabled={isDeletingInvoice}>
               {isDeletingInvoice ? "Deleting..." : "Delete invoice"}
+            </button>
+          </div>
+        </Modal>
+      )}
+      {emailingInvoice && (
+        <Modal
+          titleId="invoiceEmailTitle"
+          title={`Email Invoice ${emailingInvoice.invoiceNo}`}
+          eyebrow="INVOICES"
+          onClose={() => { if (!isSendingEmail) setEmailingInvoice(null); }}
+          closeDisabled={isSendingEmail}
+          closeLabel="Close email dialog"
+        >
+          <p className="financeImportHint">
+            Send Invoice <strong>{emailingInvoice.invoiceNo}</strong> as a PDF attachment to the customer.
+          </p>
+          <div style={{ margin: "16px 0" }}>
+            <label className="financeImportField">
+              Recipient Email Address *
+              <input
+                type="email"
+                value={emailOverride}
+                onChange={(e) => setEmailOverride(e.target.value)}
+                placeholder="customer@example.com"
+                disabled={isSendingEmail}
+                required
+              />
+            </label>
+            <p className="financeImportHint" style={{ marginTop: 4 }}>
+              Default address pulled from customer record or project. You can change it here for this transmission.
+            </p>
+          </div>
+          {emailStatusMessage && (
+            <p className={emailStatusMessage.isError ? "financeImportError" : "billingNotice"} role="alert">
+              {emailStatusMessage.text}
+            </p>
+          )}
+          <div className="financeImportActions">
+            <button
+              type="button"
+              className="financeImportCancel"
+              onClick={() => setEmailingInvoice(null)}
+              disabled={isSendingEmail}
+            >
+              {emailStatusMessage?.isError === false ? "Done" : "Cancel"}
+            </button>
+            <button
+              type="button"
+              className="financeImportSubmit"
+              onClick={() => void sendEmailAction()}
+              disabled={isSendingEmail || !emailOverride.trim()}
+            >
+              {isSendingEmail ? "Sending..." : "Send Email"}
             </button>
           </div>
         </Modal>

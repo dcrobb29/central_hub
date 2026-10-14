@@ -5,6 +5,8 @@ export type EstimatePricingLine = {
   unitCost: number;
   freightAmount: number;
   lineMarkupPercent: number;
+  taxPercent?: number;
+  landedCostOverride?: number;
 };
 
 export type EstimatePricingInput = {
@@ -47,8 +49,8 @@ export function calculateEstimate(input: EstimatePricingInput): EstimatePricingR
     const baseCost = roundMoney(line.quantity * line.unitCost);
     const freightAmount = roundMoney(line.freightAmount);
     const costWithFreight = baseCost + freightAmount;
-    const taxAmount = roundMoney(costWithFreight * input.taxPercent / 100);
-    const landedCost = roundMoney(costWithFreight + taxAmount);
+    const taxAmount = roundMoney(costWithFreight * (line.taxPercent ?? input.taxPercent) / 100);
+    const landedCost = line.landedCostOverride ?? roundMoney(costWithFreight + taxAmount);
     const markupAmount = input.markupMode === "perLine"
       ? roundMoney(landedCost * line.lineMarkupPercent / 100)
       : 0;
@@ -78,4 +80,3 @@ export function calculateEstimate(input: EstimatePricingInput): EstimatePricingR
     lines: lineResults,
   };
 }
-

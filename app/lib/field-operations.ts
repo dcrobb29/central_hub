@@ -248,9 +248,9 @@ async function ensureEstimateLaborTasks(startDate: string, endDate: string, orga
       .input("endDate", sql.Date, asSqlDate(endDate))
       .input("organizationId", sql.Int, organizationId ?? null)
       .query(`
-        DECLARE @visits TABLE (ServiceVisitID int PRIMARY KEY, AcceptedEstimateRevisionID int NOT NULL);
+        DECLARE @visits TABLE (ServiceVisitID int PRIMARY KEY, AcceptedEstimateRevisionID int NOT NULL,ProjectID int NOT NULL);
         INSERT INTO @visits
-        SELECT v.ServiceVisitID, p.AcceptedEstimateRevisionID
+        SELECT v.ServiceVisitID, p.AcceptedEstimateRevisionID,p.ProjectID
         FROM dbo.ServiceVisits v
         JOIN dbo.Projects p ON p.ProjectID = v.ProjectID
         WHERE v.VisitDate >= @startDate AND v.VisitDate <= @endDate AND v.Status = 'Scheduled'
@@ -263,7 +263,7 @@ async function ensureEstimateLaborTasks(startDate: string, endDate: string, orga
           CASE WHEN li.Quantity > 0 THEN CONVERT(decimal(10,2), li.Quantity) ELSE 0 END,
           li.LineNumber, li.EstimateLineItemID, li.OrganizationID
         FROM @visits v
-        JOIN dbo.EstimateLineItems li ON li.EstimateRevisionID = v.AcceptedEstimateRevisionID
+        JOIN dbo.EffectiveProjectEstimateLines li ON li.ProjectID = v.ProjectID
         WHERE li.LineType = 'Labor' AND UPPER(LTRIM(RTRIM(li.UnitName))) = 'HR'
           AND NOT EXISTS (
             SELECT 1 FROM dbo.FieldOperationsTasks t WITH (UPDLOCK, HOLDLOCK)
@@ -276,8 +276,8 @@ async function ensureEstimateLaborTasks(startDate: string, endDate: string, orga
         JOIN @visits v ON v.ServiceVisitID = t.ServiceVisitID
         WHERE t.IsActive = 1 AND t.EstimateLineItemID IS NOT NULL
           AND NOT EXISTS (
-            SELECT 1 FROM dbo.EstimateLineItems li
-            WHERE li.EstimateLineItemID = t.EstimateLineItemID AND li.EstimateRevisionID = v.AcceptedEstimateRevisionID
+            SELECT 1 FROM dbo.EffectiveProjectEstimateLines li
+            WHERE li.EstimateLineItemID = t.EstimateLineItemID AND li.ProjectID=v.ProjectID
           )
           AND NOT EXISTS (SELECT 1 FROM dbo.FieldOperationsTaskAssignments a WHERE a.FieldOperationsTaskID = t.FieldOperationsTaskID AND a.IsActive = 1);
 

@@ -296,7 +296,7 @@ export default function ProjectBillingModal({ projectId, projectName, initialTab
           {advanceTotal > 0 && <p className="financeImportHint">Billing {money.format(advanceTotal)} ahead of recorded completion. An internal reason is required.</p>}
         </>}
         <label className="customerArchivedToggle"><input type="checkbox" checked={showScopes} disabled={busy} onChange={(event) => { setShowScopes(event.target.checked); setRequestId(null); }} />Show scope amounts on the invoice; otherwise show only the final total</label>
-        <p className="financeImportHint">Completed work with a remaining balance is preselected. Without an override, a parent selection bills only completed scopes. With an override it may include incomplete scopes. Percentages use the original value and cannot exceed eligible remaining work.</p>
+        <p className="financeImportHint">Completed work with a remaining balance is preselected. Without an override, a parent selection bills only completed scopes. With an override it may include incomplete scopes. Percentages use the current approved contract/scope value (not the remaining balance) and cannot exceed eligible remaining work.</p>
         <div className="billingTableWrap"><table className="invoiceTable billingTable">
           <thead><tr><th>Select job / occurrence / scope</th><th>Status</th><th>Contract</th><th>Billed</th><th>Unbilled</th></tr></thead>
           <tbody>{data.units.map((unit) => <UnitRows key={unit.unitId} unit={unit} projectName={projectName} selection={(scope, label) => {

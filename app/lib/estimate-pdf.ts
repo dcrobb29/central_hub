@@ -18,7 +18,7 @@ type LineGroup = {
 };
 
 // Customer-facing export: customer notes and sell prices only, never internal notes or cost breakdowns.
-export function renderEstimatePdf(estimate: EstimateDetails): Promise<Buffer> {
+export function renderEstimatePdf(estimate: EstimateDetails, alternates:{code:string;title:string;status:string;value:number;notes:string|null}[]=[]): Promise<Buffer> {
   const pricing = calculateEstimate({
     markupMode: estimate.markupMode,
     estimateMarkupPercent: estimate.estimateMarkupPercent,
@@ -140,6 +140,15 @@ export function renderEstimatePdf(estimate: EstimateDetails): Promise<Buffer> {
     }
 
     renderCustomerNotes(doc, estimate.customerNotes);
+    if(alternates.length) {
+      doc.moveDown().fontSize(13).font("Helvetica-Bold").text("Alternates (not included in base bid)");
+      for(const alternate of alternates) {
+        if(doc.y>640)doc.addPage();
+        doc.moveDown(0.5).fontSize(11).font("Helvetica-Bold").text(`${alternate.code}: ${alternate.title}`);
+        doc.font("Helvetica").text(`${alternate.status} / ${money(alternate.value)}`);
+        if(alternate.notes)doc.text(alternate.notes);
+      }
+    }
 
     doc.end();
   });

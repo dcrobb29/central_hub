@@ -34,6 +34,7 @@ test("recurring approval, moves, skips, and legacy visits persist correctly", {
   };
   const hooks = registerHooks({
     resolve(specifier, context, nextResolve) {
+      if (specifier.startsWith("./") && !/\.[a-z]+$/.test(specifier) && context.parentURL?.includes("/app/lib/")) return nextResolve(`${specifier}.ts`,context);
       if (specifier.startsWith("@/app/lib/")) {
         return nextResolve(new URL(`./${specifier.slice("@/app/lib/".length)}.ts`, import.meta.url).href, context);
       }

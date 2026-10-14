@@ -1355,6 +1355,32 @@ export async function includeSampleData(organizationId?: number): Promise<Sample
     // =========================================================================
     // PERSIST TRACKING ENTRIES
     // =========================================================================
+    for(const sample of [
+      {name:"Plaza paver upgrade (Sample)",kind:"Alternate",parent:est1Id,project:null,amount:300},
+      {name:"Additional drainage (Sample)",kind:"ChangeOrder",parent:est2Id,project:proj1Id,amount:450},
+    ]) {
+      const ids=(await transaction.request().input("org",sql.Int,orgId).input("name",sql.NVarChar(150),sample.name)
+        .input("kind",sql.VarChar(16),sample.kind).input("parent",sql.Int,sample.parent).input("project",sql.Int,sample.project)
+        .input("amount",sql.Decimal(19,2),sample.amount).query<{estimate:number;revision:number;scope:number;line:number;change:number}>(`
+        INSERT dbo.Estimates(EstimateName,DocumentKind,EngagementType,OrganizationID) VALUES(@name,@kind,'Project',@org);
+        DECLARE @estimate int=SCOPE_IDENTITY();
+        INSERT dbo.EstimateRevisions(EstimateID,OrganizationID,RevisionNumber,MarkupMode,GroupingMode,QuotedTotal)
+          VALUES(@estimate,@org,1,'perLine','Scope',@amount);
+        DECLARE @revision int=SCOPE_IDENTITY();
+        INSERT dbo.EstimateScopesOfWork(EstimateRevisionID,ScopeName,SortOrder,OrganizationID) VALUES(@revision,'Changed work',0,@org);
+        DECLARE @scope int=SCOPE_IDENTITY();
+        INSERT dbo.EstimateLineItems(EstimateRevisionID,LineNumber,Description,Quantity,UnitName,UnitCost,FreightAmount,LineMarkupPercent,
+          LineType,EstimateScopeOfWorkID,OrganizationID,LineOperation,SellAmount,LandedAmount)
+          VALUES(@revision,1,@name,1,'EA',@amount,0,0,'Material',@scope,@org,'Add',@amount,@amount);
+        DECLARE @line int=SCOPE_IDENTITY();
+        INSERT dbo.ContractChanges(OrganizationID,DocumentEstimateID,ParentEstimateID,ProjectID,Kind,Status)
+          VALUES(@org,@estimate,@parent,@project,@kind,'Proposed');
+        SELECT @estimate AS estimate,@revision AS revision,@scope AS scope,@line AS line,CONVERT(int,SCOPE_IDENTITY()) AS change;
+      `)).recordset[0];
+      tracker.add("Estimates",ids.estimate);tracker.add("EstimateRevisions",ids.revision);
+      tracker.add("EstimateScopesOfWork",ids.scope);tracker.add("EstimateLineItems",ids.line);
+      tracker.add("ContractChanges",ids.change);
+    }
     await tracker.persist(transaction);
 
     await transaction.commit();
@@ -1414,6 +1440,26 @@ export async function excludeSampleData(organizationId?: number): Promise<Sample
   await transaction.begin();
 
   try {
+    const estimateKeys=byTable.get("Estimates")??[];
+    if(estimateKeys.length) {
+      const protectedChanges=(await transaction.request().input("org",sql.Int,orgId)
+        .input("keys",sql.NVarChar(sql.MAX),JSON.stringify(estimateKeys)).query<{count:number}>(`
+        SELECT COUNT(*) AS count FROM dbo.ContractChanges
+        WHERE OrganizationID=@org AND ParentEstimateID IN(SELECT CONVERT(int,[value]) FROM OPENJSON(@keys)) AND Status='Approved'
+      `)).recordset[0].count;
+      if(protectedChanges)throw new Error("Sample jobs have approved contract documents. Exclusion is blocked to preserve their immutable approval history.");
+      await transaction.request().input("org",sql.Int,orgId).input("keys",sql.NVarChar(sql.MAX),JSON.stringify(estimateKeys)).query(`
+        DECLARE @documents TABLE(id int);
+        INSERT @documents SELECT DocumentEstimateID FROM dbo.ContractChanges
+          WHERE OrganizationID=@org AND ParentEstimateID IN(SELECT CONVERT(int,[value]) FROM OPENJSON(@keys));
+        UPDATE dbo.ContractChanges SET SourceAlternateID=NULL WHERE DocumentEstimateID IN(SELECT id FROM @documents);
+        DELETE dbo.ContractChanges WHERE DocumentEstimateID IN(SELECT id FROM @documents);
+        DELETE li FROM dbo.EstimateLineItems li JOIN dbo.EstimateRevisions r ON r.EstimateRevisionID=li.EstimateRevisionID WHERE r.EstimateID IN(SELECT id FROM @documents);
+        DELETE s FROM dbo.EstimateScopesOfWork s JOIN dbo.EstimateRevisions r ON r.EstimateRevisionID=s.EstimateRevisionID WHERE r.EstimateID IN(SELECT id FROM @documents);
+        DELETE dbo.EstimateRevisions WHERE EstimateID IN(SELECT id FROM @documents);
+        DELETE dbo.Estimates WHERE EstimateID IN(SELECT id FROM @documents);
+      `);
+    }
     // Reopen any completed sample projects to 'Active' first so that triggers like
     // TR_Invoices_CompletedProjectReadOnly, TR_Bills_CompletedProjectReadOnly, etc.
     // do not block deletion of child records.

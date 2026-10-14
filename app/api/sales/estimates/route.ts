@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
 import { InvalidUnitPresetError } from "@/app/lib/unit-presets";
 import { parseNotes } from "@/app/lib/document-notes";
+import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
+import { getPool, sql } from "@/app/lib/db";
+import { isCalendarDate as validApprovalDate } from "@/app/lib/recurring-dates";
 import { RECURRENCE_FREQUENCIES, isCalendarDate, validateRecurringSchedule } from "@/app/lib/recurring-dates";
 import {
   createEstimate,
@@ -18,6 +21,12 @@ import {
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+export async function requireBaseEstimate(estimateId:number,organizationId:number) {
+  const pool=await getPool();
+  const owned=await pool.request().input("id",sql.Int,estimateId).input("org",sql.Int,organizationId)
+    .query("SELECT EstimateID FROM dbo.Estimates WHERE EstimateID=@id AND OrganizationID=@org AND DocumentKind='Base'");
+  if(!owned.recordset[0])throw new ProjectAccessError("Estimate not found.",404);
 }
 
 function numberValue(value: unknown, label: string, minimum: number, maximum = 1_000_000_000_000) {
@@ -151,16 +160,23 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Invalid estimate ID" }, { status: 400 });
     }
     try {
+      const session=await requireProjectSession(request,"sales.read");
+      await requireBaseEstimate(estimateId,session.organization.organizationId);
       const details = await getEstimateDetails(estimateId);
       if (!details) return NextResponse.json({ error: "Estimate not found" }, { status: 404 });
       return NextResponse.json(details);
-    } catch {
+    } catch(error) {
+      if(error instanceof ProjectAccessError)return NextResponse.json({error:error.message},{status:error.status});
+      console.error("Unable to load estimate details",error);
       return NextResponse.json({ error: "Unable to load estimate details" }, { status: 500 });
     }
   }
   try {
-    return NextResponse.json({ estimates: await getEstimates() });
-  } catch {
+    const session=await requireProjectSession(request,"sales.read");
+    return NextResponse.json({ estimates: await getEstimates(session.organization.organizationId) });
+  } catch(error) {
+    if(error instanceof ProjectAccessError)return NextResponse.json({error:error.message},{status:error.status});
+    console.error("Unable to load estimates",error);
     return NextResponse.json({ error: "Unable to load estimates" }, { status: 500 });
   }
 }
@@ -175,9 +191,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid estimate data" }, { status: 400 });
   }
   try {
-    const estimateId = await createEstimate(estimateInput);
+    const session=await requireProjectSession(request,"sales.write");
+    const estimateId = await createEstimate(estimateInput,session.organization.organizationId);
     return NextResponse.json({ estimateId }, { status: 201 });
   } catch (error) {
+    if(error instanceof ProjectAccessError)return NextResponse.json({error:error.message},{status:error.status});
     if (error instanceof InvalidUnitPresetError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
@@ -209,9 +227,12 @@ export async function PATCH(request: NextRequest) {
       showScopesOfWork: body.showScopesOfWork,
     };
     try {
+      const session=await requireProjectSession(request,"sales.write");
+      await requireBaseEstimate(estimateId,session.organization.organizationId);
       await setEstimatePrintOptions(estimateId, printOptions);
       return NextResponse.json({ estimateId, ...printOptions });
     } catch (error) {
+      if(error instanceof ProjectAccessError)return NextResponse.json({error:error.message},{status:error.status});
       if (isCompletedProjectError(error)) return NextResponse.json({ error: COMPLETED_PROJECT_MESSAGE }, { status: 409 });
       console.error("Unable to update print preferences", error);
       return NextResponse.json({ error: "Unable to update print preferences" }, { status: 500 });
@@ -220,9 +241,26 @@ export async function PATCH(request: NextRequest) {
 
   if (body?.action === "mark-won") {
     try {
-      const projectId = await winEstimate(estimateId);
+      const session=await requireProjectSession(request,"sales.write");
+      const pool=await getPool();
+      const owned=await pool.request().input("id",sql.Int,estimateId).input("org",sql.Int,session.organization.organizationId)
+        .query("SELECT EstimateID FROM dbo.Estimates WHERE EstimateID=@id AND OrganizationID=@org AND DocumentKind='Base'");
+      if(!owned.recordset[0]) throw new ProjectAccessError("Estimate not found.",404);
+      const selections=body.alternates??[];
+      if(!Array.isArray(selections)||selections.length>100||selections.some((s:unknown)=>!isRecord(s)||
+        !Number.isSafeInteger(s.changeId)||Number(s.changeId)<1||!Number.isSafeInteger(s.version)||Number(s.version)<1))
+        throw new ProjectAccessError("Choose valid proposed alternates.",400);
+      if(new Set(selections.map((s:{changeId:number})=>s.changeId)).size!==selections.length)
+        throw new ProjectAccessError("Choose each alternate only once.",400);
+      if(selections.length && (!session.permissions.includes("finances.write")||!session.permissions.includes("projects.write")))
+        throw new ProjectAccessError("Accepting alternates requires project and finance write permissions.",403);
+      if(selections.length && (!validApprovalDate(body.approvedAt)||typeof body.reference!=="string"||!body.reference.trim()||body.reference.length>500))
+        throw new ProjectAccessError("Record the customer's approval date and reference for the accepted alternates.",400);
+      const projectId = await winEstimate(estimateId,{selections,userId:session.user.userId,
+        approvedAt:body.approvedAt??"",reference:body.reference?.trim()??""});
       return NextResponse.json({ estimateId, projectId }, { status: 201 });
     } catch (error) {
+      if(error instanceof ProjectAccessError) return NextResponse.json({error:error.message},{status:error.status});
       if (isCompletedProjectError(error)) return NextResponse.json({ error: COMPLETED_PROJECT_MESSAGE }, { status: 409 });
       const reason = error instanceof Error ? error.message : "";
       if (reason === "not-found") return NextResponse.json({ error: "Estimate not found" }, { status: 404 });

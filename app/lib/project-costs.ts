@@ -112,9 +112,8 @@ export async function saveProjectBillCost(input: ProjectCostInput, costId: numbe
     if (input.estimateLineItemId !== null) {
       const line = await transaction.request().input("lineId", sql.Int, input.estimateLineItemId).input("projectId", sql.Int, input.projectId)
         .query(`
-          SELECT li.EstimateLineItemID FROM dbo.EstimateLineItems li
-          JOIN dbo.Projects p ON p.AcceptedEstimateRevisionID = li.EstimateRevisionID
-          WHERE p.ProjectID = @projectId AND li.EstimateLineItemID = @lineId
+          SELECT li.EstimateLineItemID FROM dbo.EffectiveProjectEstimateLines li
+          WHERE li.ProjectID = @projectId AND li.EstimateLineItemID = @lineId
         `);
       if (!line.recordset[0]) throw new ProjectCostError("Choose a line from this project's accepted estimate");
     }

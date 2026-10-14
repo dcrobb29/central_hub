@@ -74,3 +74,17 @@ test("long customer notes paginate without losing text or exposing internal note
   assert.ok(!text.includes("PRIVATEINTERNALMARKER"));
   assert.ok((pdf.toString("latin1").match(/\/Type \/Page\b/g)?.length ?? 0) > 1);
 });
+test("alternates appear separately without changing the base bid total",async()=>{
+  const base=estimate({showSummaryTotal:true,lines:[{
+    quantity:1,unitCost:1000,freightAmount:0,lineMarkupPercent:0,description:"Base work",
+  }]});
+  const text=pdfText(await renderEstimatePdf(base,[
+    {code:"ALT-000001",title:"Upgrade",status:"Proposed",value:300,notes:"Customer-facing upgrade"},
+    {code:"ALT-000002",title:"Downgrade",status:"Proposed",value:-200,notes:null},
+  ]));
+  assert.ok(text.includes("Total: $1,000.00"));
+  assert.ok(text.includes("$300.00"));
+  assert.ok(text.includes("-$200.00"));
+  assert.ok(text.includes("Alternates (not included in base bid)"));
+  assert.ok(!text.includes("PRIVATEINTERNALMARKER"));
+});

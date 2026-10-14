@@ -109,7 +109,7 @@ async function readBilling(transaction: sql.Transaction, project: BillingProject
       CONVERT(bit,CASE WHEN v.Status='Skipped' THEN 1 ELSE 0 END) AS skipped,u.ContractValue AS unitValue,
       s.BillingScopeID AS scopeId,s.ScopeName AS scopeName,s.SortOrder AS sortOrder,s.CompletionStatus AS scopeStatus,
       s.ContractValue AS scopeValue,COALESCE((SELECT SUM(a.Amount) FROM dbo.ProjectInvoiceAllocations a WHERE a.BillingScopeID=s.BillingScopeID),0) AS billed
-    FROM dbo.ProjectBillingUnits u JOIN dbo.ProjectBillingScopes s ON s.BillingUnitID=u.BillingUnitID
+    FROM dbo.EffectiveProjectBillingUnits u JOIN dbo.EffectiveProjectBillingScopes s ON s.BillingUnitID=u.BillingUnitID
     LEFT JOIN dbo.ServiceVisits v ON v.ServiceVisitID=u.ServiceVisitID
     WHERE u.ProjectID=@projectId AND ((@recurring=1 AND u.ServiceVisitID IS NOT NULL) OR (@recurring=0 AND u.ServiceVisitID IS NULL))
     ORDER BY v.VisitDate,u.BillingUnitID,s.SortOrder

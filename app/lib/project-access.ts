@@ -4,16 +4,10 @@ import { getCurrentSession } from "./account";
 import { SESSION_COOKIE_NAME, verifySessionToken } from "./auth";
 import { getPool, sql } from "./db";
 
-export class ProjectAccessError extends Error {
-  readonly status: number;
+import { ProjectAccessError } from "./project-access-error";
+export { ProjectAccessError } from "./project-access-error";
 
-  constructor(message: string, status: number) {
-    super(message);
-    this.status = status;
-  }
-}
-
-export async function requireProjectSession(request?: NextRequest, permission = "projects.read") {
+export async function requireProjectSession(request?: NextRequest, permission: string | null = "projects.read") {
   const token = request
     ? request.cookies.get(SESSION_COOKIE_NAME)?.value
     : (await cookies()).get(SESSION_COOKIE_NAME)?.value;
@@ -28,7 +22,7 @@ export async function requireProjectSession(request?: NextRequest, permission = 
   if (!session.user.isActive || !session.membership.isActive || session.user.userId !== payload.userId) {
     throw new ProjectAccessError("Your account no longer has access.", 403);
   }
-  if (!session.permissions.includes(permission)) throw new ProjectAccessError("You do not have permission for this action.", 403);
+  if (permission && !session.permissions.includes(permission)) throw new ProjectAccessError("You do not have permission for this action.", 403);
   return session;
 }
 

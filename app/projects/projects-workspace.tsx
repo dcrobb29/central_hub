@@ -13,6 +13,8 @@ import ProjectBillingModal from "./project-billing-modal";
 import { ReceiptText } from "lucide-react";
 import { DocumentNotes } from "@/app/components/document-notes";
 import Link from "next/link";
+import Modal from "@/app/components/modal";
+import ContractChangesPanel from "@/app/components/contract-changes-panel";
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
@@ -43,6 +45,7 @@ export default function ProjectsWorkspace({ projects, costs, bills, financials, 
   const [statusFilter, setStatusFilter] = useState("All");
   const [sort, setSort] = useState("");
   const [billing, setBilling] = useState<{ projectId: number; projectName: string; tab: "completion" | "invoice" } | null>(null);
+  const [changes,setChanges]=useState<ProjectWithEstimate|null>(null);
 
   const customersById = useMemo(() => new Map(customers.map((c) => [c.customerId, c])), [customers]);
 
@@ -159,7 +162,9 @@ export default function ProjectsWorkspace({ projects, costs, bills, financials, 
 
 
               </summary>
-              <div className="projectCompletionAction"><Link className="projectWorkspaceLink" href={`/projects/${project.projectId}`}>Open project workspace</Link></div>
+              <div className="projectCompletionAction"><Link className="projectWorkspaceLink" href={`/projects/${project.projectId}`}>Open project workspace</Link>
+                <button type="button" onClick={()=>setChanges(project)}>Alternates &amp; change orders</button>
+              </div>
               <ProjectCustomerSelector projectId={project.projectId} customerId={project.customerId} customers={customers} readOnly={project.projectStatus === "Complete"} />
               <div className="projectCompletionAction"><button type="button" className="estimateTextAction" disabled={project.quotedTotal === null}
                 onClick={() => setBilling({ projectId: project.projectId, projectName: project.projectName, tab: "completion" })}>
@@ -179,6 +184,10 @@ export default function ProjectsWorkspace({ projects, costs, bills, financials, 
       )}
       {billing && <ProjectBillingModal key={billing.projectId} projectId={billing.projectId} projectName={billing.projectName}
         initialTab={billing.tab} onClose={() => setBilling(null)} />}
+      {changes&&<Modal titleId="projectChangesTitle" title={`Contract changes / ${changes.projectName}`} eyebrow="PROJECT MANAGEMENT"
+        className="estimateDialog" onClose={()=>setChanges(null)}>
+        <ContractChangesPanel key={changes.projectId} context={{projectId:changes.projectId}}/>
+      </Modal>}
     </div>
   );
 }

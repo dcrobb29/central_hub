@@ -5,6 +5,7 @@ import { validateRecurringSchedule } from "@/app/lib/recurring-dates";
 import { getUnitsOfMeasurement } from "@/app/lib/units-of-measurement";
 import { requireUnitAbbreviation } from "@/app/lib/unit-presets";
 import { ensureProjectBillingSnapshot } from "@/app/lib/project-billing";
+import { approveChangeInTransaction } from "./contract-changes";
 import {
   calculateEstimate,
   type EstimateMarkupMode,
@@ -106,6 +107,8 @@ export type ProjectScopeLine = {
   unitName: string | null;
   unitCost: number;
   lineMarkupPercent: number;
+  taxPercent?: number;
+  landedCostOverride?: number;
 };
 
 export type ProjectWithEstimate = {
@@ -122,13 +125,14 @@ export type ProjectWithEstimate = {
   estimateName: string | null;
   customerName: string | null;
   quotedTotal: number | null;
+  baseQuotedTotal?: number | null;
   taxPercent: number;
   lines: ProjectScopeLine[];
 };
 
-export async function getEstimates(): Promise<EstimateSummary[]> {
+export async function getEstimates(organizationId?:number): Promise<EstimateSummary[]> {
   const pool = await getPool();
-  const result = await pool.request().query<EstimateSummary>(`
+  const result = await pool.request().input("org",sql.Int,organizationId??null).query<EstimateSummary>(`
     SELECT
       e.EstimateID AS estimateId,
       e.EstimateName AS estimateName,
@@ -167,6 +171,7 @@ export async function getEstimates(): Promise<EstimateSummary[]> {
       WHERE li.EstimateRevisionID = r.EstimateRevisionID
     ) lines
     LEFT JOIN dbo.Projects p ON p.AcceptedEstimateRevisionID = r.EstimateRevisionID
+    WHERE e.DocumentKind='Base' AND (@org IS NULL OR e.OrganizationID=@org)
     ORDER BY e.CreatedAt DESC, e.EstimateID DESC
   `);
   return result.recordset;
@@ -205,7 +210,7 @@ export async function getEstimateDetails(estimateId: number): Promise<EstimateDe
       FROM dbo.Estimates e
       LEFT JOIN dbo.EstimateRevisions r ON r.EstimateID = e.EstimateID
       LEFT JOIN dbo.Projects p ON p.AcceptedEstimateRevisionID = r.EstimateRevisionID
-      WHERE e.EstimateID = @estimateId
+      WHERE e.EstimateID = @estimateId AND e.DocumentKind='Base'
       ORDER BY r.RevisionNumber DESC
     `);
   const summary = estimate.recordset[0];
@@ -251,7 +256,7 @@ export async function getEstimateDetails(estimateId: number): Promise<EstimateDe
   return { ...summary, lines: linesWithScopeNames, scopes: scopes.recordset };
 }
 
-export async function createEstimate(input: CreateEstimateInput): Promise<number> {
+export async function createEstimate(input: CreateEstimateInput, organizationId?:number): Promise<number> {
   input = await canonicalizeEstimateUnits(input);
   const pricing = calculateEstimate(input);
   const pool = await getPool();
@@ -268,11 +273,13 @@ export async function createEstimate(input: CreateEstimateInput): Promise<number
       .input("recurrenceFrequency", sql.VarChar(16), input.recurrenceFrequency)
       .input("expectedStartDate", sql.Date, input.expectedStartDate)
       .input("expectedEndDate", sql.Date, input.expectedEndDate)
+      .input("org",sql.Int,organizationId??null)
       .query<{ EstimateID: number }>(`
         INSERT INTO dbo.Estimates (
-          EstimateName, CustomerName, InternalNotes, CustomerNotes, EngagementType, RecurrenceFrequency, ExpectedStartDate, ExpectedEndDate
+          EstimateName, CustomerName, InternalNotes, CustomerNotes, EngagementType, RecurrenceFrequency, ExpectedStartDate, ExpectedEndDate,OrganizationID
         )
-        VALUES (@estimateName, @customerName, @internalNotes, @customerNotes, @engagementType, @recurrenceFrequency, @expectedStartDate, @expectedEndDate);
+        VALUES (@estimateName, @customerName, @internalNotes, @customerNotes, @engagementType, @recurrenceFrequency, @expectedStartDate, @expectedEndDate,
+          COALESCE(@org,(SELECT TOP(1) OrganizationID FROM dbo.Organizations ORDER BY OrganizationID)));
         SELECT CONVERT(int, SCOPE_IDENTITY()) AS EstimateID;
       `);
     const estimateId = estimateResult.recordset[0].EstimateID;
@@ -288,10 +295,10 @@ export async function createEstimate(input: CreateEstimateInput): Promise<number
       .query<{ EstimateRevisionID: number }>(`
         INSERT INTO dbo.EstimateRevisions (
           EstimateID, RevisionNumber, MarkupMode, GroupingMode, EstimateMarkupPercent,
-          TaxPercent, RoundingIncrement, QuotedTotal
+          TaxPercent, RoundingIncrement, QuotedTotal,OrganizationID
         )
-        VALUES (@estimateId, 1, @markupMode, @groupingMode, @estimateMarkupPercent,
-          @taxPercent, @roundingIncrement, @quotedTotal);
+        SELECT @estimateId, 1, @markupMode, @groupingMode, @estimateMarkupPercent,
+          @taxPercent, @roundingIncrement, @quotedTotal,OrganizationID FROM dbo.Estimates WHERE EstimateID=@estimateId;
         SELECT CONVERT(int, SCOPE_IDENTITY()) AS EstimateRevisionID;
       `);
     const revisionId = revisionResult.recordset[0].EstimateRevisionID;
@@ -319,7 +326,7 @@ async function canonicalizeEstimateUnits(input: CreateEstimateInput): Promise<Cr
 
 // Shared by createEstimate (fresh revision) and updateEstimate (replacing an existing revision's
 // scopes/lines in place), so the insert logic for a revision's children only lives in one place.
-async function insertScopesAndLines(transaction: sql.Transaction, revisionId: number, input: CreateEstimateInput) {
+export async function insertScopesAndLines(transaction: sql.Transaction, revisionId: number, input: CreateEstimateInput) {
   const scopeIdByName = new Map<string, number>();
   for (const [index, scopeName] of input.scopes.entries()) {
     const scopeResult = await transaction.request()
@@ -327,8 +334,8 @@ async function insertScopesAndLines(transaction: sql.Transaction, revisionId: nu
       .input("scopeName", sql.NVarChar(150), scopeName)
       .input("sortOrder", sql.Int, index)
       .query<{ EstimateScopeOfWorkID: number }>(`
-        INSERT INTO dbo.EstimateScopesOfWork (EstimateRevisionID, ScopeName, SortOrder)
-        VALUES (@revisionId, @scopeName, @sortOrder);
+        INSERT INTO dbo.EstimateScopesOfWork (EstimateRevisionID, ScopeName, SortOrder,OrganizationID)
+        SELECT @revisionId, @scopeName, @sortOrder,OrganizationID FROM dbo.EstimateRevisions WHERE EstimateRevisionID=@revisionId;
         SELECT CONVERT(int, SCOPE_IDENTITY()) AS EstimateScopeOfWorkID;
       `);
     scopeIdByName.set(scopeName, scopeResult.recordset[0].EstimateScopeOfWorkID);
@@ -353,10 +360,11 @@ async function insertScopesAndLines(transaction: sql.Transaction, revisionId: nu
       .query(`
         INSERT INTO dbo.EstimateLineItems (
           EstimateRevisionID, LineNumber, Description, Quantity, UnitName, UnitCost, FreightAmount, LineMarkupPercent,
-          MaterialID, CatalogUnitCostAtEntry, CatalogPriceDate, LineType, EstimateScopeOfWorkID
+          MaterialID, CatalogUnitCostAtEntry, CatalogPriceDate, LineType, EstimateScopeOfWorkID,OrganizationID
         )
-        VALUES (@revisionId, @lineNumber, @description, @quantity, @unitName, @unitCost, @freightAmount, @lineMarkupPercent,
-          @materialId, @catalogUnitCostAtEntry, @catalogPriceDate, @lineType, @estimateScopeOfWorkId)
+        SELECT @revisionId, @lineNumber, @description, @quantity, @unitName, @unitCost, @freightAmount, @lineMarkupPercent,
+          @materialId, @catalogUnitCostAtEntry, @catalogPriceDate, @lineType, @estimateScopeOfWorkId,OrganizationID
+        FROM dbo.EstimateRevisions WHERE EstimateRevisionID=@revisionId
       `);
   }
 }
@@ -384,12 +392,14 @@ export async function updateEstimate(estimateId: number, input: CreateEstimateIn
           WHERE EstimateID = e.EstimateID
           ORDER BY RevisionNumber DESC
         ) r
-        WHERE e.EstimateID = @estimateId
+        WHERE e.EstimateID = @estimateId AND e.DocumentKind='Base'
       `);
     const estimate = estimateResult.recordset[0];
     if (!estimate) throw new Error("not-found");
     if (estimate.EstimateStatus === "Won") throw new Error("not-editable");
     if (!estimate.EstimateRevisionID) throw new Error("no-revision");
+    await transaction.request().input("id",sql.Int,estimateId)
+      .query("UPDATE dbo.ContractChanges SET Status='Draft',Version=Version+1 WHERE ParentEstimateID=@id AND Status<>'Approved'");
     const revisionId = estimate.EstimateRevisionID;
 
     await transaction.request()
@@ -458,6 +468,9 @@ export async function deleteEstimate(estimateId: number): Promise<void> {
     const estimate = estimateResult.recordset[0];
     if (!estimate) throw new Error("not-found");
     if (estimate.EstimateStatus === "Won") throw new Error("not-editable");
+    const linked = await transaction.request().input("id",sql.Int,estimateId)
+      .query("SELECT ChangeID FROM dbo.ContractChanges WHERE ParentEstimateID=@id OR DocumentEstimateID=@id");
+    if (linked.recordset.length) throw new Error("linked-alternates");
 
     await transaction.request()
       .input("estimateId", sql.Int, estimateId)
@@ -487,7 +500,8 @@ export async function deleteEstimate(estimateId: number): Promise<void> {
   }
 }
 
-export async function winEstimate(estimateId: number): Promise<number> {
+export type InitialAlternateApproval = { selections: { changeId: number; version: number }[]; userId: number; approvedAt: string; reference: string };
+export async function winEstimate(estimateId: number, alternateApproval?: InitialAlternateApproval): Promise<number> {
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
   await transaction.begin();
@@ -505,17 +519,19 @@ export async function winEstimate(estimateId: number): Promise<number> {
         RecurrenceFrequency: RecurrenceFrequency;
         ExpectedStartDate: Date | null;
         ExpectedEndDate: Date | null;
+        OrganizationID: number;
+        QuotedTotal: number;
       }>(`
         SELECT e.EstimateName, e.EstimateStatus, e.InternalNotes, e.CustomerNotes, e.EngagementType, e.RecurrenceFrequency,
-          e.ExpectedStartDate, e.ExpectedEndDate, r.EstimateRevisionID
+          e.ExpectedStartDate, e.ExpectedEndDate, r.EstimateRevisionID,e.OrganizationID,r.QuotedTotal
         FROM dbo.Estimates e WITH (UPDLOCK, HOLDLOCK)
         OUTER APPLY (
-          SELECT TOP (1) EstimateRevisionID
+          SELECT TOP (1) EstimateRevisionID,QuotedTotal
           FROM dbo.EstimateRevisions
           WHERE EstimateID = e.EstimateID
           ORDER BY RevisionNumber DESC
         ) r
-        WHERE e.EstimateID = @estimateId
+        WHERE e.EstimateID = @estimateId AND e.DocumentKind='Base'
       `);
     const estimate = estimateResult.recordset[0];
     if (!estimate) throw new Error("not-found");
@@ -545,17 +561,25 @@ export async function winEstimate(estimateId: number): Promise<number> {
       .input("recurrenceFrequency", sql.VarChar(16), estimate.RecurrenceFrequency)
       .input("expectedStartDate", sql.Date, estimate.ExpectedStartDate)
       .input("expectedEndDate", sql.Date, estimate.ExpectedEndDate)
+      .input("org",sql.Int,estimate.OrganizationID)
       .query<{ ProjectID: number }>(`
         INSERT INTO dbo.Projects (
           ProjectName, ProjectStatus, InternalNotes, CustomerNotes, AcceptedEstimateRevisionID, EngagementType, RecurrenceFrequency,
-          ExpectedStartDate, ExpectedEndDate
+          ExpectedStartDate, ExpectedEndDate,OrganizationID
         )
         VALUES (@projectName, @status, @internalNotes, @customerNotes, @revisionId, @engagementType, @recurrenceFrequency,
-          @expectedStartDate, @expectedEndDate);
+          @expectedStartDate, @expectedEndDate,@org);
         SELECT CONVERT(int, SCOPE_IDENTITY()) AS ProjectID;
       `);
     const projectId = projectResult.recordset[0].ProjectID;
     await ensureProjectBillingSnapshot(transaction, projectId);
+    for (const selection of alternateApproval?.selections ?? []) {
+      await approveChangeInTransaction(transaction, {
+        estimateId, revisionId: estimate.EstimateRevisionID, organizationId: estimate.OrganizationID, projectId,
+        status: "Draft", engagementType: estimate.EngagementType, projectStatus: "Upcoming",
+        title: estimate.EstimateName, quotedTotal: estimate.QuotedTotal,
+      }, selection.changeId, selection.version, alternateApproval!.userId, alternateApproval!.approvedAt, alternateApproval!.reference, true);
+    }
     await transaction.request()
       .input("estimateId", sql.Int, estimateId)
       .query("UPDATE dbo.Estimates SET EstimateStatus = 'Won' WHERE EstimateID = @estimateId");
@@ -589,7 +613,7 @@ export async function getProjectsWithEstimates(filter: { projectId?: number; org
   const result = await pool.request()
     .input("projectId", sql.Int, filter.projectId ?? null)
     .input("organizationId", sql.Int, filter.organizationId ?? null)
-    .query<ProjectWithEstimate & { estimateLineItemId: number | null; scopeName: string | null; freightAmount: number | null; lineNumber: number | null; description: string | null; lineType: LineType | null; quantity: number | null; unitName: string | null; unitCost: number | null; lineMarkupPercent: number | null }>(`
+    .query<ProjectWithEstimate & { landedCostOverride:number|null; lineTaxPercent: number | null; estimateLineItemId: number | null; scopeName: string | null; freightAmount: number | null; lineNumber: number | null; description: string | null; lineType: LineType | null; quantity: number | null; unitName: string | null; unitCost: number | null; lineMarkupPercent: number | null }>(`
     SELECT
       p.ProjectID AS projectId,
       p.CustomerID AS customerId,
@@ -603,7 +627,9 @@ export async function getProjectsWithEstimates(filter: { projectId?: number; org
       CONVERT(varchar(10), p.ExpectedEndDate, 23) AS expectedEndDate,
       e.EstimateName AS estimateName,
       e.CustomerName AS customerName,
-      r.QuotedTotal AS quotedTotal,
+      r.QuotedTotal AS baseQuotedTotal,
+      r.QuotedTotal+COALESCE((SELECT SUM(cr.QuotedTotal) FROM dbo.ContractChanges c JOIN dbo.EstimateRevisions cr ON cr.EstimateID=c.DocumentEstimateID
+        WHERE c.ProjectID=p.ProjectID AND c.Status='Approved'),0) AS quotedTotal,
       COALESCE(r.TaxPercent, 0) AS taxPercent,
       li.EstimateLineItemID AS estimateLineItemId,
       s.ScopeName AS scopeName,
@@ -615,10 +641,12 @@ export async function getProjectsWithEstimates(filter: { projectId?: number; org
       li.UnitName AS unitName,
       li.UnitCost AS unitCost,
       li.LineMarkupPercent AS lineMarkupPercent
+      ,li.TaxPercent AS lineTaxPercent
+      ,li.LandedCostAmount AS landedCostOverride
     FROM dbo.Projects p
     LEFT JOIN dbo.EstimateRevisions r ON r.EstimateRevisionID = p.AcceptedEstimateRevisionID
     LEFT JOIN dbo.Estimates e ON e.EstimateID = r.EstimateID
-    LEFT JOIN dbo.EstimateLineItems li ON li.EstimateRevisionID = r.EstimateRevisionID
+    LEFT JOIN dbo.EffectiveProjectEstimateLines li ON li.ProjectID = p.ProjectID
     LEFT JOIN dbo.EstimateScopesOfWork s ON s.EstimateScopeOfWorkID = li.EstimateScopeOfWorkID
     WHERE (@projectId IS NULL OR p.ProjectID = @projectId)
       AND (@organizationId IS NULL OR p.OrganizationID = @organizationId)
@@ -643,6 +671,7 @@ export async function getProjectsWithEstimates(filter: { projectId?: number; org
         estimateName: row.estimateName,
         customerName: row.customerName,
         quotedTotal: row.quotedTotal,
+        baseQuotedTotal: row.baseQuotedTotal,
         taxPercent: row.taxPercent,
         lines: [],
       };
@@ -660,6 +689,8 @@ export async function getProjectsWithEstimates(filter: { projectId?: number; org
         unitName: row.unitName,
         unitCost: row.unitCost,
         lineMarkupPercent: row.lineMarkupPercent ?? 0,
+        taxPercent: row.lineTaxPercent ?? row.taxPercent,
+        landedCostOverride:row.landedCostOverride??undefined,
       });
     }
   }

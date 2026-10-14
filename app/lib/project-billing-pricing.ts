@@ -76,7 +76,7 @@ export function selectionAmount(original: number, billed: number, selection: Pic
     cents = billingCents(selection.value);
   }
   if (cents <= 0) throw new BillingError("The selected work has no billable balance");
-  if (cents > remaining) throw new BillingError("The amount exceeds the remaining unbilled balance. Percentages use the original contract value.");
+  if (cents > remaining) throw new BillingError("The amount exceeds the remaining unbilled balance. Percentages use the current approved contract value, not the remaining balance.");
   return cents / 100;
 }
 

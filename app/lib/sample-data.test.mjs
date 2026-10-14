@@ -90,6 +90,10 @@ test("Sample data inclusion and exclusion lifecycle", async (t) => {
 
   const checkTasks = await pool.request().query("SELECT COUNT(*) AS c FROM dbo.FieldOperationsTasks WHERE OrganizationID = 1 AND TaskName LIKE '%(Sample)%'");
   assert.ok(checkTasks.recordset[0].c >= 2, "Should have sample field operations tasks");
+  const changes=await pool.request().query(`SELECT c.Kind,c.Status,r.QuotedTotal FROM dbo.ContractChanges c
+    JOIN dbo.Estimates e ON e.EstimateID=c.DocumentEstimateID JOIN dbo.EstimateRevisions r ON r.EstimateID=e.EstimateID
+    WHERE c.OrganizationID=1 AND e.EstimateName LIKE '%(Sample)%' ORDER BY c.Kind`);
+  assert.deepEqual(changes.recordset,[{Kind:"Alternate",Status:"Proposed",QuotedTotal:300},{Kind:"ChangeOrder",Status:"Proposed",QuotedTotal:450}]);
 
   // Step 4: Exclude sample data
   console.log("Excluding sample data for organization 1...");

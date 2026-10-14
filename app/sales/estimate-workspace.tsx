@@ -22,6 +22,8 @@ import type { ScopeTemplateDetails, ScopeTemplateSummary } from "@/app/lib/scope
 import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
 import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
 import Modal from "@/app/components/modal";
+import ContractChangesPanel from "@/app/components/contract-changes-panel";
+import type { ContractChange } from "@/app/lib/contract-changes";
 import ListViewControls from "@/app/components/list-view-controls";
 import { DocumentNotes, DocumentNotesFields } from "@/app/components/document-notes";
 import {
@@ -111,7 +113,7 @@ function asNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export default function EstimateWorkspace({ estimates, unitPresets }: { estimates: EstimateSummary[]; unitPresets: UnitPreset[] }) {
+export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true }: { estimates: EstimateSummary[]; unitPresets: UnitPreset[];canEdit?:boolean }) {
   const defaultUnit = defaultUnitAbbreviation(unitPresets);
 
   function newLine(): EstimateLineDraft {
@@ -164,6 +166,13 @@ export default function EstimateWorkspace({ estimates, unitPresets }: { estimate
   const [winningEstimate, setWinningEstimate] = useState<EstimateSummary | null>(null);
   const [isWinning, setIsWinning] = useState(false);
   const [winError, setWinError] = useState<string | null>(null);
+  const [alternatesEstimate,setAlternatesEstimate]=useState<EstimateSummary|null>(null);
+  const [winOptions,setWinOptions]=useState<ContractChange[]>([]);
+  const [winSelected,setWinSelected]=useState<number[]>([]);
+  const [winLoading,setWinLoading]=useState(false);
+  const [winLoadFailed,setWinLoadFailed]=useState(false);
+  const [winReference,setWinReference]=useState("");
+  const [winApprovalDate,setWinApprovalDate]=useState("");
 
   // edit flow: non-null while the create/edit form is prefilled for an existing (non-won) estimate
   const [editingEstimateId, setEditingEstimateId] = useState<number | null>(null);
@@ -571,9 +580,20 @@ export default function EstimateWorkspace({ estimates, unitPresets }: { estimate
     }
   }
 
-  function openWinDialog(estimate: EstimateSummary) {
+  async function openWinDialog(estimate: EstimateSummary) {
     setWinningEstimate(estimate);
     setWinError(null);
+    setWinOptions([]);setWinSelected([]);setWinReference("");setWinLoadFailed(false);setWinLoading(false);
+    setWinApprovalDate(new Date().toLocaleDateString("en-CA"));
+    if(estimate.engagementType==="Service")return;
+    setWinLoading(true);
+    try{
+      const response=await fetch(`/api/contract-changes?estimateId=${estimate.estimateId}`);
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.error??"Unable to load alternates.");
+      setWinOptions(data.changes.filter((c:ContractChange)=>c.kind==="Alternate"&&c.status==="Proposed"));
+    }catch(e){setWinLoadFailed(true);setWinError(e instanceof Error?e.message:"Unable to load alternates.");}
+    finally{setWinLoading(false);}
   }
 
   async function openCatalogPicker(lineIndex: number) {
@@ -689,17 +709,19 @@ export default function EstimateWorkspace({ estimates, unitPresets }: { estimate
         body: JSON.stringify({
           action: "mark-won",
           estimateId: winningEstimate.estimateId,
+          alternates:winOptions.filter(c=>winSelected.includes(c.changeId)).map(c=>({changeId:c.changeId,version:c.version})),
+          reference:winReference,approvedAt:winApprovalDate,
         }),
       });
       const result = await response.json().catch(() => null);
       if (!response.ok) throw new Error(result?.error ?? "Unable to convert estimate");
       router.refresh();
       router.push(`/projects?created=${result.projectId}`);
+      setWinningEstimate(null);
     } catch (winErr) {
       setWinError(winErr instanceof Error ? winErr.message : "Unable to convert estimate");
     } finally {
       setIsWinning(false);
-      setWinningEstimate(null);
     }
   }
 
@@ -710,7 +732,7 @@ export default function EstimateWorkspace({ estimates, unitPresets }: { estimate
           <p className="salesEyebrow">SALES</p>
           <h1>Sales &amp; Estimates</h1>
         </div>
-        <button className="financeImportButton" type="button" onClick={() => { resetForm(); setIsCreating(true); }}>
+        <button className="financeImportButton" type="button" disabled={!canEdit} onClick={() => { resetForm(); setIsCreating(true); }}>
           <Plus size={15} aria-hidden="true" />
           New estimate
         </button>
@@ -824,12 +846,13 @@ export default function EstimateWorkspace({ estimates, unitPresets }: { estimate
                       <button type="button" className="estimateTextAction" onClick={() => openPrintPdfPopup(estimate)}>
                         <FileDown size={13} aria-hidden="true" /> PDF
                       </button>
-                      {estimate.status === "Draft" && (
-                        <button type="button" className="estimateWinAction" onClick={() => openWinDialog(estimate)}>
+                      <button type="button" className="estimateTextAction" onClick={()=>setAlternatesEstimate(estimate)}>Alternates</button>
+                      {canEdit&&estimate.status === "Draft" && (
+                        <button type="button" className="estimateWinAction" onClick={() => void openWinDialog(estimate)}>
                           Mark won
                         </button>
                       )}
-                      {estimate.status !== "Won" && (
+                      {canEdit&&estimate.status !== "Won" && (
                         <>
                           <button
                             type="button"
@@ -921,6 +944,7 @@ export default function EstimateWorkspace({ estimates, unitPresets }: { estimate
                             </div>
                             {groupedContent}
                             <DocumentNotes internalNotes={details.internalNotes} customerNotes={details.customerNotes} />
+                            <ContractChangesPanel key={estimate.estimateId} context={{estimateId:estimate.estimateId}}/>
                           </div>
                         );
                       })() : <p>Could not load this estimate&apos;s scope.</p>}
@@ -1145,18 +1169,35 @@ export default function EstimateWorkspace({ estimates, unitPresets }: { estimate
         );
       })()}
 
+      {alternatesEstimate&&<Modal titleId="bidAlternatesTitle" title={`Alternates / ${alternatesEstimate.estimateName}`}
+        eyebrow="SALES & ESTIMATES" className="estimateDialog" onClose={()=>setAlternatesEstimate(null)}>
+        <ContractChangesPanel key={alternatesEstimate.estimateId} context={{estimateId:alternatesEstimate.estimateId}}/>
+      </Modal>}
       {winningEstimate && (
-        <Modal titleId="winEstimateTitle" title={<>Send &quot;{winningEstimate.estimateName}&quot; to Projects &amp; Jobs</>} eyebrow="SALES & ESTIMATES" onClose={() => { if (!isWinning) setWinningEstimate(null); }} closeDisabled={isWinning} className="financeProjectDialog">
+        <Modal titleId="winEstimateTitle" title={<>Send &quot;{winningEstimate.estimateName}&quot; to Projects &amp; Jobs</>} eyebrow="SALES & ESTIMATES" onClose={() => { if (!isWinning&&!winLoading) setWinningEstimate(null); }} closeDisabled={isWinning||winLoading} className="financeProjectDialog">
             <form onSubmit={confirmWin}>
               <p className="estimateInternalNote">
                 {winningEstimate.engagementType === "Service"
                   ? <>This recurring estimate will become a project with {FREQUENCY_LABELS[String(winningEstimate.recurrenceFrequency)] ?? winningEstimate.recurrenceFrequency} recurrence{winningEstimate.expectedStartDate ? <> starting {formatDate(winningEstimate.expectedStartDate)}</> : null}{winningEstimate.expectedEndDate ? <> through {formatDate(winningEstimate.expectedEndDate)}</> : null}.</>
                   : <>This one-time project estimate will become a project in Projects &amp; Jobs.</>}
               </p>
+              {winLoading&&<p role="status">Loading proposed alternates...</p>}
+              {winOptions.length>0&&<fieldset className="financeImportGroup" disabled={isWinning}>
+                <legend>Alternates accepted by the customer</legend>
+                <p>The base bid stays {money(winningEstimate.quotedTotal)}. Select only the alternates accepted with this bid.</p>
+                {winOptions.map(c=><label key={c.changeId} className="contractSelection"><input type="checkbox" checked={winSelected.includes(c.changeId)}
+                  onChange={e=>setWinSelected(current=>e.target.checked?[...current,c.changeId]:current.filter(id=>id!==c.changeId))}/>
+                  ALT-{String(c.changeId).padStart(6,"0")}: {c.title} / {money(c.quotedTotal)}</label>)}
+                <strong>Initial contract: {money(winningEstimate.quotedTotal+winOptions.filter(c=>winSelected.includes(c.changeId)).reduce((sum,c)=>sum+c.quotedTotal,0))}</strong>
+                {winSelected.length>0&&<>
+                  <label className="financeImportField">Customer approval date<input required type="date" value={winApprovalDate} onChange={e=>setWinApprovalDate(e.target.value)}/></label>
+                  <label className="financeImportField">Approval reference / evidence<textarea required maxLength={500} value={winReference} onChange={e=>setWinReference(e.target.value)}/></label>
+                </>}
+              </fieldset>}
               {winError && <p className="financeImportError" role="alert">{winError}</p>}
               <div className="financeImportActions">
-                <button type="button" className="financeImportCancel" onClick={() => setWinningEstimate(null)} disabled={isWinning}>Cancel</button>
-                <button type="submit" className="financeImportSubmit" disabled={isWinning}>{isWinning ? "Converting..." : "Confirm"}</button>
+                <button type="button" className="financeImportCancel" onClick={() => setWinningEstimate(null)} disabled={isWinning||winLoading}>Cancel</button>
+                <button type="submit" className="financeImportSubmit" disabled={isWinning||winLoading||winLoadFailed}>{isWinning ? "Converting..." : "Confirm"}</button>
               </div>
             </form>
         </Modal>

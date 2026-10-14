@@ -17,12 +17,13 @@ import ProjectStatusSelector from "../project-status-selector";
 import ProjectHubActions from "../project-hub-actions";
 import ProjectAttachmentsPanel from "../project-attachments-panel";
 import FieldOperationsWorkspace from "@/app/field-operations/field-operations-workspace";
+import ContractChangesPanel from "@/app/components/contract-changes-panel";
 
 export const dynamic = "force-dynamic";
 
 const tabs = [
   ["overview", "Overview"], ["finances", "Scope & Finances"], ["documents", "Documents"],
-  ["media", "Media"], ["schedule", "Schedule"], ["reporting", "Reporting"],
+  ["media", "Media"], ["schedule", "Schedule"], ["changes","Alternates & Change Orders"], ["reporting", "Reporting"],
 ] as const;
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const dollars = (value: number) => money.format(value);
@@ -96,6 +97,8 @@ export default async function ProjectPage({ params, searchParams }: {
         <Link href="/finances/bills">Open company bills to manage supplier invoices and payments</Link>
       </section>
     </>;
+  } else if(tab==="changes") {
+    content=<ContractChangesPanel key={projectId} context={{projectId}}/>;
   } else if (tab === "documents" || tab === "media") {
     content = <ProjectAttachmentsPanel key={`${projectId}:${tab}`} projectId={projectId} category={tab === "documents" ? "document" : "media"} canEdit={canWriteProject} />;
   } else if (tab === "schedule" && session.permissions.includes("planning.read")) {
@@ -124,7 +127,7 @@ export default async function ProjectPage({ params, searchParams }: {
       <dl className="projectHubFacts">
         <div><dt>Customer</dt><dd>{customer ? customerLabel(customer) : project.customerName ?? "Not assigned"}</dd></div>
         <div><dt>Accepted estimate</dt><dd>{project.estimateName ?? "No accepted estimate"}</dd></div>
-        <div><dt>{project.engagementType === "Service" ? "Quoted value per occurrence" : "Accepted quoted value"}</dt><dd>{project.quotedTotal === null ? "Not available" : dollars(project.quotedTotal)}</dd></div>
+        <div><dt>{project.engagementType === "Service" ? "Quoted value per occurrence" : "Current contract value"}</dt><dd>{project.quotedTotal === null ? "Not available" : dollars(project.quotedTotal)}</dd></div>
         <div><dt>Start date</dt><dd>{project.expectedStartDate ?? "Not specified"}</dd></div>
         <div><dt>End date</dt><dd>{project.expectedEndDate ?? "Not specified"}</dd></div>
         <div><dt>Work type</dt><dd>{project.engagementType === "Service" ? `Recurring service - ${project.recurrenceFrequency ?? "Frequency not specified"}` : "One-time project"}</dd></div>

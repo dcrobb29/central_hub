@@ -62,6 +62,59 @@ For rollback-only database checks, set `RUN_DB_TESTS=1` and run
 Run database suites sequentially because their transaction fixtures can contend
 for shared records. The workspace test also removes its temporary uploaded file.
 
+## Alternates and change orders
+
+Apply `database\contract-changes-schema.sql` after the existing organization,
+project billing, and sample-data migrations. It is rerunnable. Apply it last:
+rerunning older billing trigger migrations afterwards reinstates the old caps;
+rerun this migration to restore current-contract caps.
+
+Use **Alternates** on a Sales estimate (also listed below its expanded scope).
+Use **Alternates & change orders** in an expanded Project Management card or
+the project workspace's **Alternates & Change Orders** tab. Both use one shared
+estimate-style editor: scope, Material/Labor/Equipment lines, preset units,
+quantity, cost, freight, markup, tax, and internal/customer notes. New records
+have an ALT/CO number plus their own linked EST record ID, not independent jobs.
+
+Base bid totals exclude alternates. Save a draft, propose it, then select the
+customer's accepted alternates when marking the bid won. Record approval date
+and reference. Unselected alternates can become linked change-order proposals;
+they cannot be converted twice. Later changes follow Draft -> Proposed ->
+Approved/Rejected. Negotiated edits return proposals to Draft and increment
+their version. Approval requires project and finance write permissions.
+
+The displayed original bid, accepted alternates, initial contract, approved
+change orders, and current contract are separate values. Pending proposals do
+not change them. Approved additions appear in the same project cost panel and
+scope billing as the original work. Deductions select existing work and remove
+a positive quantity at its original allocated contract price (including its
+original markup/rounding); users cannot invent deduction prices. Approved
+deductions reduce the linked budget, quantity, and remaining scope billing.
+The original estimate and billing snapshots stay unchanged. Issued invoices
+are never rewritten. Credits/refunds are not implemented: invoice/cost conflicts,
+legacy invoices needing reconciliation, and reductions below recorded costs
+block approval with an explanation. Reopening a job does not unlock approvals.
+
+Editing a draft base bid resets its alternates to Draft. Since the existing
+base editor replaces line IDs, deductions must be reselected and re-proposed.
+Unapproved documents can be removed; approved documents require a corrective
+change order. Approval freezes the before/after contract values for historical
+PDFs even when later change orders adjust the job. PDF exports include only customer notes and sell values.
+The base estimate PDF lists proposed/approved alternates separately.
+
+Recurring agreements are explicitly excluded. Existing scheduled assignments
+are retained; newly scheduled estimate-backed labor tasks include approved
+additions. No worked-time or e-signature system is implied.
+
+Sample insertion now includes a proposed alternate and a proposed change order.
+Normal include/exclude remains reversible. If a sample job receives an approved
+contract document, exclusion is blocked rather than deleting immutable approval
+history; avoid approving sample proposals if you intend to remove all samples.
+
+Run `node --test app/lib/contract-change-pricing.test.mjs app/lib/estimate-pdf.test.mjs`.
+For rollback-only database integration, set `RUN_DB_TESTS=1` and run
+`node --test --test-concurrency=1 app/lib/contract-changes.integration.test.mjs app/lib/project-billing.integration.test.mjs app/lib/project-costs.integration.test.mjs`.
+
 ## Unit presets
 
 Apply [database/units-of-measurement-schema.sql](database/units-of-measurement-schema.sql)

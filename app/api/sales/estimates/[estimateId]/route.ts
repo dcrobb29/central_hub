@@ -2,13 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
 import { InvalidUnitPresetError } from "@/app/lib/unit-presets";
 import { deleteEstimate, updateEstimate, type CreateEstimateInput } from "@/app/lib/estimates";
-import { isRecord, parseEstimate } from "../route";
+import { isRecord, parseEstimate,requireBaseEstimate } from "../route";
+import {ProjectAccessError,requireProjectSession} from "@/app/lib/project-access";
 
 function describeEstimateMutationError(error: unknown): { message: string; status: number } {
   if (isCompletedProjectError(error)) return { message: COMPLETED_PROJECT_MESSAGE, status: 409 };
   const reason = error instanceof Error ? error.message : "";
   if (reason === "not-found") return { message: "Estimate not found", status: 404 };
   if (reason === "not-editable") return { message: "Won estimates can't be edited or deleted", status: 409 };
+  if (reason === "linked-alternates") return { message: "Remove the linked unapproved alternates before deleting the base bid. Approved records cannot be deleted.", status: 409 };
   return { message: "Unable to save estimate. Check the database connection and permissions.", status: 500 };
 }
 
@@ -21,8 +23,11 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   if (!isRecord(body)) return NextResponse.json({ error: "Invalid estimate data" }, { status: 400 });
   let estimateInput: CreateEstimateInput;
   try {
+    const session=await requireProjectSession(request,"sales.write");
+    await requireBaseEstimate(estimateId,session.organization.organizationId);
     estimateInput = parseEstimate(body);
   } catch (error) {
+    if(error instanceof ProjectAccessError)return NextResponse.json({error:error.message},{status:error.status});
     return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid estimate data" }, { status: 400 });
   }
   try {
@@ -38,15 +43,18 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ estimateId: string }> }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ estimateId: string }> }) {
   const estimateId = Number((await params).estimateId);
   if (!Number.isInteger(estimateId) || estimateId < 1) {
     return NextResponse.json({ error: "Invalid estimate ID" }, { status: 400 });
   }
   try {
+    const session=await requireProjectSession(request,"sales.write");
+    await requireBaseEstimate(estimateId,session.organization.organizationId);
     await deleteEstimate(estimateId);
     return new NextResponse(null, { status: 204 });
   } catch (error) {
+    if(error instanceof ProjectAccessError)return NextResponse.json({error:error.message},{status:error.status});
     const { message, status } = describeEstimateMutationError(error);
     return NextResponse.json({ error: message }, { status });
   }

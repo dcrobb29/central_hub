@@ -1,9 +1,18 @@
 "use client";
 
-export default function Button({ className, onClick, children }: { className?: string; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button className={className} onClick={onClick}>
-      {children}
-    </button>
-  );
+import type { ButtonHTMLAttributes } from "react";
+
+export type ButtonVariant = "primary" | "secondary" | "danger" | "text" | "dangerText";
+
+const variants: Record<ButtonVariant, string> = {
+  primary: "uiButtonPrimary",
+  secondary: "uiButtonSecondary",
+  danger: "uiButtonDanger",
+  text: "uiButtonText",
+  dangerText: "uiButtonDangerText",
+};
+
+export default function Button({ variant = "primary", className, type = "button", ...props }:
+  ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant }) {
+  return <button type={type} className={`uiButton ${variants[variant]}${className ? ` ${className}` : ""}`} {...props} />;
 }

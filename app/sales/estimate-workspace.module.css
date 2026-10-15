@@ -4,14 +4,6 @@
   min-width: 0;
 }
 
-.heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
 .headerActions,
 .recordActions {
   display: flex;

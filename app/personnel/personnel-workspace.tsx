@@ -7,6 +7,7 @@ import { ArrowUpRight, Plus } from "lucide-react";
 import type { EmployeeHistoryEntry, Person, PersonnelRole } from "@/app/lib/personnel";
 import PersonnelChart from "./personnel-chart";
 import Modal from "@/app/components/modal";
+import { WorkspaceHeading, SearchToolbar, FilterButton, FiltersDialog } from "@/app/components/workspace-ui";
 import recordStyles from "@/app/components/record-workspace.module.css";
 import styles from "./personnel-workspace.module.css";
 
@@ -217,20 +218,14 @@ export default function PersonnelWorkspace({ selectedId, selectedTab, view }: {
   return (
     <section className={`${recordStyles.workspace} ${styles.workspace}`}>
       {!selectedId && <>
-      <header className="personnelToolbar">
-        <div>
-          <p className="personnelEyebrow">PEOPLE & REPORTING</p>
-          <h1>People</h1>
-        </div>
-        <div className="personnelActions">
+      <WorkspaceHeading title="People" eyebrow="PEOPLE & REPORTING" muted className="personnelToolbar" actions={<>
           <button type="button" className="projectWorkspaceLink" aria-haspopup="dialog" onClick={() => setShowRoles(true)}>
             Roles ({data.roles.length})
           </button>
           <button className="personnelButton personnelButtonPrimary" onClick={() => openPersonDialog()} disabled={data.roles.length === 0}>
             <Plus size={15} aria-hidden="true" /> Add person
           </button>
-        </div>
-      </header>
+      </>} />
 
       <p className={recordStyles.intro}>People at a glance. Open a person for reporting relationships and employee history.</p>
       <div className="listViewToolbar">
@@ -238,9 +233,7 @@ export default function PersonnelWorkspace({ selectedId, selectedTab, view }: {
           <Link className={`engagementTab${view === "directory" ? " engagementTabActive" : ""}`} href="/personnel" aria-current={view === "directory" ? "page" : undefined}>Directory ({data.people.length})</Link>
           <Link className={`engagementTab${view === "chart" ? " engagementTabActive" : ""}`} href="/personnel?view=chart" aria-current={view === "chart" ? "page" : undefined}>Organization chart</Link>
         </nav>
-        {view === "directory" && <button type="button" className="listFilterButton" aria-haspopup="dialog" onClick={() => setShowFilters(true)}>
-          Filters &amp; sort{(roleFilter || sort !== "asc") && <span className="listFilterIndicator" aria-label="Filters or sorting active" />}
-        </button>}
+        {view === "directory" && <FilterButton active={Boolean(roleFilter || sort !== "asc")} onClick={() => setShowFilters(true)} />}
       </div>
       </>}
 
@@ -299,11 +292,9 @@ export default function PersonnelWorkspace({ selectedId, selectedTab, view }: {
             onSelectPerson={(id) => { if (id) router.push(personHref(id)); }} /></section>
       ) : (
         <>
-          <div className="invoiceTableTools"><label className="invoiceSearchLabel">Search people
-            <input type="search" className="invoiceSearchInput" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name, role, or manager" /></label>
-            <span className="invoiceResultCount" aria-live="polite">{visiblePeople.length} of {data.people.length} people</span>
-            {(search || roleFilter || sort !== "asc") && <button type="button" className="invoiceClearButton" onClick={() => { setSearch(""); setRoleFilter(""); setSort("asc"); }}>Clear</button>}
-          </div>
+          <SearchToolbar label="Search people" value={search} onChange={setSearch} placeholder="Name, role, or manager"
+            count={`${visiblePeople.length} of ${data.people.length} people`}
+            onClear={search || roleFilter || sort !== "asc" ? () => { setSearch(""); setRoleFilter(""); setSort("asc"); } : undefined} />
           <div className={recordStyles.list}>
             {!visiblePeople.length && !error && <p className={recordStyles.empty}>No people match these filters.</p>}
             {visiblePeople.map((person) => <article className={recordStyles.card} key={person.id} aria-label={person.name}>
@@ -322,14 +313,12 @@ export default function PersonnelWorkspace({ selectedId, selectedTab, view }: {
         {!data.roles.length && <p>No roles defined yet. Add a role before adding people.</p>}
         <button type="button" className="financeImportButton" onClick={() => { setShowRoles(false); setRoleName(""); setError(null); setDialog("role"); }}>Add role</button>
       </Modal>}
-      {showFilters && <Modal titleId="personnelFiltersTitle" title="Filters & sort" eyebrow="PEOPLE" onClose={() => setShowFilters(false)} closeLabel="Close filters and sort">
+      {showFilters && <FiltersDialog id="personnel" label="PEOPLE" onClose={() => setShowFilters(false)}
+        onReset={() => { setRoleFilter(""); setSort("asc"); setSearch(""); }} hint="Changes apply immediately to the directory.">
         <label className="financeImportField">Role<select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
           <option value="">All roles</option>{data.roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label>
         <label className="financeImportField">Sort by<select value={sort} onChange={(event) => setSort(event.target.value)}><option value="asc">Name: A to Z</option><option value="desc">Name: Z to A</option></select></label>
-        <p className="projectCostHint">Changes apply immediately to the directory.</p>
-        <div className="financeImportActions"><button type="button" className="financeImportCancel" onClick={() => { setRoleFilter(""); setSort("asc"); setSearch(""); }}>Reset filters &amp; sort</button>
-          <button type="button" className="financeImportSubmit" onClick={() => setShowFilters(false)}>Done</button></div>
-      </Modal>}
+      </FiltersDialog>}
       {showHistoryForm && selectedPerson && <Modal titleId="personnelHistoryTitle" title={`Add history for ${selectedPerson.name}`} eyebrow="PEOPLE" closeDisabled={historySaving}
         onClose={() => { if (!historySaving) setShowHistoryForm(false); }} closeLabel="Close history form">
         <form className="personnelHistoryForm" onSubmit={submitHistory}>

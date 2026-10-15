@@ -1,4 +1,6 @@
 "use client";
+import Button from "@/app/components/button";
+import { WorkspaceHeading } from "@/app/components/workspace-ui";
 
 import { Fragment, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -727,12 +729,7 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
         loadingEdit={loadingEditEstimateId === selectedEstimate.estimateId}
         onEdit={() => void openEditForm(selectedEstimate)} onPdf={() => openPrintPdfPopup(selectedEstimate)}
         onWin={() => void openWinDialog(selectedEstimate)} onDelete={() => openDeleteDialog(selectedEstimate)} /> : <>
-      <header className={`${recordStyles.heading} ${styles.heading}`}>
-        <div>
-          <p className="salesEyebrow">SALES</p>
-          <h1>Sales &amp; Estimates</h1>
-        </div>
-        <div className={styles.headerActions}>
+      <WorkspaceHeading title="Sales & Estimates" eyebrow="SALES" className={recordStyles.heading} actions={<div className={styles.headerActions}>
         <details className={styles.libraries}>
           <summary><Library size={15} aria-hidden="true" /> Libraries</summary>
           <nav aria-label="Estimate libraries">
@@ -740,12 +737,11 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
             <Link href="/sales/scope-templates">Scope Templates</Link>
           </nav>
         </details>
-        <button className="financeImportButton" type="button" disabled={!canEdit} onClick={() => { resetForm(); setIsCreating(true); }}>
+        <Button className="financeImportButton" disabled={!canEdit} onClick={() => { resetForm(); setIsCreating(true); }}>
           <Plus size={15} aria-hidden="true" />
           New estimate
-        </button>
-        </div>
-      </header>
+        </Button>
+        </div>} />
 
       <div className="listViewToolbar">
         <div className="engagementTabs" role="tablist" aria-label="Estimate type">

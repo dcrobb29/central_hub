@@ -1,6 +1,6 @@
 /* Low-specificity fallbacks keep new controls recognizable without replacing component styles. */
 :where(a[href]) {
-  color: #176347;
+  color: var(--ui-color-record-action);
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
@@ -31,7 +31,7 @@
 }
 
 :where(a[href], button, summary, [role="button"], input, select, textarea):focus-visible {
-  outline: 2px solid #176347;
+  outline: 2px solid var(--ui-color-record-action);
   outline-offset: 3px;
 }
 
@@ -280,7 +280,7 @@
 
 .salesEyebrow {
   margin: 0;
-  color: #80502f;
+  color: var(--ui-color-eyebrow);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 1px;
@@ -454,31 +454,6 @@
   color: #687a73;
   font-size: 11px;
   font-style: italic;
-}
-
-.estimateTextAction,
-.estimateWinAction,
-.estimateDangerAction {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #176347;
-  cursor: pointer;
-  font: 600 12px Arial, sans-serif;
-  text-decoration: underline;
-}
-
-.estimateDangerAction {
-  color: #8a2f29;
-}
-
-.estimateWinAction:disabled,
-.estimateDangerAction:disabled {
-  cursor: wait;
-  opacity: 0.55;
 }
 
 .estimateScopeCell {
@@ -2152,25 +2127,6 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
   text-align: center !important;
 }
 
-.financeImportButton {
-  display: inline-flex;
-  min-height: 36px;
-  align-items: center;
-  gap: 7px;
-  padding: 0 12px;
-  border: 1px solid #1f604e;
-  border-radius: 3px;
-  background: #1f604e;
-  color: #fff;
-  cursor: pointer;
-  font: 600 12px Arial, sans-serif;
-}
-
-.financeImportButton:hover,
-.financeImportSubmit:hover {
-  background: #164b3b;
-}
-
 .financeImportBackdrop {
   position: fixed;
   z-index: 50;
@@ -2348,50 +2304,8 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
   margin-top: 16px;
 }
 
-.financeImportCancel,
-.financeImportSubmit {
-  min-height: 36px;
-  padding: 0 13px;
-  border: 1px solid #1f604e;
-  border-radius: 3px;
-  cursor: pointer;
-  font: 600 12px Arial, sans-serif;
-}
-
-.financeImportCancel {
-  background: #fff;
-  color: #1f604e;
-}
-
-.financeImportSubmit {
-  background: #1f604e;
-  color: #fff;
-}
-
-.financeImportDanger {
-  min-height: 36px;
-  padding: 0 13px;
-  border: 1px solid #8a2f29;
-  border-radius: 3px;
-  background: #8a2f29;
-  color: #fff;
-  cursor: pointer;
-  font: 600 12px Arial, sans-serif;
-}
-
-.financeImportDanger:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
 .financeConfirmDialog {
   width: min(420px, 100%);
-}
-
-.financeImportCancel:disabled,
-.financeImportSubmit:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
 }
 
 .financeImportError {
@@ -2728,7 +2642,7 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
 
 .personnelEyebrow {
   margin: 0;
-  color: #58716a;
+  color: var(--ui-color-people-eyebrow);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 1px;
@@ -2741,7 +2655,7 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
 .personnelButton {
   min-height: 38px;
   padding: 0 14px;
-  border: 1px solid #183e35;
+  border: 1px solid var(--ui-color-people-action);
   border-radius: 4px;
   cursor: pointer;
   font: 600 13px Arial, sans-serif;
@@ -2753,13 +2667,13 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
 }
 
 .personnelButtonPrimary {
-  background: #183e35;
+  background: var(--ui-color-people-action);
   color: #fff;
 }
 
 .personnelButtonSecondary {
   background: #fff;
-  color: #183e35;
+  color: var(--ui-color-people-action);
 }
 
 .personnelRoleBar {

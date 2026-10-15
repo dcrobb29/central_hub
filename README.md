@@ -437,6 +437,21 @@ Database integration tests use `RUN_DB_TESTS=1` with
 When combining database integration files, use `node --test --test-concurrency=1`
 to avoid competing rollback-only fixtures locking each other's test data.
 
+## Central styling reference
+
+Styling references are developer-only files in the codebase, not an application
+page or customer-facing menu.
+
+[app/design-system.css](app/design-system.css) is the central CSS foundation for
+semantic tokens and shared action recipes, organized into labeled sections.
+Existing aliases keep older forms working. The [style catalog](docs/STYLE-CATALOG.md)
+groups variants by component type and records source ownership, cross-tile
+coverage, tokens and remaining exceptions. Shared layout CSS modules are linked
+from that catalog.
+
+This is a consolidation/inventory pass, not yet a new brand theme or a claim
+that every legacy component has been migrated.
+
 ## Files workspace
 
 Files uses the shared compact-card layout rather than an always-visible sidebar

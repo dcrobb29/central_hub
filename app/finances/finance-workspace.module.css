@@ -1,14 +1,14 @@
 .page {
   display: block;
   overflow: auto;
-  background: #eaf0ed;
+  background: var(--ui-color-page);
   text-align: left;
 }
 
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 20px;
+  gap: var(--ui-space-workspace);
   min-width: 0;
 }
 
@@ -41,7 +41,6 @@
   color: #fff;
 }
 
-.heading,
 .toolbar,
 .actions {
   display: flex;
@@ -50,15 +49,8 @@
   gap: 12px;
 }
 
-.heading,
 .toolbar {
   justify-content: space-between;
-}
-
-.heading h1 {
-  margin: 4px 0 0;
-  font-size: 24px;
-  color: #20362d;
 }
 
 .workspace :global(.invoiceTableWrapper) {
@@ -67,19 +59,9 @@
   max-width: 100%;
 }
 
-.workspace :global(.invoiceTableTools) {
-  flex-wrap: wrap;
-}
-
 .workspace :global(.tablePaginationControls),
 .workspace :global(.tablePaginationButtons) {
   flex-wrap: wrap;
-  min-width: 0;
-}
-
-.workspace :global(.invoiceSearchLabel),
-.workspace :global(.invoiceSearchInput) {
-  max-width: 100%;
   min-width: 0;
 }
 

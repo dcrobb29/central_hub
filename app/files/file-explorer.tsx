@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Download, File as FileIcon, Folder, Plus, Upload } from "lucide-react";
 import type { FileEntry } from "@/app/lib/file-storage";
 import Modal from "@/app/components/modal";
+import Button from "@/app/components/button";
+import { WorkspaceHeading, SearchToolbar, FilterButton, FiltersDialog } from "@/app/components/workspace-ui";
 import recordStyles from "@/app/components/record-workspace.module.css";
 import styles from "./file-workspace.module.css";
 import FileViewer from "./file-viewer";
@@ -171,7 +173,7 @@ export default function FileExplorer() {
         <button type="button" className="projectWorkspaceLink" onClick={() => setSelectedFile(null)}>Back to {segments.at(-1) || "Files"}</button>
         <span> / {selectedFile.name}</span>
       </nav>
-      <header className={styles.heading}><div><p className="salesEyebrow">FILE WORKSPACE</p><h1 ref={previewHeading} tabIndex={-1}>{selectedFile.name}</h1></div></header>
+      <WorkspaceHeading title={selectedFile.name} eyebrow="FILE WORKSPACE" headingRef={previewHeading} focusable />
       <details className={styles.details}><summary>File details</summary>
         <dl className={styles.facts}><div><dt>Location</dt><dd>{selectedFile.path}</dd></div>
           <div><dt>Size</dt><dd>{formatSize(selectedFile.size)}</dd></div>
@@ -179,13 +181,10 @@ export default function FileExplorer() {
       </details>
       <div className={styles.preview}><FileViewer key={selectedFile.path} file={selectedFile} /></div>
     </> : <>
-      <header className={styles.heading}>
-        <div><p className="salesEyebrow">FILES & DOCUMENTS</p><h1>Files</h1></div>
-        <div className={styles.actions}>
+      <WorkspaceHeading title="Files" eyebrow="FILES & DOCUMENTS" actions={<>
           <button type="button" className="projectWorkspaceLink" disabled={busy} aria-haspopup="dialog" onClick={() => { setFolderName(""); setFolderError(null); setShowFolderForm(true); }}><Plus size={15} aria-hidden="true" />New folder</button>
-          <button type="button" className="financeImportButton" disabled={busy} aria-haspopup="dialog" onClick={() => setShowImport(true)}><Upload size={15} aria-hidden="true" />Import</button>
-        </div>
-      </header>
+          <Button className="financeImportButton" disabled={busy} aria-haspopup="dialog" onClick={() => setShowImport(true)}><Upload size={15} aria-hidden="true" />Import</Button>
+      </>} />
       <p className={recordStyles.intro}>Files at a glance. Open folders to browse, or preview a file before downloading.</p>
       <div className={styles.toolbar}>
         <nav className={styles.breadcrumb} aria-label="Folder location">
@@ -195,15 +194,12 @@ export default function FileExplorer() {
         </nav>
         <div className={styles.actions}>
           {currentPath && <button type="button" className="projectWorkspaceLink" disabled={busy} onClick={() => navigate(segments.slice(0, -1).join("/"))}>Up one folder</button>}
-          <button type="button" className="listFilterButton" aria-label="Filters & sort" aria-haspopup="dialog" onClick={() => setShowFilters(true)}>Filters &amp; sort
-            {filtersActive && <span className="listFilterIndicator" aria-label="Filters or sorting active" />}</button>
+          <FilterButton active={filtersActive} onClick={() => setShowFilters(true)} />
         </div>
       </div>
-      <div className="invoiceTableTools">
-        <label className="invoiceSearchLabel">Search this folder<input type="search" className="invoiceSearchInput" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="File or folder name" /></label>
-        {!loading && !directoryError && <span className="invoiceResultCount" aria-live="polite">{visibleEntries.length} of {entries.length} items</span>}
-        {filtersActive && <button type="button" className="invoiceClearButton" onClick={resetFilters}>Clear</button>}
-      </div>
+      <SearchToolbar label="Search this folder" value={search} onChange={setSearch} placeholder="File or folder name"
+        count={!loading && !directoryError ? `${visibleEntries.length} of ${entries.length} items` : undefined}
+        onClear={filtersActive ? resetFilters : undefined} />
       {isUploading && <p role="status">Importing items into {currentPath || "Files"}. Please keep this folder open.</p>}
       {importStatus && <p role="status" className="billingNotice">{importStatus}</p>}
       {importError && <p role="alert" className="financeImportError">{importError}</p>}
@@ -227,22 +223,21 @@ export default function FileExplorer() {
     </>}
     {showImport && <Modal titleId="fileImportTitle" title="Import" eyebrow="FILES" onClose={() => setShowImport(false)}>
       <p className={recordStyles.intro}>Import into {currentPath || "Files"}. Existing files are not overwritten. Folder imports keep their subfolder structure.</p>
-      <div className={styles.importActions}><button type="button" className="financeImportButton" onClick={() => fileInputRef.current?.click()}>Import files</button>
+      <div className={styles.importActions}><Button className="financeImportButton" onClick={() => fileInputRef.current?.click()}>Import files</Button>
         <button type="button" className="projectWorkspaceLink" onClick={() => folderInputRef.current?.click()}>Import folder</button></div>
     </Modal>}
     {showFolderForm && <Modal titleId="newFolderTitle" title="New folder" eyebrow="FILES" onClose={() => { if (!isCreatingFolder) setShowFolderForm(false); }} closeDisabled={isCreatingFolder}>
       <form onSubmit={handleCreateFolder}><p className="financeImportHint">Create in {currentPath || "Files"}.</p>
         <label className="financeImportField">Folder name<input autoFocus required value={folderName} disabled={isCreatingFolder} onChange={(event) => setFolderName(event.target.value)} /></label>
         {folderError && <p role="alert" className="financeImportError">{folderError}</p>}
-        <div className="financeImportActions"><button type="button" className="financeImportCancel" disabled={isCreatingFolder} onClick={() => setShowFolderForm(false)}>Cancel</button>
-          <button type="submit" className="financeImportSubmit" disabled={isCreatingFolder}>{isCreatingFolder ? "Creating..." : "Create folder"}</button></div>
+        <div className="financeImportActions"><Button variant="secondary" disabled={isCreatingFolder} onClick={() => setShowFolderForm(false)}>Cancel</Button>
+          <Button type="submit" disabled={isCreatingFolder}>{isCreatingFolder ? "Creating..." : "Create folder"}</Button></div>
       </form>
     </Modal>}
-    {showFilters && <Modal titleId="fileFiltersTitle" title="Filters & sort" eyebrow="FILES" onClose={() => setShowFilters(false)} closeLabel="Close filters and sort">
+    {showFilters && <FiltersDialog id="file" label="FILES" onClose={() => setShowFilters(false)} onReset={resetFilters}
+      hint="Folders stay before files. Changes apply immediately to this folder.">
       <label className="financeImportField">Type<select value={type} onChange={(event) => setType(event.target.value)}><option value="all">Files & folders</option><option value="file">Files only</option><option value="directory">Folders only</option></select></label>
       <label className="financeImportField">Sort by<select value={sort} onChange={(event) => setSort(event.target.value)}><option value="asc">Name: A to Z</option><option value="desc">Name: Z to A</option></select></label>
-      <p className="projectCostHint">Folders stay before files. Changes apply immediately to this folder.</p>
-      <div className="financeImportActions"><button type="button" className="financeImportCancel" onClick={resetFilters}>Reset filters &amp; sort</button><button type="button" className="financeImportSubmit" onClick={() => setShowFilters(false)}>Done</button></div>
-    </Modal>}
+    </FiltersDialog>}
   </section>;
 }

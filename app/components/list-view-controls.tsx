@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { SlidersHorizontal } from "lucide-react";
-import Modal from "./modal";
+import { FilterButton, FiltersDialog } from "./workspace-ui";
 
 export default function ListViewControls({ id, label, statuses, status, onStatusChange, sort, onSortChange, active, onReset, sortOptions, children }: {
   id: string;
@@ -26,13 +25,10 @@ export default function ListViewControls({ id, label, statuses, status, onStatus
           {option.label} <span>({option.count})</span>
         </button>)}
       </div>
-      <button type="button" className="listFilterButton" onClick={() => setOpen(true)} aria-haspopup="dialog"
-        aria-label="Filters & sort" title={active ? "Filters or sorting active" : "Filters & sort"}>
-        <SlidersHorizontal size={14} aria-hidden="true" /> Filters &amp; sort{active && <span aria-label="Filters or sorting active" className="listFilterIndicator" />}
-      </button>
+      <FilterButton active={active} onClick={() => setOpen(true)} />
     </div>
-    {open && <Modal titleId={`${id}-filters-title`} title="Filters & sort" eyebrow={label}
-      onClose={() => setOpen(false)} closeLabel="Close filters and sort" className="listFiltersDialog">
+    {open && <FiltersDialog id={id} label={label} onClose={() => setOpen(false)} onReset={onReset} className="listFiltersDialog"
+      hint="Changes apply immediately to the current list. Amount sorting uses the quoted total.">
       <label className="financeImportField">Status
         <select autoFocus value={status} onChange={(event) => onStatusChange(event.target.value)}>
           {statuses.map((option) => <option key={option.value} value={option.value}>{option.label} ({option.count})</option>)}
@@ -51,11 +47,6 @@ export default function ListViewControls({ id, label, statuses, status, onStatus
         </select>
       </label>
       {children}
-      <p className="projectCostHint">Changes apply immediately to the current list. Amount sorting uses the quoted total.</p>
-      <div className="financeImportActions">
-        <button type="button" className="financeImportCancel" onClick={onReset}>Reset filters &amp; sort</button>
-        <button type="button" className="financeImportSubmit" onClick={() => setOpen(false)}>Done</button>
-      </div>
-    </Modal>}
+    </FiltersDialog>}
   </>;
 }

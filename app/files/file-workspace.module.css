@@ -1,16 +1,15 @@
 .page {
   overflow: auto;
-  background: #eaf0ed;
+  background: var(--ui-color-page);
   text-align: left;
 }
 
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 20px;
+  gap: var(--ui-space-workspace);
 }
 
-.heading,
 .toolbar,
 .actions,
 .breadcrumb,
@@ -22,19 +21,10 @@
   min-width: 0;
 }
 
-.heading,
 .toolbar {
   justify-content: space-between;
 }
 
-.heading h1 {
-  margin: 4px 0 0;
-  color: #20362d;
-  font-size: 24px;
-  overflow-wrap: anywhere;
-}
-
-.heading > div,
 .breadcrumb > span {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -53,16 +43,6 @@
   gap: 6px;
   white-space: normal;
   overflow-wrap: anywhere;
-}
-
-.workspace :global(.invoiceTableTools) {
-  flex-wrap: wrap;
-}
-
-.workspace :global(.invoiceSearchLabel),
-.workspace :global(.invoiceSearchInput) {
-  min-width: 0;
-  max-width: 100%;
 }
 
 .name {

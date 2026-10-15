@@ -2,19 +2,13 @@
 
 import { useMemo, useState } from "react";
 import type { ProjectWithEstimate } from "@/app/lib/estimates";
-import type { AllocationBill, ProjectBillCost } from "@/app/lib/project-costs";
-import type { ProjectFinancialSummary } from "@/app/lib/projects";
-import ProjectCostPanel from "./project-cost-panel";
 import ProjectStatusSelector from "./project-status-selector";
 import ListViewControls from "@/app/components/list-view-controls";
-import ProjectCustomerSelector from "./project-customer-selector";
 import { customerLabel, type Customer } from "@/app/lib/customer-fields";
 import ProjectBillingModal from "./project-billing-modal";
-import { ReceiptText } from "lucide-react";
-import { DocumentNotes } from "@/app/components/document-notes";
+import { ArrowUpRight, ReceiptText } from "lucide-react";
 import Link from "next/link";
-import Modal from "@/app/components/modal";
-import ContractChangesPanel from "@/app/components/contract-changes-panel";
+import styles from "@/app/components/record-workspace.module.css";
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
@@ -31,11 +25,8 @@ function formatDate(value: string) {
   return new Date(`${value}T00:00:00`).toLocaleDateString();
 }
 
-export default function ProjectsWorkspace({ projects, costs, bills, financials, customers, initialProjectId }: {
+export default function ProjectsWorkspace({ projects, customers, initialProjectId }: {
   projects: ProjectWithEstimate[];
-  costs: ProjectBillCost[];
-  bills: AllocationBill[];
-  financials: ProjectFinancialSummary[];
   customers: Customer[];
   initialProjectId: number | null;
 }) {
@@ -45,27 +36,8 @@ export default function ProjectsWorkspace({ projects, costs, bills, financials, 
   const [statusFilter, setStatusFilter] = useState("All");
   const [sort, setSort] = useState("");
   const [billing, setBilling] = useState<{ projectId: number; projectName: string; tab: "completion" | "invoice" } | null>(null);
-  const [changes,setChanges]=useState<ProjectWithEstimate|null>(null);
 
   const customersById = useMemo(() => new Map(customers.map((c) => [c.customerId, c])), [customers]);
-
-  const costsByProjectId = useMemo(() => {
-    const map = new Map<number, ProjectBillCost[]>();
-    for (const cost of costs) {
-      const list = map.get(cost.projectId);
-      if (list) list.push(cost);
-      else map.set(cost.projectId, [cost]);
-    }
-    return map;
-  }, [costs]);
-
-  const financialsByProjectId = useMemo(() => {
-    const map = new Map<number, ProjectFinancialSummary>();
-    for (const f of financials) {
-      map.set(f.projectId, f);
-    }
-    return map;
-  }, [financials]);
 
   const oneTimeProjects = useMemo(() => projects.filter((project) => project.engagementType === "Project"), [projects]);
   const recurringProjects = useMemo(() => projects.filter((project) => project.engagementType === "Service"), [projects]);
@@ -88,13 +60,13 @@ export default function ProjectsWorkspace({ projects, costs, bills, financials, 
   }, [tabProjects, statusFilter, sort]);
 
   return (
-    <div className="projectsWorkspace">
-      <header className="salesToolbar">
+    <div className={`projectsWorkspace ${styles.workspace}`}>
+      <header className={styles.heading}>
         <div>
           <p className="salesEyebrow">PROJECTS &amp; JOBS</p>
           <h1>Project management</h1>
         </div>
-        {/* <p className="salesWorkflowNote">Won estimates carry their accepted scope into a project.</p> */}
+        <p>Jobs at a glance. Open a project for scope, costs, files, and scheduling.</p>
       </header>
 
       <div className="listViewToolbar">
@@ -132,62 +104,49 @@ export default function ProjectsWorkspace({ projects, costs, bills, financials, 
           {tabProjects.length > 0 ? "No projects match this status filter." : activeTab === "Project" ? "Won one-time estimates will appear here as projects." : "Won recurring estimates will appear here as projects."}
         </div>
       ) : (
-        <div className="projectList">
+        <div className={styles.list} aria-label={activeTab === "Project" ? "Projects" : "Recurring jobs"}>
           {visibleProjects.map((project) => (
-            <details className="projectCard" id={`project-${project.projectId}`} key={project.projectId} open={project.projectId === initialProjectId ? true : undefined}>
-              <summary>
-                <span className="projectCardTitle">
-                  <strong>{project.projectName}</strong>
-                  <span>{(() => {
+            <article className={styles.card} id={`project-${project.projectId}`} key={project.projectId}
+              aria-labelledby={`project-title-${project.projectId}`}
+              data-highlighted={project.projectId === initialProjectId || undefined}>
+                <div className={styles.identity}>
+                  <h2 id={`project-title-${project.projectId}`}>
+                    <Link href={`/projects/${project.projectId}`}>{project.projectName}</Link>
+                  </h2>
+                  <p>{(() => {
                     const customer = project.customerId !== null ? customersById.get(project.customerId) : undefined;
                     return customer ? customerLabel(customer) : project.customerName ?? "Customer not specified";
-                  })()}</span>
-                </span>
-                <ProjectStatusSelector projectId={project.projectId} projectName={project.projectName} status={project.projectStatus} />
-                <div className="projectCardMetaContainer"> 
-                  {activeTab === "Service" && (<span className="projectCardMeta">
-                    {project.recurrenceFrequency ? FREQUENCY_LABELS[project.recurrenceFrequency] ?? project.recurrenceFrequency : "—"}
-                    {project.expectedStartDate ? ` · Starts ${formatDate(project.expectedStartDate)}` : ""}
-                    {project.expectedEndDate ? ` · Ends ${formatDate(project.expectedEndDate)}` : " · Ongoing"}
-                  </span>)}
+                  })()}</p>
+                  {activeTab === "Service" && <p className={styles.recurrence}>
+                    {project.recurrenceFrequency ? FREQUENCY_LABELS[project.recurrenceFrequency] ?? project.recurrenceFrequency : "Frequency not specified"}
+                    {project.expectedStartDate ? ` · From ${formatDate(project.expectedStartDate)}` : ""}
+                    {project.expectedEndDate ? ` · Until ${formatDate(project.expectedEndDate)}` : " · Ongoing"}
+                  </p>}
                 </div>
-                <div className="projectCardTotal">
+                <div className={styles.status}>
+                  <span className={styles.label}>Status</span>
+                  <ProjectStatusSelector projectId={project.projectId} projectName={project.projectName} status={project.projectStatus} />
+                </div>
+                <div className={styles.value}>
+                  <span className={styles.label}>{activeTab === "Service" ? "Per occurrence" : "Contract value"}</span>
                   <strong>{project.quotedTotal == null ? "—" : currency.format(project.quotedTotal)}</strong>
+                </div>
+                <div className={styles.actions}>
                   <button type="button" className="projectInvoiceButton" disabled={project.quotedTotal === null}
-                    aria-label={`Invoice ${project.projectName}`} onClick={(event) => {
-                      event.preventDefault(); event.stopPropagation();
+                    aria-label={`Invoice ${project.projectName}`} onClick={() => {
                       setBilling({ projectId: project.projectId, projectName: project.projectName, tab: "invoice" });
                     }}><ReceiptText size={16} aria-hidden="true" />Invoice</button>
+                  <Link className={styles.openRecord} href={`/projects/${project.projectId}`}
+                    aria-label={`Open project: ${project.projectName}`}>
+                    Open project <ArrowUpRight size={15} aria-hidden="true" />
+                  </Link>
                 </div>
-
-
-              </summary>
-              <div className="projectCompletionAction"><Link className="projectWorkspaceLink" href={`/projects/${project.projectId}`}>Open project workspace</Link>
-                <button type="button" onClick={()=>setChanges(project)}>Alternates &amp; change orders</button>
-              </div>
-              <ProjectCustomerSelector projectId={project.projectId} customerId={project.customerId} customers={customers} readOnly={project.projectStatus === "Complete"} />
-              <div className="projectCompletionAction"><button type="button" className="estimateTextAction" disabled={project.quotedTotal === null}
-                onClick={() => setBilling({ projectId: project.projectId, projectName: project.projectName, tab: "completion" })}>
-                Track scope{project.engagementType === "Service" ? " / occurrence" : ""} completion &amp; billing
-              </button></div>
-              <ProjectCostPanel
-                project={project}
-                costs={costsByProjectId.get(project.projectId) ?? []}
-                bills={bills}
-                financials={financialsByProjectId.get(project.projectId)}
-              />
-              <DocumentNotes internalNotes={project.internalNotes} customerNotes={project.customerNotes}
-                internalClassName="projectInternalNotes" customerClassName="projectCustomerNotes" />
-            </details>
+            </article>
           ))}
         </div>
       )}
       {billing && <ProjectBillingModal key={billing.projectId} projectId={billing.projectId} projectName={billing.projectName}
         initialTab={billing.tab} onClose={() => setBilling(null)} />}
-      {changes&&<Modal titleId="projectChangesTitle" title={`Contract changes / ${changes.projectName}`} eyebrow="PROJECT MANAGEMENT"
-        className="estimateDialog" onClose={()=>setChanges(null)}>
-        <ContractChangesPanel key={changes.projectId} context={{projectId:changes.projectId}}/>
-      </Modal>}
     </div>
   );
 }

@@ -12,14 +12,78 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Interaction styling
+
+Shared, low-specificity styles in `app/styles.css` give links an underline,
+unstyled buttons a bordered surface, and disclosures a tinted surface. Existing
+component styles retain their visual hierarchy. Interactive elements share a
+visible keyboard-focus outline; disabled controls are dimmed and do not receive
+the fallback hover treatment. Billing-history and scope disclosures also show
+a chevron that changes direction when expanded.
+
+Use semantic links for navigation, buttons for actions, and `details`/`summary`
+for expandable content so new controls inherit these affordances. Text-only
+actions must retain an underline or another visible non-color cue at rest;
+do not rely on cursor or hover changes alone.
+
 ## Project workspace
 
 Apply `database\project-workspace-schema.sql` with an admin SQL connection before
 using project attachments. The migration adds project/organization-owned
 `ProjectAttachments` metadata; existing files and business records are unchanged.
 
-Use **Open project workspace** on a project card, or visit `/projects/{id}`.
-The portfolio and its existing expandable cards remain available. Project tabs:
+Use **Open project** on a project card, or visit `/projects/{id}`.
+Project Management is a compact portfolio: name, customer, editable status,
+contract value (per occurrence for recurring jobs), Invoice, and Open project.
+Recurring frequency and dates remain visible. Detailed scope, costs, bill
+reconciliation, notes, and contract changes live in the project workspace rather
+than expanding within every portfolio card. Billing customer assignment is
+available in Overview and Scope & Finances; completion and invoicing remain in
+Scope & Finances. No calculations or approval workflows have changed.
+
+The project and estimate portfolios share mobile-first layouts in `app/components/record-workspace.module.css`:
+below 640px, stacked cards and wrapping filters; **sm** (640px), inline filter
+controls; **md** (768px), two-row summary cards; **lg** (1024px), single-row cards;
+**xl** (1280px), wider spacing with a 1280px content limit.
+The application shell fills the dynamic viewport with an intrinsic-height header
+and footer and a flexible, independently scrolling content area. The header and
+footer stay visible without overlaying content; the document itself does not
+scroll. Project Management and project workspaces scroll within the available
+content height, with no separate fixed-height portfolio list. Project workspaces
+use a readable status selector instead of viewport-width sizing.
+The shared header wraps below 640px. Other module layouts are not part
+of the project and estimate portfolio simplification.
+Legacy `projectId` and post-conversion `created` query parameters select the
+correct project/recurring tab and highlight the target card.
+
+## Sales & Estimates workspace
+
+Sales follows the same compact portfolio and open-record pattern as Projects &
+Jobs. Cards show the estimate/customer, status, base quoted value, PDF, and **Open
+estimate**. Recurring cards retain frequency, dates, and per-occurrence pricing.
+Project/recurring tabs, approval filters, and search remain on the overview.
+All former table-column filters and both sort directions for every field are
+available in **Filters & sort**, including recurring frequency and dates.
+Material Catalog and Scope Templates are grouped under **Libraries**.
+
+`/sales/{estimateId}` opens an organization-owned base estimate with the same
+breadcrumb and section-tab conventions as project workspaces:
+
+- **Overview**: customer, value, work type, line count, recurring dates, and
+  internal/customer notes.
+- **Scope & Pricing**: complete base-bid lines and quantities, pricing settings,
+  internal freight/tax, per-line markup, and collapsible scope/type groups.
+- **Alternates**: the existing separate alternate management and approval tools.
+
+PDF is available from both cards and the workspace. Edit and Mark won are in the
+workspace action bar; Delete is under **More actions** and still requires
+confirmation. Won/read-only estimates retain their existing action restrictions.
+The existing new/edit forms, alternate-draft editor, PDF settings/preview, and
+win/conversion workflows are unchanged. The overview no longer expands these
+details inside each card. Both portfolios retain the viewport-contained shell
+and the same small/medium/large/XL breakpoints.
+
+## Project workspace sections
 
 - Overview: customer, accepted estimate, dates, notes, and project status.
 - Scope & Finances: the existing cost panel and calculations, project-linked
@@ -70,8 +134,8 @@ rerunning older billing trigger migrations afterwards reinstates the old caps;
 rerun this migration to restore current-contract caps.
 
 Use **Alternates** on a Sales estimate (also listed below its expanded scope).
-Use **Alternates & change orders** in an expanded Project Management card or
-the project workspace's **Alternates & Change Orders** tab. Both use one shared
+Use the project workspace's **Alternates & Change Orders** tab.
+Both use one shared
 estimate-style editor: scope, Material/Labor/Equipment lines, preset units,
 quantity, cost, freight, markup, tax, and internal/customer notes. New records
 have an ALT/CO number plus their own linked EST record ID, not independent jobs.
@@ -100,7 +164,25 @@ base editor replaces line IDs, deductions must be reselected and re-proposed.
 Unapproved documents can be removed; approved documents require a corrective
 change order. Approval freezes the before/after contract values for historical
 PDFs even when later change orders adjust the job. PDF exports include only customer notes and sell values.
-The base estimate PDF lists proposed/approved alternates separately.
+Viewing an estimate's scope shows separate base-bid and bid-alternate containers;
+alternate scopes expand inline instead of opening a separate viewing modal.
+Project contract records remain available in the workspace's dedicated tab.
+The **New Estimate** form includes **Add alternate** beneath the base estimate
+total. Each alternate uses the shared change-pricing editor and has its own signed
+subtotal after that total; none are added to the base bid. Additive lines and
+deductions referencing unsaved base-bid lines are supported. Saving writes the
+base bid and all linked alternate drafts in one transaction: a failed alternate
+leaves no partially saved estimate. Drafts can be included in the customer PDF
+without approving them; they must still be proposed before selection at bid
+acceptance. Recurring work remains excluded.
+The PDF print preview has a saved **Alternates (separate from base bid)** toggle,
+enabled by default. Included draft/proposed/approved alternates print immediately after the base
+bid with their own scope lines and signed totals; they never change the base total.
+Quantity, line-total, and scope-heading print options also apply to alternate lines.
+Rejected alternates are not included in customer PDFs. Printing a draft does not
+propose or approve it, and does not change the contract.
+Apply [database/estimate-alternates-print-schema.sql](database/estimate-alternates-print-schema.sql)
+for the saved print preference.
 
 Recurring agreements are explicitly excluded. Existing scheduled assignments
 are retained; newly scheduled estimate-backed labor tasks include approved

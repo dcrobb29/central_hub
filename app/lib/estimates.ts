@@ -5,7 +5,8 @@ import { validateRecurringSchedule } from "@/app/lib/recurring-dates";
 import { getUnitsOfMeasurement } from "@/app/lib/units-of-measurement";
 import { requireUnitAbbreviation } from "@/app/lib/unit-presets";
 import { ensureProjectBillingSnapshot } from "@/app/lib/project-billing";
-import { approveChangeInTransaction } from "./contract-changes";
+import { approveChangeInTransaction, saveContractChangeInTransaction, type InitialAlternateInput } from "./contract-changes";
+import { ProjectAccessError } from "./project-access-error";
 import {
   calculateEstimate,
   type EstimateMarkupMode,
@@ -50,6 +51,7 @@ export type EstimatePrintOptions = {
   showLineTotals: boolean;
   showSummaryTotal: boolean;
   showScopesOfWork: boolean;
+  showAlternates: boolean;
 };
 
 export type EstimateScope = {
@@ -73,6 +75,7 @@ export type EstimateSummary = {
   showLineTotals: boolean;
   showSummaryTotal: boolean;
   showScopesOfWork: boolean;
+  showAlternates: boolean;
   createdAt: string;
   revisionId: number;
   markupMode: EstimateMarkupMode;
@@ -148,6 +151,7 @@ export async function getEstimates(organizationId?:number): Promise<EstimateSumm
       e.ShowLineTotals AS showLineTotals,
       e.ShowSummaryTotal AS showSummaryTotal,
       e.ShowScopesOfWork AS showScopesOfWork,
+      e.ShowAlternates AS showAlternates,
       CONVERT(varchar(19), e.CreatedAt, 126) AS createdAt,
       r.EstimateRevisionID AS revisionId,
       r.MarkupMode AS markupMode,
@@ -197,6 +201,7 @@ export async function getEstimateDetails(estimateId: number): Promise<EstimateDe
         e.ShowLineTotals AS showLineTotals,
         e.ShowSummaryTotal AS showSummaryTotal,
         e.ShowScopesOfWork AS showScopesOfWork,
+        e.ShowAlternates AS showAlternates,
         CONVERT(varchar(19), e.CreatedAt, 126) AS createdAt,
         r.EstimateRevisionID AS revisionId,
         r.MarkupMode AS markupMode,
@@ -256,7 +261,9 @@ export async function getEstimateDetails(estimateId: number): Promise<EstimateDe
   return { ...summary, lines: linesWithScopeNames, scopes: scopes.recordset };
 }
 
-export async function createEstimate(input: CreateEstimateInput, organizationId?:number): Promise<number> {
+export async function createEstimate(input: CreateEstimateInput, organizationId?:number, alternates: InitialAlternateInput[] = []): Promise<number> {
+  if (alternates.length && input.engagementType !== "Project")
+    throw new ProjectAccessError("Alternates are not enabled for recurring agreements.", 400);
   input = await canonicalizeEstimateUnits(input);
   const pricing = calculateEstimate(input);
   const pool = await getPool();
@@ -305,6 +312,29 @@ export async function createEstimate(input: CreateEstimateInput, organizationId?
 
     await insertScopesAndLines(transaction, revisionId, input);
 
+    if (alternates.length) {
+      const savedLines = (await transaction.request().input("revision", sql.Int, revisionId)
+        .query<{ id: number; lineNumber: number; organizationId: number }>(`
+          SELECT EstimateLineItemID AS id,LineNumber AS lineNumber,OrganizationID AS organizationId
+          FROM dbo.EstimateLineItems WHERE EstimateRevisionID=@revision ORDER BY LineNumber`)).recordset;
+      if (!savedLines.length) throw new ProjectAccessError("Add base-bid work before including alternates.", 400);
+      for (const alternate of alternates) {
+        await saveContractChangeInTransaction(transaction, { estimateId }, savedLines[0].organizationId, {
+          ...alternate,
+          customerName: input.customerName,
+          lines: alternate.lines.map(line => {
+            let deductLineId: number | null = null;
+            if (line.operation === "Deduct") {
+              const target = line.deductLineIndex;
+              const source = target === null ? undefined : savedLines.find(saved => saved.lineNumber === target + 1);
+              if (!source) throw new ProjectAccessError("Choose an existing base-bid line for each deduction.", 400);
+              deductLineId = source.id;
+            }
+            return { ...line, deductLineId };
+          }),
+        });
+      }
+    }
     await transaction.commit();
     return estimateId;
   } catch (error) {
@@ -600,10 +630,11 @@ export async function setEstimatePrintOptions(estimateId: number, options: Estim
     .input("showLineTotals", sql.Bit, options.showLineTotals)
     .input("showSummaryTotal", sql.Bit, options.showSummaryTotal)
     .input("showScopesOfWork", sql.Bit, options.showScopesOfWork)
+    .input("showAlternates", sql.Bit, options.showAlternates)
     .query(`
       UPDATE dbo.Estimates
       SET ShowQuantities = @showQuantities, ShowLineTotals = @showLineTotals, ShowSummaryTotal = @showSummaryTotal,
-        ShowScopesOfWork = @showScopesOfWork
+        ShowScopesOfWork = @showScopesOfWork, ShowAlternates = @showAlternates
       WHERE EstimateID = @estimateId
     `);
 }

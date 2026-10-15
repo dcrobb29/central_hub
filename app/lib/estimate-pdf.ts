@@ -2,6 +2,7 @@ import PDFDocument from "pdfkit";
 import type { EstimateDetails, EstimateLine } from "@/app/lib/estimates";
 import { calculateEstimate } from "@/app/lib/estimate-pricing";
 import { renderCustomerNotes } from "@/app/lib/pdf-customer-notes";
+import type { ContractChange } from "@/app/lib/contract-changes";
 
 const money = (value: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
@@ -16,9 +17,17 @@ type LineGroup = {
   title: string | null;
   indexes: number[];
 };
+export type EstimatePdfAlternate = {
+  code: string; title: string; status: string; value: number; notes: string | null;
+  lines: {description: string; scopeName: string | null; operation: "Add" | "Deduct";
+    quantity: number; unitName: string | null; sellAmount: number}[];
+};
+export function includeAlternateInEstimatePdf(change: Pick<ContractChange, "kind" | "status">): boolean {
+  return change.kind === "Alternate" && ["Draft", "Proposed", "Approved"].includes(change.status);
+}
 
 // Customer-facing export: customer notes and sell prices only, never internal notes or cost breakdowns.
-export function renderEstimatePdf(estimate: EstimateDetails, alternates:{code:string;title:string;status:string;value:number;notes:string|null}[]=[]): Promise<Buffer> {
+export function renderEstimatePdf(estimate: EstimateDetails, alternates: EstimatePdfAlternate[]=[]): Promise<Buffer> {
   const pricing = calculateEstimate({
     markupMode: estimate.markupMode,
     estimateMarkupPercent: estimate.estimateMarkupPercent,
@@ -139,16 +148,28 @@ export function renderEstimatePdf(estimate: EstimateDetails, alternates:{code:st
       doc.font("Helvetica");
     }
 
-    renderCustomerNotes(doc, estimate.customerNotes);
-    if(alternates.length) {
-      doc.moveDown().fontSize(13).font("Helvetica-Bold").text("Alternates (not included in base bid)");
+    if(estimate.showAlternates&&alternates.length) {
+      if(doc.y>620)doc.addPage();
+      doc.moveDown().fontSize(13).font("Helvetica-Bold").text("Alternates (not included in base bid)",54,doc.y,{width:504});
       for(const alternate of alternates) {
         if(doc.y>640)doc.addPage();
-        doc.moveDown(0.5).fontSize(11).font("Helvetica-Bold").text(`${alternate.code}: ${alternate.title}`);
-        doc.font("Helvetica").text(`${alternate.status} / ${money(alternate.value)}`);
-        if(alternate.notes)doc.text(alternate.notes);
+        doc.moveDown(0.5).fontSize(11).font("Helvetica-Bold").text(`${alternate.code}: ${alternate.title}`,54,doc.y,{width:504});
+        doc.font("Helvetica").fontSize(10).text(`${alternate.status} / Separate alternate total: ${money(alternate.value)}`);
+        let previousScope: string | null = null;
+        for(const line of alternate.lines) {
+          if(doc.y>660)doc.addPage();
+          if(estimate.showScopesOfWork&&line.scopeName&&line.scopeName!==previousScope) {
+            doc.moveDown(0.3).font("Helvetica-Bold").text(line.scopeName,54,doc.y,{width:504});
+            previousScope=line.scopeName;
+          }
+          const quantity=estimate.showQuantities?` / ${line.quantity} ${line.unitName??""}`:"";
+          const amount=estimate.showLineTotals?` / ${money(line.operation==="Deduct"?-line.sellAmount:line.sellAmount)}`:"";
+          doc.font("Helvetica").text(`${line.operation}: ${line.description}${quantity}${amount}`,54,doc.y,{width:504});
+        }
+        renderCustomerNotes(doc,alternate.notes);
       }
     }
+    renderCustomerNotes(doc, estimate.customerNotes);
 
     doc.end();
   });

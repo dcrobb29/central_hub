@@ -1,12 +1,12 @@
 "use client";
-import { useEffect,useState,type FormEvent } from "react";
+import { Fragment,useEffect,useState,type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import type { ChangeContext,ChangeInput,ContractChange,ChangeSourceLine } from "@/app/lib/contract-changes";
+import type { ChangeContext,ChangeInput,ChangeDetails,ContractChange,ChangeSourceLine } from "@/app/lib/contract-changes";
 import type { UnitPreset } from "@/app/lib/unit-presets";
 import { defaultUnitAbbreviation } from "@/app/lib/unit-presets";
-import { calculateChange } from "@/app/lib/contract-change-pricing";
 import Modal from "./modal";
-import { DocumentNotesFields } from "./document-notes";
+import { DocumentNotes } from "./document-notes";
+import ContractChangeFields, { blankContractChange, contractChangePreview } from "./contract-change-fields";
 
 type Data={
   parent:{title:string;engagementType:string;status:string;projectStatus:string|null;isSample?:boolean};
@@ -20,12 +20,42 @@ async function responseData(response:Response) {
   if(!response.ok) throw new Error(result.error??"Unable to update contract changes.");
   return result;
 }
+function ContractChangeScope({query,change}:{query:string;change:ContractChange}) {
+  const [input,setInput]=useState<ChangeDetails|null>(null);
+  const [error,setError]=useState<string|null>(null);
+  const [attempt,setAttempt]=useState(0);
+  useEffect(()=>{
+    const controller=new AbortController();
+    void fetch(`/api/contract-changes?${query}&changeId=${change.changeId}`,{signal:controller.signal})
+      .then(responseData).then(result=>{if(!controller.signal.aborted)setInput(result.input);})
+      .catch((e:unknown)=>{if(!controller.signal.aborted)setError(e instanceof Error?e.message:"Unable to load scope.");});
+    return ()=>controller.abort();
+  },[query,change.changeId,attempt]);
+  return <section className="contractChangeScope" aria-label={`${code(change)} scope`}>
+    <h3>{code(change)}: {change.title}</h3>
+    <p><strong>Separate net value: {money(change.quotedTotal)}</strong> / {change.status}</p>
+    {error?<><p className="financeImportError" role="alert">{error}</p>
+      <button type="button" onClick={()=>{setError(null);setAttempt(value=>value+1);}}>Retry loading scope</button></>:
+      !input?<p role="status">Loading scope...</p>:<>
+        <div className="projectScopeTableWrapper"><table className="invoiceTable">
+          <thead><tr><th>Scope</th><th>Add / Deduct</th><th>Description</th><th>Type</th><th>Quantity</th><th>Unit</th><th>Sell value</th></tr></thead>
+          <tbody>{input.lines.map((line,index)=><tr key={index}>
+            <td>{line.scopeName??"Ungrouped"}</td><td>{line.operation}</td><td>{line.description}</td><td>{line.lineType}</td>
+            <td>{line.quantity}</td><td>{line.unitName}</td>
+            <td>{money(line.operation==="Deduct"?-line.sellAmount:line.sellAmount)}</td>
+          </tr>)}</tbody>
+        </table></div>
+        <DocumentNotes internalNotes={input.internalNotes} customerNotes={input.customerNotes}/>
+      </>}
+  </section>;
+}
 export default function ContractChangesPanel({context}:{context:ChangeContext}) {
   const router=useRouter();
   const query=context.projectId?`projectId=${context.projectId}`:`estimateId=${context.estimateId}`;
   const [data,setData]=useState<Data|null>(null);
   const [error,setError]=useState<string|null>(null);
   const [busy,setBusy]=useState(false);
+  const [expandedChangeId,setExpandedChangeId]=useState<number|null>(null);
   const [editor,setEditor]=useState<{input:ChangeInput;change?:ContractChange;sourceId?:number;readOnly?:boolean}|null>(null);
   const [approval,setApproval]=useState<ContractChange|null>(null);
   const [approvalDate,setApprovalDate]=useState(new Date().toLocaleDateString("en-CA"));
@@ -41,17 +71,7 @@ export default function ContractChangesPanel({context}:{context:ChangeContext}) 
     router.refresh();
   }
   function blank():ChangeInput {
-    return {estimateName:"",customerName:null,internalNotes:null,customerNotes:null,engagementType:"Project",
-      recurrenceFrequency:null,expectedStartDate:null,expectedEndDate:null,markupMode:"perLine",estimateMarkupPercent:0,
-      taxPercent:0,roundingIncrement:0,groupingMode:"Scope",scopes:["Changed work"],lines:[{
-        operation:"Add",deductLineId:null,description:"",quantity:1,unitName:defaultUnitAbbreviation(data?.unitPresets??[]),
-        unitCost:0,freightAmount:0,lineMarkupPercent:0,lineType:"Material",scopeName:"Changed work",
-        materialId:null,catalogUnitCostAtEntry:null,catalogPriceDate:null,
-      }]};
-  }
-  function patch(patch:Partial<ChangeInput>){setEditor(e=>e?{...e,input:{...e.input,...patch}}:e);}
-  function linePatch(index:number,patch:Partial<ChangeInput["lines"][number]>){
-    setEditor(e=>e?{...e,input:{...e.input,lines:e.input.lines.map((l,i)=>i===index?{...l,...patch}:l)}}:e);
+    return blankContractChange(defaultUnitAbbreviation(data?.unitPresets??[]));
   }
   async function open(change:ContractChange,convert=false){
     setBusy(true);setError(null);
@@ -82,13 +102,7 @@ export default function ContractChangesPanel({context}:{context:ChangeContext}) 
     finally{setBusy(false);}
   }
   const input=editor?.input;
-  const pricing=input?calculateChange(input):null;
-  const preview=input&&pricing?input.lines.reduce((sum,line,index)=>{
-    if(line.operation==="Add")return sum+pricing.lines[index].sellAmount;
-    const source=data?.sourceLines.find(s=>s.lineId===line.deductLineId);
-    return source?sum-(line.quantity===source.remainingQuantity?source.sellAmount-source.deductedSell:
-      Math.round(source.sellAmount*line.quantity/source.originalQuantity*100)/100):sum;
-  },0):0;
+  const preview=input?contractChangePreview(input,data?.sourceLines??[]):0;
   const editable=data?.canEdit&&data.parent.engagementType==="Project"&&data.parent.projectStatus!=="Complete"&&
     (context.projectId||data.parent.status==="Draft");
   return <section className="projectHubSection contractChangesPanel" aria-busy={busy}>
@@ -114,12 +128,17 @@ export default function ContractChangesPanel({context}:{context:ChangeContext}) 
         {!context.projectId&&<p>Select proposed alternates when marking the base bid won. Unselected alternates remain separate and can later become change-order proposals.</p>}
         <div className="projectScopeTableWrapper"><table className="invoiceTable">
           <thead><tr><th>Record</th><th>Description</th><th>Status</th><th>Net value</th><th>Approval</th><th>Actions</th></tr></thead>
-          <tbody>{data.changes.map(c=><tr key={c.changeId}>
+          <tbody>{data.changes.map(c=><Fragment key={c.changeId}><tr>
             <td>{code(c)}<br/>EST-{c.documentEstimateId}{c.sourceAlternateId&&<small>From ALT-{String(c.sourceAlternateId).padStart(6,"0")}</small>}</td>
             <td>{c.title}</td><td>{c.status} / v{c.version}</td><td>{money(c.quotedTotal)}</td>
             <td>{c.approvedAt?`${c.approvedAt}: ${c.approvalReference}`:"Not approved"}</td>
             <td className="contractActions">
-              <button type="button" disabled={busy} onClick={()=>void open(c)}>{editable&&c.status!=="Approved"&&c.kind===(context.projectId?"ChangeOrder":"Alternate")?"Edit / View":"View"}</button>
+              <button type="button" aria-expanded={expandedChangeId===c.changeId} disabled={busy}
+                onClick={()=>setExpandedChangeId(current=>current===c.changeId?null:c.changeId)}>
+                {expandedChangeId===c.changeId?"Hide scope":"View scope"}
+              </button>
+              {editable&&c.status!=="Approved"&&c.kind===(context.projectId?"ChangeOrder":"Alternate")&&
+                <button type="button" disabled={busy} onClick={()=>void open(c)}>Edit</button>}
               <a href={`/api/contract-changes/${c.changeId}/pdf`} target="_blank" rel="noreferrer">PDF</a>
               {editable&&c.kind===(context.projectId?"ChangeOrder":"Alternate")&&c.status!=="Approved"&&<>
                 {c.status!=="Proposed"&&<button type="button" disabled={busy} onClick={()=>void action(c,"propose")}>Propose</button>}
@@ -131,7 +150,9 @@ export default function ContractChangesPanel({context}:{context:ChangeContext}) 
               {editable&&context.projectId&&c.kind==="Alternate"&&c.status!=="Approved"&&!data.changes.some(d=>d.sourceAlternateId===c.changeId)&&
                 <button type="button" disabled={busy} onClick={()=>void open(c,true)}>Create linked change order</button>}
             </td>
-          </tr>)}{!data.changes.length&&<tr><td colSpan={6}>No alternates or change orders yet.</td></tr>}</tbody>
+          </tr>{expandedChangeId===c.changeId&&<tr><td colSpan={6}>
+            <ContractChangeScope key={`${c.changeId}:${c.version}`} query={query} change={c}/>
+          </td></tr>}</Fragment>)}{!data.changes.length&&<tr><td colSpan={6}>No alternates or change orders yet.</td></tr>}</tbody>
         </table></div>
       </>}
     </>}
@@ -139,43 +160,8 @@ export default function ContractChangesPanel({context}:{context:ChangeContext}) 
       eyebrow="CONTRACT CHANGES" className="estimateDialog" onClose={()=>{if(!busy)setEditor(null);}} closeDisabled={busy}>
       <form onSubmit={save}>
         {error&&<p className="financeImportError" role="alert">{error}</p>}
-        <fieldset disabled={busy||editor.readOnly} className="financeImportGroup">
-          <legend>Estimate-style pricing</legend>
-          <div className="financeImportFields">
-            <label className="financeImportField">Name<input required maxLength={150} value={input.estimateName} onChange={e=>patch({estimateName:e.target.value})}/></label>
-            <label className="financeImportField">Markup method<select value={input.markupMode} onChange={e=>patch({markupMode:e.target.value==="estimate"?"estimate":"perLine"})}>
-              <option value="perLine">Markup per line</option><option value="estimate">Markup on additions</option></select></label>
-            {input.markupMode==="estimate"&&<label className="financeImportField">Markup %<input type="number" min={0} max={1000} step="0.01" value={input.estimateMarkupPercent} onChange={e=>patch({estimateMarkupPercent:Number(e.target.value)})}/></label>}
-            <label className="financeImportField">Tax % on added costs<input type="number" min={0} max={100} step="0.01" value={input.taxPercent} onChange={e=>patch({taxPercent:Number(e.target.value)})}/></label>
-          </div>
-          <p>Deductions use the existing line&apos;s contract pricing. Enter the quantity removed; add replacement work on a separate Add line.</p>
-          <div className="projectScopeTableWrapper"><table className="invoiceTable contractLineTable">
-            <thead><tr><th>Add / Deduct</th><th>Existing line reduced</th><th>Scope</th><th>Description</th><th>Type</th><th>Quantity</th><th>Unit</th><th>Unit cost</th><th>Freight</th><th>Markup %</th><th>Remove</th></tr></thead>
-            <tbody>{input.lines.map((line,index)=><tr key={index}>
-              <td><select aria-label={`Line ${index+1} operation`} value={line.operation} onChange={e=>linePatch(index,{operation:e.target.value==="Deduct"?"Deduct":"Add",deductLineId:null})}><option>Add</option><option>Deduct</option></select></td>
-              <td>{line.operation==="Deduct"?<select required value={line.deductLineId??""} aria-label={`Line ${index+1} existing work`} onChange={e=>{
-                const source=data?.sourceLines.find(s=>s.lineId===Number(e.target.value));
-                if(source)linePatch(index,{deductLineId:source.lineId,quantity:Math.min(1,source.remainingQuantity),unitName:source.unitName,
-                  unitCost:source.unitCost,freightAmount:Number((source.freightAmount/source.originalQuantity).toFixed(4)),
-                  lineMarkupPercent:source.lineMarkupPercent,lineType:source.lineType,description:`Remove ${source.description}`});
-              }}><option value="">Choose existing work</option>{data?.sourceLines.filter(s=>s.remainingQuantity>0).map(s=><option value={s.lineId} key={s.lineId}>
-                {s.description} ({s.remainingQuantity} {s.unitName} remaining)</option>)}</select>:"New work"}</td>
-              <td><input required maxLength={150} aria-label={`Line ${index+1} scope`} value={line.scopeName??""} onChange={e=>linePatch(index,{scopeName:e.target.value})}/></td>
-              <td><input required maxLength={300} aria-label={`Line ${index+1} description`} value={line.description} onChange={e=>linePatch(index,{description:e.target.value})}/></td>
-              <td><select disabled={line.operation==="Deduct"} value={line.lineType} onChange={e=>linePatch(index,{lineType:e.target.value==="Labor"?"Labor":e.target.value==="Equipment"?"Equipment":"Material"})}><option>Material</option><option>Labor</option><option>Equipment</option></select></td>
-              <td><input required type="number" min="0.0001" step="0.0001" aria-label={`Line ${index+1} quantity`} value={line.quantity} onChange={e=>linePatch(index,{quantity:Number(e.target.value)})}/></td>
-              <td><select required disabled={line.operation==="Deduct"} value={line.unitName??""} onChange={e=>linePatch(index,{unitName:e.target.value})}><option value="">Choose unit</option>
-                {data?.unitPresets.map(u=><option key={u.abbreviation} value={u.abbreviation}>{u.abbreviation}</option>)}</select></td>
-              <td><input type="number" min={0} step="0.0001" disabled={line.operation==="Deduct"} aria-label={`Line ${index+1} unit cost`} value={line.unitCost} onChange={e=>linePatch(index,{unitCost:Number(e.target.value)})}/></td>
-              <td><input type="number" min={0} step="0.0001" disabled={line.operation==="Deduct"} value={line.freightAmount} onChange={e=>linePatch(index,{freightAmount:Number(e.target.value)})}/></td>
-              <td><input type="number" min={0} max={1000} step="0.0001" disabled={line.operation==="Deduct"||input.markupMode==="estimate"} value={line.lineMarkupPercent} onChange={e=>linePatch(index,{lineMarkupPercent:Number(e.target.value)})}/></td>
-              <td><button type="button" disabled={input.lines.length===1} onClick={()=>patch({lines:input.lines.filter((_,i)=>i!==index)})}>Remove</button></td>
-            </tr>)}</tbody>
-          </table></div>
-          <button type="button" onClick={()=>patch({lines:[...input.lines,blank().lines[0]]})}>Add line</button>
-          <DocumentNotesFields internalNotes={input.internalNotes??""} customerNotes={input.customerNotes??""}
-            onInternalChange={value=>patch({internalNotes:value})} onCustomerChange={value=>patch({customerNotes:value})}/>
-        </fieldset>
+        <ContractChangeFields input={input} sources={data?.sourceLines??[]} unitPresets={data?.unitPresets??[]}
+          disabled={busy||editor.readOnly} onChange={value=>setEditor(current=>current?{...current,input:value}:current)}/>
         <p><strong>Net contract change: {money(editor.readOnly&&editor.change?editor.change.quotedTotal:preview)}</strong></p>
         <p>Saving creates a draft, not an approval. Negotiated edits return proposals to Draft and require a new proposal.</p>
         <div className="financeImportActions"><button type="button" disabled={busy} onClick={()=>setEditor(null)}>Close</button>

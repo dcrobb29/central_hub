@@ -1,17 +1,22 @@
 import { getPool, sql } from "./db";
 import { rollbackIfActive } from "./sql-transactions";
 import { ProjectAccessError } from "./project-access-error";
-import { calculateEstimate } from "./estimate-pricing";
-import { allocateCents, billingCents } from "./project-billing-pricing";
+import { billingCents } from "./project-billing-pricing";
 import { ensureProjectBillingSnapshot } from "./project-billing";
 import { insertScopesAndLines, type CreateEstimateInput, type EstimateLineInput } from "./estimates";
 import { getUnitsOfMeasurement } from "./units-of-measurement";
 import { requireUnitAbbreviation } from "./unit-presets";
-import { calculateChange, type ChangeLineOperation } from "./contract-change-pricing";
+import { allocateEstimateLineValues, calculateChange, type ChangeLineOperation } from "./contract-change-pricing";
 
 export type ChangeContext = { estimateId?: number; projectId?: number };
 export type ChangeInput = Omit<CreateEstimateInput,"lines"> & {
   lines: (EstimateLineInput & { operation: ChangeLineOperation; deductLineId: number | null })[];
+};
+export type ChangeDetails = Omit<ChangeInput, "lines"> & {
+  lines: (ChangeInput["lines"][number] & { sellAmount: number })[];
+};
+export type InitialAlternateInput = Omit<ChangeInput, "lines"> & {
+  lines: (Omit<ChangeInput["lines"][number], "deductLineId"> & { deductLineIndex: number | null })[];
 };
 export type ContractChange = {
   changeId: number; documentEstimateId: number; parentEstimateId: number; projectId: number | null;
@@ -92,20 +97,11 @@ async function sourceLines(request: sql.Request, parent: Parent): Promise<Change
       }
       continue;
     }
-    const pricing = calculateEstimate({ ...revisionLines[0], lines: revisionLines });
-    const groups = [...new Set(revisionLines.map((line) => line.sourceScope))];
-    const weights = groups.map((scope) => revisionLines.reduce((sum, line, index) =>
-      sum + (line.sourceScope === scope ? billingCents(pricing.lines[index].sellAmount) : 0), 0));
-    const groupAmounts = allocateCents(billingCents(revisionLines[0].quotedTotal), weights);
-    for (const [groupIndex, scope] of groups.entries()) {
-      const indexes = revisionLines.map((line, index) => line.sourceScope === scope ? index : -1).filter((index) => index >= 0);
-      const amounts = allocateCents(groupAmounts[groupIndex], indexes.map((index) => billingCents(pricing.lines[index].sellAmount)));
-      indexes.forEach((index, offset) => {
-        const line = revisionLines[index];
-        line.sellAmount = amounts[offset] / 100;
-        line.landedAmount = pricing.lines[index].landedCost;
-      });
-    }
+    const values = allocateEstimateLineValues({ ...revisionLines[0], lines: revisionLines });
+    revisionLines.forEach((line, index) => {
+      line.sellAmount = values[index].sellAmount;
+      line.landedAmount = values[index].landedAmount;
+    });
   }
   return lines;
 }
@@ -131,7 +127,7 @@ export async function getContractChanges(context: ChangeContext, organizationId:
     currentContract: parent.quotedTotal + approvedAlternates + approvedChanges };
 }
 
-export async function getChangeInput(changeId: number, org: number): Promise<ChangeInput> {
+export async function getChangeInput(changeId: number, org: number): Promise<ChangeDetails> {
   const pool = await getPool();
   const result = await pool.request().input("id", sql.Int, changeId).input("org", sql.Int, org)
     .query<CreateEstimateInput & { revisionId: number }>(`
@@ -143,12 +139,12 @@ export async function getChangeInput(changeId: number, org: number): Promise<Cha
       JOIN dbo.EstimateRevisions r ON r.EstimateID=e.EstimateID WHERE c.ChangeID=@id AND c.OrganizationID=@org
     `);
   const row = result.recordset[0] ?? fail("Change document not found.", 404);
-  const lines = (await pool.request().input("id", sql.Int, row.revisionId).query<ChangeInput["lines"][number]>(`
+  const lines = (await pool.request().input("id", sql.Int, row.revisionId).query<ChangeDetails["lines"][number]>(`
     SELECT li.Description AS description,li.Quantity AS quantity,li.UnitName AS unitName,li.UnitCost AS unitCost,
       li.FreightAmount AS freightAmount,li.LineMarkupPercent AS lineMarkupPercent,li.LineType AS lineType,
       li.MaterialID AS materialId,li.CatalogUnitCostAtEntry AS catalogUnitCostAtEntry,
       CONVERT(char(10),li.CatalogPriceDate,23) AS catalogPriceDate,s.ScopeName AS scopeName,
-      li.LineOperation AS operation,li.DeductLineID AS deductLineId
+      li.LineOperation AS operation,li.DeductLineID AS deductLineId,li.SellAmount AS sellAmount
     FROM dbo.EstimateLineItems li LEFT JOIN dbo.EstimateScopesOfWork s ON s.EstimateScopeOfWorkID=li.EstimateScopeOfWorkID
     WHERE li.EstimateRevisionID=@id ORDER BY li.LineNumber
   `)).recordset;
@@ -206,6 +202,14 @@ export async function saveContractChange(context: ChangeContext, org: number, in
   changeId?: number, version?: number, sourceAlternateId?: number) {
   const pool = await getPool(); const tx = new sql.Transaction(pool); await tx.begin();
   try {
+    const id = await saveContractChangeInTransaction(tx, context, org, input, changeId, version, sourceAlternateId);
+    await tx.commit();
+    return id;
+  } catch (error) { await rollbackIfActive(tx); throw error; }
+}
+
+export async function saveContractChangeInTransaction(tx: sql.Transaction, context: ChangeContext, org: number, input: ChangeInput,
+  changeId?: number, version?: number, sourceAlternateId?: number) {
     const parent = await lockParent(tx, context, org);
     if (parent.engagementType !== "Project") fail("Alternates and change orders are not enabled for recurring agreements.");
     if (parent.projectStatus === "Complete") fail("Reopen this project before changing its contract.");
@@ -247,8 +251,7 @@ export async function saveContractChange(context: ChangeContext, org: number, in
       .query<{ id: number }>(`INSERT dbo.ContractChanges(OrganizationID,DocumentEstimateID,ParentEstimateID,ProjectID,Kind,SourceAlternateID)
         VALUES(@org,@document,@parent,@project,@kind,@source); SELECT CONVERT(int,SCOPE_IDENTITY()) AS id;`)).recordset[0].id;
     if (existing) await tx.request().input("id", sql.Int, id).query("UPDATE dbo.ContractChanges SET Status='Draft',Version=Version+1 WHERE ChangeID=@id");
-    await tx.commit(); return id;
-  } catch (error) { await rollbackIfActive(tx); throw error; }
+    return id;
 }
 
 export async function approveChangeInTransaction(tx: sql.Transaction, parent: Parent, changeId: number, version: number,

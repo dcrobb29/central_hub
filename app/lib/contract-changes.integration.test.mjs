@@ -45,21 +45,43 @@ test("alternates, signed changes, deductions and billing preserve approval histo
       markupMode:"perLine",estimateMarkupPercent:0,taxPercent:0,roundingIncrement:0,groupingMode:"Scope",scopes:["Base"],
       lines:[{description:"Original work",quantity:10,unitName:unit,unitCost:100,freightAmount:0,lineMarkupPercent:0,
         materialId:null,catalogUnitCostAtEntry:null,catalogPriceDate:null,lineType:"Material",scopeName:"Base"}]};
-    const estimateId=await estimates.createEstimate(base,org);
+    const initial=(title,operation,quantity,unitCost,target=null)=>({...base,estimateName:title,scopes:["Changed work"],
+      lines:[{...base.lines[0],description:title,quantity,unitCost,scopeName:"Changed work",operation,deductLineIndex:target}]});
+    await assert.rejects(()=>estimates.createEstimate({...base,engagementType:"Service"},org,[initial("Recurring option","Add",1,300)]),/recurring/);
+    const estimateId=await estimates.createEstimate(base,org,[
+      initial("Upgrade","Add",1,300),initial("Downgrade","Deduct",2,9999,0),initial("Unselected option","Add",1,150),
+    ]);
     const detail=await estimates.getEstimateDetails(estimateId);
+    assert.equal(detail.showAlternates,true);
+    const printOptions={showQuantities:false,showLineTotals:false,showSummaryTotal:true,showScopesOfWork:false,showAlternates:false};
+    await estimates.setEstimatePrintOptions(estimateId,printOptions);
+    assert.equal((await estimates.getEstimateDetails(estimateId)).showAlternates,false);
+    assert.equal((await estimates.getEstimates(org)).find(e=>e.estimateId===estimateId).showAlternates,false);
+    await estimates.setEstimatePrintOptions(estimateId,{...printOptions,showAlternates:true});
+    assert.equal((await estimates.getEstimateDetails(estimateId)).showAlternates,true);
     const originalLine=detail.lines[0].estimateLineItemId;
     const context={estimateId};
     const make=(title,operation,quantity,unitCost,target=null)=>({...base,estimateName:title,scopes:["Changed work"],
       lines:[{...base.lines[0],description:title,quantity,unitCost,scopeName:"Changed work",operation,deductLineId:target}]});
-    const plus=await changes.saveContractChange(context,org,make("Upgrade","Add",1,300));
-    const minus=await changes.saveContractChange(context,org,make("Downgrade","Deduct",2,9999,originalLine));
-    const later=await changes.saveContractChange(context,org,make("Unselected option","Add",1,150));
+    const drafts=(await changes.getContractChanges(context,org)).changes;
+    assert.deepEqual(drafts.map(change=>change.status),["Draft","Draft","Draft"]);
+    const [plus,minus,later]=drafts.map(change=>change.changeId);
+    const orgCount=async()=>(await tx.request().input("org",sql.Int,org).query(
+      "SELECT COUNT(*) AS count FROM dbo.Estimates WHERE OrganizationID=@org")).recordset[0].count;
+    const beforeFailedCreate=await orgCount();
+    await assert.rejects(()=>estimates.createEstimate({...base,estimateName:"Atomic failure fixture"},org,[
+      initial("First valid draft","Add",1,100),initial("Invalid deduction","Deduct",20,0,0),
+    ]),/remaining quantity/);
+    assert.equal(await orgCount(),beforeFailedCreate,"Failed alternate creation rolls back the base and previously inserted alternate");
+    await assert.rejects(()=>estimates.createEstimate(base,org,[initial("Invalid source","Deduct",1,0,999)]),/existing base-bid line/);
+    assert.equal(await orgCount(),beforeFailedCreate);
     await changes.transitionContractChange(context,org,plus,1,"propose",user);
     await changes.transitionContractChange(context,org,minus,1,"propose",user);
     await changes.transitionContractChange(context,org,later,1,"propose",user);
     let data=await changes.getContractChanges(context,org);
     assert.equal(data.baseValue,1000);
     assert.deepEqual(data.changes.map(c=>c.quotedTotal),[300,-200,150]);
+    assert.equal((await changes.getChangeInput(minus,org)).lines[0].sellAmount,200);
     assert.equal(data.currentContract,1000);
     await assert.rejects(()=>changes.getContractChanges(context,1),e=>e.status===404);
     const projectId=await estimates.winEstimate(estimateId,{selections:[{changeId:plus,version:2},{changeId:minus,version:2}],

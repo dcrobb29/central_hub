@@ -1,0 +1,224 @@
+.page {
+  overflow: auto;
+  padding: 20px 12px;
+}
+
+.workspace {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 1280px;
+  min-width: 0;
+  margin: 0 auto;
+  gap: 20px;
+}
+
+.heading h1 {
+  margin: 4px 0 8px;
+  color: #20362d;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.heading > p {
+  margin: 0;
+  color: #53675d;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.intro {
+  margin: 0;
+  color: #53675d;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.reference,
+.dates {
+  display: block;
+  margin-top: 5px;
+  color: #53675d;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.empty {
+  margin: 0;
+  padding: 24px;
+  border: 1px solid #d0dad4;
+  border-radius: 6px;
+  background: #fff;
+  color: #53675d;
+}
+
+.workspace :global(.listViewToolbar),
+.workspace :global(.listViewControls) {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.workspace :global(.engagementTabs) {
+  flex-wrap: wrap;
+}
+
+.workspace :global(.engagementTab),
+.workspace :global(.listFilterButton),
+.workspace :global(.listStatusToggle button) {
+  min-height: 40px;
+}
+
+.workspace :global(.listStatusToggle) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.workspace :global(.listFilterButton) {
+  justify-content: center;
+}
+
+.list {
+  display: grid;
+  gap: 12px;
+}
+
+.card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 18px 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #d0dad4;
+  border-radius: 6px;
+  background: #fff;
+  scroll-margin-top: 16px;
+}
+
+.card[data-highlighted] {
+  border-color: #32745f;
+  box-shadow: inset 3px 0 #32745f;
+}
+
+.identity {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.identity h2 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.identity h2 a {
+  color: #20362d;
+  text-decoration-color: #729787;
+}
+
+.identity p {
+  margin: 5px 0 0;
+  color: #53675d;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.identity h2,
+.identity p {
+  overflow-wrap: anywhere;
+}
+
+.identity .recurrence {
+  color: #53675d;
+  font-size: 11px;
+}
+
+.status,
+.value {
+  display: grid;
+  align-self: start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.label {
+  color: #53675d;
+  font-size: 11px;
+}
+
+.status :global(.projectStatusControl select) {
+  width: 100%;
+  min-height: 40px;
+}
+
+.value strong {
+  padding: 10px 0;
+  color: #183e35;
+  font-size: 15px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.actions > * {
+  flex: 1;
+  min-height: 40px;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.openRecord {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid #176347;
+  border-radius: 4px;
+  background: #176347;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.openRecord:hover {
+  background: #164b3b;
+  border-color: #164b3b;
+}
+
+/* sm: keep filters and card actions side by side when space permits. */
+@media (min-width: 640px) {
+  .page { padding: 24px; }
+  .workspace :global(.listViewControls) { flex-direction: row; align-items: center; flex-wrap: wrap; }
+  .workspace :global(.listStatusToggle) { display: flex; }
+  .card { padding: 20px; gap: 18px 24px; }
+  .actions { justify-content: flex-end; }
+  .actions > * { flex: 0 1 auto; }
+}
+
+/* md: a compact two-row card keeps long names and recurring dates readable. */
+@media (min-width: 768px) {
+  .card { grid-template-columns: minmax(0, 1fr) 140px 150px; }
+  .identity { grid-column: auto; }
+  .actions { padding-top: 12px; border-top: 1px solid #edf1ee; }
+}
+
+/* lg: show the complete job summary on one row. */
+@media (min-width: 1024px) {
+  .card { grid-template-columns: minmax(0, 1fr) 120px 140px auto; gap: 20px; }
+  .actions { grid-column: auto; padding: 0; border: 0; }
+}
+
+/* xl: add breathing room, not more information. */
+@media (min-width: 1280px) {
+  .page { padding: 32px; }
+  .workspace :global(.listViewToolbar) { flex-direction: row; align-items: center; }
+  .card { padding: 24px; gap: 28px; }
+}

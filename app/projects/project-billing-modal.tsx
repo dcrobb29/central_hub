@@ -274,7 +274,7 @@ export default function ProjectBillingModal({ projectId, projectName, initialTab
         </div>
         {legacy.length > 0 && <p className="financeImportError">There are existing Finance invoices without scope/occurrence allocations. Assign their full amounts before issuing new invoices to avoid billing the same work twice.</p>}
         {existingInvoiceId === null ? <>
-          {!data.project.customerId && <p className="financeImportError">Choose a billing customer in the expanded project card before issuing an invoice. <Link href="/finances/customers">Manage customers</Link></p>}
+          {!data.project.customerId && <p className="financeImportError">Choose a billing customer in the project workspace before issuing an invoice. <Link href={`/projects/${projectId}`}>Choose project customer</Link></p>}
           <div className="financeImportFields billingInvoiceOptions">
             <label className="financeImportField">Invoice number *<input value={invoiceNo} maxLength={10} disabled={busy} onChange={(event) => { setInvoiceNo(event.target.value); setRequestId(null); }} /></label>
             <label className="financeImportField">Invoice date *<input type="date" value={invoiceDate} disabled={busy} onChange={(event) => { setInvoiceDate(event.target.value); setRequestId(null); }} /></label>

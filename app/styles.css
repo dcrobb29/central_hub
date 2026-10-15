@@ -1,3 +1,79 @@
+/* Low-specificity fallbacks keep new controls recognizable without replacing component styles. */
+:where(a[href]) {
+  color: #176347;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+:where(button, input[type="button"], input[type="submit"], input[type="reset"]) {
+  padding: 6px 10px;
+  border: 1px solid #729787;
+  border-radius: 4px;
+  background: #f2f7f4;
+  color: #244d3c;
+  font: 600 12px Arial, sans-serif;
+  cursor: pointer;
+}
+
+:where(summary) {
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: #f2f7f4;
+  color: #244d3c;
+  cursor: pointer;
+}
+
+:where(select, input[type="checkbox"], input[type="radio"]),
+:where(input[type="file"])::file-selector-button {
+  cursor: pointer;
+}
+
+:where(a[href], button, summary, [role="button"], input, select, textarea):focus-visible {
+  outline: 2px solid #176347;
+  outline-offset: 3px;
+}
+
+:where(a[href]):hover {
+  text-decoration-thickness: 2px;
+}
+
+:where(button, input[type="button"], input[type="submit"], input[type="reset"]):hover:not(:disabled):not([aria-disabled="true"]),
+:where(summary):hover {
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+:where(button, input, select, textarea):disabled,
+:where([aria-disabled="true"]) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.appShell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.appContent {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.appContent > .body {
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+}
+
+.appContent > .loginShell {
+  min-height: 100%;
+}
+
 .header {
   background-color: #f0f0f0;
   padding: 12px 24px;
@@ -9,7 +85,39 @@
   display: flex;
 }
 
-.projectHub { width: 100%; min-width: 0; text-align: left; }
+.header > h1 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.headerRight {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 639px) {
+  .header {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .header > a { flex: 0 0 auto; }
+  .header > h1 { flex: 1; }
+  .header .logo { height: 44px; }
+  .header .headerRight { width: 100%; justify-content: space-between; margin-left: 0; gap: 8px; }
+  .header .userProfile { min-width: 0; }
+  .header .userName { overflow-wrap: anywhere; }
+}
+
+.body.projectHubBody { overflow: auto; padding: clamp(12px, 2.5vw, 32px); }
+.projectHub { width: 100%; max-width: 1280px; margin: 0 auto; min-width: 0; text-align: left; }
+.projectHub .projectStatusControl select { width: auto; min-width: 120px; min-height: 40px; max-width: 100%; }
+.projectHub .projectCustomerAssignment { padding: 12px 0; }
+.projectHub .projectCustomerAssignment select { max-width: 100%; }
+.projectHub input[type="file"] { min-width: 0; max-width: 100%; }
+.projectHub .fieldJobPicker { min-width: 0; }
+.projectHub .fieldJobPicker select { width: 100%; max-width: 100%; min-width: 0; }
 .projectHubBreadcrumb { margin-bottom: 16px; overflow-wrap: anywhere; }
 .projectHubHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .projectHubHeader h1 { margin: 4px 0 16px; overflow-wrap: anywhere; }
@@ -19,7 +127,7 @@
 .projectHubSection { background: #fff; border: 1px solid #d0dad4; border-radius: 6px; padding: 20px; margin-bottom: 20px; min-width: 0; }
 .projectHubSection h2 { margin-top: 0; }
 .projectHubSection p { line-height: 1.5; }
-.projectHubFacts, .projectHubMetrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
+.projectHubFacts, .projectHubMetrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr)); gap: 16px; }
 .projectHubFacts dt, .projectHubMetrics span { display: block; color: #53675d; font-size: 13px; }
 .projectHubFacts dd { margin: 5px 0 0; overflow-wrap: anywhere; }
 .projectHubMetrics { margin: 16px 0; }
@@ -29,7 +137,7 @@
 .projectUploadForm { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; padding: 16px 0; }
 .projectUploadForm label { display: grid; gap: 8px; }
 .projectDocumentList { display: grid; gap: 12px; }
-.projectMediaGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.projectMediaGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: 16px; }
 .projectAttachmentCard { border: 1px solid #d0dad4; border-radius: 4px; padding: 12px; display: grid; gap: 8px; min-width: 0; }
 .projectAttachmentCard strong, .projectAttachmentCard small { overflow-wrap: anywhere; }
 .projectAttachmentCard img, .projectAttachmentCard video { width: 100%; height: 220px; object-fit: contain; background: #edf0ee; }
@@ -475,6 +583,8 @@
   margin-top: 4px;
   padding: 0;
   font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .estimateLineMeta {
@@ -649,6 +759,38 @@
   /* background: blue; */
   vertical-align: middle;
 
+}
+
+.projectCardTitle::before,
+.billingHistoryItem > summary::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+}
+
+.projectCardTitle {
+  position: relative;
+  padding-left: 18px;
+}
+
+.projectCardTitle::before {
+  position: absolute;
+  left: 0;
+  top: 5px;
+}
+
+.projectCard[open] > summary .projectCardTitle::before,
+.billingHistoryItem[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.projectCard > summary:hover,
+.projectCard[open] > summary {
+  background: #e8f1eb;
 }
 
 .projectCardTitle strong { color: #20362d; font-size: 14px; }
@@ -994,7 +1136,7 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
 }
 
 .fieldDaySelected { border-color: #729f85; box-shadow: inset 0 2px #176347; }
-.fieldDaySelect { border: 0; padding: 0; background: none; color: #20362d; cursor: pointer; font-size: 13px; font-weight: 700; text-align: left; }
+.fieldDaySelect { border: 0; padding: 0; background: none; color: #20362d; cursor: pointer; font-size: 13px; font-weight: 700; text-align: left; text-decoration: underline; text-underline-offset: 3px; }
 .fieldDaySelect:focus-visible, .fieldAvailabilityToggle:focus-visible, .fieldCapacityTable button:focus-visible { outline: 2px solid #176347; outline-offset: 2px; }
 
 .fieldDayHeader span,
@@ -1145,7 +1287,7 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
 .fieldCapacityTable th { padding: 8px; text-align: left; background: #f2f6f3; color: #435c50; font-size: 10px; }
 .fieldCapacityTable td { padding: 8px; border-bottom: 1px solid #e1e7e3; white-space: nowrap; }
 .fieldCapacityTable tbody th { border-bottom: 1px solid #e1e7e3; background: #fff; font-size: 11px; }
-.fieldCapacityTable button { padding: 0; border: 0; background: transparent; color: inherit; font-size: 10px; font-weight: 600; cursor: pointer; }
+.fieldCapacityTable button { padding: 0; border: 0; background: transparent; color: inherit; font-size: 10px; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .fieldCapacityTable .fieldCapacitySelected { background: #edf4ef; }
 .fieldCapacityTable thead .fieldCapacitySelected { box-shadow: inset 0 -2px #176347; }
 .fieldCapacityBar { height: 4px; min-width: 55px; margin-top: 5px; border-radius: 2px; background: #e5ece7; overflow: hidden; }
@@ -1296,11 +1438,10 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
 
 .footer {
   background-color: #a7ce7d;
-  padding: 20px;
+  padding: 8px 20px;
   text-align: center;
   max-width: 100vw;
-  height: 5vh;
-  max-height: 5vh;
+  min-height: 40px;
   align-items: center;
   display: flex;
   justify-content: center;
@@ -1312,7 +1453,7 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
 }
 
 .linkLogo {
-  height: 3vh;
+  height: clamp(20px, 3dvh, 28px);
 }
 
 .headerRight {
@@ -1919,6 +2060,7 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
 }
 
 .invoiceSortButton {
+  padding: 2px 0;
   border: 0;
   background: transparent;
   color: inherit;
@@ -1942,7 +2084,7 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
   height: 28px;
   flex: 0 0 28px;
   place-items: center;
-  border: 1px solid transparent;
+  border: 1px solid #bdcbc3;
   border-radius: 3px;
   background: transparent;
   color: #536c5f;
@@ -2150,7 +2292,7 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
   cursor: pointer;
 }
 .projectCardTotal { display: flex; align-items: center; gap: 12px; }
-.projectCompletionAction { padding: 8px 16px; border-top: 1px solid #d0dad4; }
+.projectCompletionAction { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 16px; border-top: 1px solid #d0dad4; }
 .projectBillingModal { width: min(1100px, 96vw); }
 .billingTabs { margin-bottom: 16px; }
 .billingInvoiceOptions { margin: 14px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -2417,6 +2559,8 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
   cursor: pointer;
   padding: 0;
   font: 14px Arial, sans-serif;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .filesList {
@@ -2431,8 +2575,8 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
 .filesList button {
   width: 100%;
   text-align: left;
-  background: none;
-  border: none;
+  background: #f7faf8;
+  border: 1px solid #bdcbc3;
   padding: 6px 8px;
   border-radius: 4px;
   cursor: pointer;
@@ -2456,8 +2600,10 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
 .filesListDownload {
   flex-shrink: 0;
   padding: 6px 8px;
-  text-decoration: none;
-  color: #171717;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  color: #176347;
+  border: 1px solid #bdcbc3;
   border-radius: 4px;
 }
 
@@ -2701,6 +2847,11 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
   white-space: nowrap;
 }
 
+.react-flow__attribution a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .personnelHistorySection {
   margin-top: 18px;
   padding-top: 14px;
@@ -2840,10 +2991,10 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
   width: 100%;
   flex-direction: column;
   gap: 4px;
-  padding: 8px 0;
-  border: 0;
-  border-top: 1px solid #e2e8e4;
-  background: transparent;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid #bdcbc3;
+  background: #f7faf8;
   color: #253b33;
   cursor: pointer;
   font-size: 12px;
@@ -3389,3 +3540,8 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
 .contractLineTable td:nth-child(2), .contractLineTable td:nth-child(4) { min-width: 220px; }
 .contractSelection { display: flex; gap: 8px; margin: 12px 0; align-items: center; }
 .contractChangesPanel small { display: block; }
+.estimateBaseBid { border: 1px solid #d0dad4; border-radius: 6px; padding: 16px; margin-bottom: 16px; background: #fff; }
+.estimateBaseBid h3 { margin: 0 0 12px; }
+.estimateBaseBid h3 span { font-size: 14px; font-weight: normal; margin-left: 12px; }
+.contractChangeScope { padding: 12px; border-left: 3px solid #d0dad4; background: #f7faf8; }
+.contractChangeScope h3 { margin-top: 0; }

@@ -4,6 +4,7 @@ import { InvalidUnitPresetError } from "@/app/lib/unit-presets";
 import { parseNotes } from "@/app/lib/document-notes";
 import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
 import { getPool, sql } from "@/app/lib/db";
+import type { InitialAlternateInput } from "@/app/lib/contract-changes";
 import { isCalendarDate as validApprovalDate } from "@/app/lib/recurring-dates";
 import { RECURRENCE_FREQUENCIES, isCalendarDate, validateRecurringSchedule } from "@/app/lib/recurring-dates";
 import {
@@ -185,14 +186,44 @@ export async function POST(request: NextRequest) {
   const body: unknown = await request.json().catch(() => null);
   if (!isRecord(body)) return NextResponse.json({ error: "Invalid estimate data" }, { status: 400 });
   let estimateInput: CreateEstimateInput;
+  const alternates: InitialAlternateInput[] = [];
   try {
     estimateInput = parseEstimate(body);
+    if (body.alternates !== undefined) {
+      if (!Array.isArray(body.alternates)) throw new Error("Alternates must be a list.");
+      if (body.alternates.length && estimateInput.engagementType !== "Project")
+        throw new Error("Alternates are not enabled for recurring agreements.");
+      for (const [index, raw] of body.alternates.entries()) {
+        if (!isRecord(raw)) throw new Error(`Alternate ${index + 1} is invalid.`);
+        try {
+          const parsed = parseEstimate({ ...raw, engagementType: "Project", roundingIncrement: 0 });
+          const rawLines = raw.lines;
+          if (!Array.isArray(rawLines)) throw new Error("Enter alternate lines.");
+          alternates.push({ ...parsed, lines: parsed.lines.map((line, lineIndex) => {
+            const source = rawLines[lineIndex];
+            if (!isRecord(source) || (source.operation !== "Add" && source.operation !== "Deduct"))
+              throw new Error("Choose Add or Deduct for every alternate line.");
+            if (!line.scopeName) throw new Error("Assign every alternate line to a scope.");
+            const target = source.deductLineIndex;
+            let deductLineIndex: number | null = null;
+            if (source.operation === "Deduct") {
+              if (typeof target !== "number" || !Number.isInteger(target) || target < 0 || target >= estimateInput.lines.length)
+                throw new Error("Choose an existing base-bid line for each deduction.");
+              deductLineIndex = target;
+            }
+            return { ...line, operation: source.operation, deductLineIndex };
+          }) });
+        } catch (error) {
+          throw new Error(`Alternate ${index + 1}: ${error instanceof Error ? error.message : "Invalid pricing."}`);
+        }
+      }
+    }
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid estimate data" }, { status: 400 });
   }
   try {
     const session=await requireProjectSession(request,"sales.write");
-    const estimateId = await createEstimate(estimateInput,session.organization.organizationId);
+    const estimateId = await createEstimate(estimateInput,session.organization.organizationId,alternates);
     return NextResponse.json({ estimateId }, { status: 201 });
   } catch (error) {
     if(error instanceof ProjectAccessError)return NextResponse.json({error:error.message},{status:error.status});
@@ -216,7 +247,8 @@ export async function PATCH(request: NextRequest) {
       typeof body.showQuantities !== "boolean" ||
       typeof body.showLineTotals !== "boolean" ||
       typeof body.showSummaryTotal !== "boolean" ||
-      typeof body.showScopesOfWork !== "boolean"
+      typeof body.showScopesOfWork !== "boolean" ||
+      typeof body.showAlternates !== "boolean"
     ) {
       return NextResponse.json({ error: "Choose which PDF sections to include" }, { status: 400 });
     }
@@ -225,6 +257,7 @@ export async function PATCH(request: NextRequest) {
       showLineTotals: body.showLineTotals,
       showSummaryTotal: body.showSummaryTotal,
       showScopesOfWork: body.showScopesOfWork,
+      showAlternates: body.showAlternates,
     };
     try {
       const session=await requireProjectSession(request,"sales.write");

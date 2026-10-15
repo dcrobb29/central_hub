@@ -14,6 +14,7 @@ import { customerLabel } from "@/app/lib/customer-fields";
 import { DocumentNotes } from "@/app/components/document-notes";
 import ProjectCostPanel from "../project-cost-panel";
 import ProjectStatusSelector from "../project-status-selector";
+import ProjectCustomerSelector from "../project-customer-selector";
 import ProjectHubActions from "../project-hub-actions";
 import ProjectAttachmentsPanel from "../project-attachments-panel";
 import FieldOperationsWorkspace from "@/app/field-operations/field-operations-workspace";
@@ -60,7 +61,9 @@ export default async function ProjectPage({ params, searchParams }: {
     content = <>
       <section className="projectHubSection">
         <h2>Scope, budget &amp; actual costs</h2>
-        <p>The same estimate, supplier bills, allocations, and calculations used in the portfolio. Changes here update those records directly.</p>
+        <p>Review the accepted scope, supplier bills, allocations, and actual costs. Changes here update the project records directly.</p>
+        {canWriteProject && <ProjectCustomerSelector projectId={projectId} customerId={project.customerId}
+          customers={await getCustomers(organizationId)} readOnly={project.projectStatus === "Complete"} />}
         {project.engagementType === "Service" && <p>Estimated cost is per accepted occurrence; recorded costs and invoices below are for the whole agreement. These are not a completion-adjusted budget or an earned-value calculation.</p>}
         {canWriteFinances && canWriteProject && project.quotedTotal !== null && <ProjectHubActions projectId={projectId} projectName={project.projectName} />}
         <ProjectCostPanel project={project} costs={costs} bills={allocationBills} financials={financial} canEdit={canWriteFinances} />
@@ -132,11 +135,13 @@ export default async function ProjectPage({ params, searchParams }: {
         <div><dt>End date</dt><dd>{project.expectedEndDate ?? "Not specified"}</dd></div>
         <div><dt>Work type</dt><dd>{project.engagementType === "Service" ? `Recurring service - ${project.recurrenceFrequency ?? "Frequency not specified"}` : "One-time project"}</dd></div>
       </dl>
+      {canWriteProject && <ProjectCustomerSelector projectId={projectId} customerId={project.customerId}
+        customers={customers} readOnly={project.projectStatus === "Complete"} />}
       <DocumentNotes internalNotes={project.internalNotes} customerNotes={project.customerNotes} />
       <div className="projectHubShortcuts">{tabs.slice(1).map(([key, label]) => <Link key={key} href={`/projects/${projectId}?tab=${key}`}>{label}</Link>)}</div>
     </section>;
   }
-  return <main className="body projectsBody">
+  return <main className="body projectsBody projectHubBody">
     <div className="projectHub">
       <nav className="projectHubBreadcrumb" aria-label="Breadcrumb"><Link href="/projects">Projects &amp; recurring jobs</Link><span> / {project.projectName}</span></nav>
       <header className="projectHubHeader">

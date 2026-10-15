@@ -315,7 +315,7 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
                     <div className="estimateActionsInner">
                       <button type="button" className="estimateTextAction" disabled={isReadOnly} onClick={() => openEditForm(bill)}>Edit</button>
                       <button type="button" className="estimateDangerAction" disabled={isReadOnly} onClick={() => { setDeleteError(null); setDeletingBill(bill); }}>Delete</button>
-                      {(bill.projectId !== null || bill.isSplit) && <Link href={bill.projectId !== null ? `/projects?projectId=${bill.projectId}#project-${bill.projectId}` : "/projects"} className="estimateTextAction">Allocate costs</Link>}
+                      {(bill.projectId !== null || bill.isSplit) && <Link href={bill.projectId !== null ? `/projects/${bill.projectId}?tab=finances` : "/projects"} className="estimateTextAction">Allocate costs</Link>}
                     </div>
                     <BillSplitToggle billId={bill.id} isSplit={bill.isSplit} disabled={isReadOnly} />
                     {bill.isSplit && <small className="billAllocationBalance">Only allocated costs count toward each job.</small>}

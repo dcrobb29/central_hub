@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import Modal from "./modal";
 
-export default function ListViewControls({ id, label, statuses, status, onStatusChange, sort, onSortChange, active, onReset }: {
+export default function ListViewControls({ id, label, statuses, status, onStatusChange, sort, onSortChange, active, onReset, sortOptions, children }: {
   id: string;
   label: string;
   statuses: { value: string; label: string; count: number }[];
@@ -14,6 +14,8 @@ export default function ListViewControls({ id, label, statuses, status, onStatus
   onSortChange: (value: string) => void;
   active: boolean;
   onReset: () => void;
+  sortOptions?: { value: string; label: string }[];
+  children?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   return <>
@@ -39,13 +41,16 @@ export default function ListViewControls({ id, label, statuses, status, onStatus
       <label className="financeImportField">Sort by
         <select value={sort} onChange={(event) => onSortChange(event.target.value)}>
           <option value="">Default order</option>
-          <option value="name-asc">Name: A to Z</option>
-          <option value="name-desc">Name: Z to A</option>
-          <option value="amount-asc">Amount: low to high</option>
-          <option value="amount-desc">Amount: high to low</option>
+          {(sortOptions ?? [
+            { value: "name-asc", label: "Name: A to Z" },
+            { value: "name-desc", label: "Name: Z to A" },
+            { value: "amount-asc", label: "Amount: low to high" },
+            { value: "amount-desc", label: "Amount: high to low" },
+          ]).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           {sort === "custom" && <option value="custom" disabled>Current table-column sort</option>}
         </select>
       </label>
+      {children}
       <p className="projectCostHint">Changes apply immediately to the current list. Amount sorting uses the quoted total.</p>
       <div className="financeImportActions">
         <button type="button" className="financeImportCancel" onClick={onReset}>Reset filters &amp; sort</button>

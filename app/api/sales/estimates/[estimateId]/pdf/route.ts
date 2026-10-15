@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEstimateDetails } from "@/app/lib/estimates";
-import { renderEstimatePdf } from "@/app/lib/estimate-pdf";
+import { includeAlternateInEstimatePdf,renderEstimatePdf,type EstimatePdfAlternate } from "@/app/lib/estimate-pdf";
 import { getContractChanges,getChangeInput } from "@/app/lib/contract-changes";
 import { ProjectAccessError,requireProjectSession } from "@/app/lib/project-access";
 
@@ -11,15 +11,18 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   let details;
-  let alternates;
+  let alternates:EstimatePdfAlternate[]=[];
   try {
     const session=await requireProjectSession(request,"sales.read");
     const changes=await getContractChanges({estimateId},session.organization.organizationId);
     details = await getEstimateDetails(estimateId);
-    alternates=await Promise.all(changes.changes.filter(c=>c.kind==="Alternate"&&["Proposed","Approved"].includes(c.status)).map(async c=>({
-      code:`ALT-${String(c.changeId).padStart(6,"0")}`,title:c.title,status:c.status,value:c.quotedTotal,
-      notes:(await getChangeInput(c.changeId,session.organization.organizationId)).customerNotes,
-    })));
+    if(details?.showAlternates) {
+      alternates=await Promise.all(changes.changes.filter(includeAlternateInEstimatePdf).map(async c=>{
+        const input=await getChangeInput(c.changeId,session.organization.organizationId);
+        return {code:`ALT-${String(c.changeId).padStart(6,"0")}`,title:c.title,status:c.status,value:c.quotedTotal,
+          notes:input.customerNotes,lines:input.lines};
+      }));
+    }
   } catch(error) {
     if(error instanceof ProjectAccessError)return NextResponse.json({error:error.message},{status:error.status});
     console.error("Estimate PDF failed",error);
@@ -34,6 +37,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `inline; filename="${fileName}.pdf"`,
+      "Cache-Control": "private, no-store",
     },
   });
 }

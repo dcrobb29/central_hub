@@ -1,8 +1,9 @@
 "use client";
 
-import { Fragment, useState, type FormEvent, type ReactNode } from "react";
+import { Fragment, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { FileDown, Library, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { ArrowUpRight, FileDown, Library, Plus, Trash2 } from "lucide-react";
 import {
   calculateEstimate,
   type EstimateMarkupMode,
@@ -20,12 +21,15 @@ import type {
 import type { MaterialWithLatestPrice } from "@/app/lib/materials";
 import type { ScopeTemplateDetails, ScopeTemplateSummary } from "@/app/lib/scope-templates";
 import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
-import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
 import Modal from "@/app/components/modal";
-import ContractChangesPanel from "@/app/components/contract-changes-panel";
-import type { ContractChange } from "@/app/lib/contract-changes";
+import type { ChangeInput, ChangeSourceLine, ContractChange } from "@/app/lib/contract-changes";
+import ContractChangeFields, { blankContractChange, contractChangePreview } from "@/app/components/contract-change-fields";
+import { draftAlternateSources, initialAlternateInputs, type EstimateLineDraft } from "@/app/lib/estimate-alternate-drafts";
 import ListViewControls from "@/app/components/list-view-controls";
-import { DocumentNotes, DocumentNotesFields } from "@/app/components/document-notes";
+import { DocumentNotesFields } from "@/app/components/document-notes";
+import EstimateRecord from "./estimate-record";
+import recordStyles from "@/app/components/record-workspace.module.css";
+import styles from "./estimate-workspace.module.css";
 import {
   defaultUnitAbbreviation,
   findUnitPreset,
@@ -36,8 +40,6 @@ import {
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const money = (value: number) => currency.format(value || 0);
-
-type EstimateLineDraft = EstimateLineInput;
 
 const FREQUENCY_LABELS: Record<string, string> = {
   Weekly: "Weekly",
@@ -101,7 +103,7 @@ function compareEstimates(left: EstimateSummary, right: EstimateSummary, key: ke
   });
 }
 
-function createLine(unitName: string): EstimateLineDraft {
+function createLine(unitName: string): EstimateLineInput {
   return {
     description: "", quantity: 1, unitName, unitCost: 0, freightAmount: 0, lineMarkupPercent: 0,
     materialId: null, catalogUnitCostAtEntry: null, catalogPriceDate: null, lineType: "Material", scopeName: null,
@@ -113,11 +115,18 @@ function asNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true }: { estimates: EstimateSummary[]; unitPresets: UnitPreset[];canEdit?:boolean }) {
+export default function EstimateWorkspace({ estimates, unitPresets, canEdit = true, selectedEstimate = null, selectedTab }: {
+  estimates: EstimateSummary[];
+  unitPresets: UnitPreset[];
+  canEdit?: boolean;
+  selectedEstimate?: EstimateDetails | null;
+  selectedTab?: string;
+}) {
   const defaultUnit = defaultUnitAbbreviation(unitPresets);
+  const nextDraftLineId = useRef(-1);
 
   function newLine(): EstimateLineDraft {
-    return createLine(defaultUnit);
+    return { ...createLine(defaultUnit), draftLineId: --nextDraftLineId.current };
   }
 
   function importedUnit(value: string | null): string {
@@ -134,22 +143,18 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
   const [taxPercent, setTaxPercent] = useState(0);
   const [roundingIncrement, setRoundingIncrement] = useState(0);
   const [groupingMode, setGroupingMode] = useState<EstimateGroupingMode>("None");
-  const [activeEngagementTab, setActiveEngagementTab] = useState<EngagementType>("Project");
+  const [activeEngagementTab, setActiveEngagementTab] = useState<EngagementType>(selectedEstimate?.engagementType ?? "Project");
   const [engagementType, setEngagementType] = useState<EngagementType>("Project");
   const [recurrenceFrequency, setRecurrenceFrequency] = useState<RecurrenceFrequency>("Weekly");
   const [expectedStartDate, setExpectedStartDate] = useState<string | null>(null);
   const [expectedEndDate, setExpectedEndDate] = useState<string | null>(null);
   const [scopes, setScopes] = useState<string[]>([]);
-  const [lines, setLines] = useState<EstimateLineDraft[]>([newLine()]);
+  const [lines, setLines] = useState<EstimateLineDraft[]>(()=>[{...createLine(defaultUnit),draftLineId:-1}]);
+  const [alternateDrafts, setAlternateDrafts] = useState<ChangeInput[]>([]);
   // Collapse state for the scope-of-work parent containers, keyed by scope name ("__ungrouped" for unassigned lines).
   const [collapsedFormScopes, setCollapsedFormScopes] = useState<Record<string, boolean>>({});
-  // Collapse state for the read-only "View scope" detail panel, keyed by `${estimateId}:${groupKey}`.
-  const [collapsedDetailScopes, setCollapsedDetailScopes] = useState<Record<string, boolean>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expandedEstimateId, setExpandedEstimateId] = useState<number | null>(null);
-  const [detailsById, setDetailsById] = useState<Record<number, EstimateDetails>>({});
-  const [loadingEstimateId, setLoadingEstimateId] = useState<number | null>(null);
   const [printPdfPopupOpen, setPrintPdfPopupOpen] = useState(false);
   const [printPdfEstimateId, setPrintPdfEstimateId] = useState<number | null>(null);
   const [printOptions, setPrintOptions] = useState<EstimatePrintOptions>({
@@ -157,6 +162,7 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
     showLineTotals: false,
     showSummaryTotal: true,
     showScopesOfWork: false,
+    showAlternates: true,
   });
   const [printOptionsSaving, setPrintOptionsSaving] = useState<number | null>(null);
   const [pdfPreviewVersion, setPdfPreviewVersion] = useState(0);
@@ -166,7 +172,6 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
   const [winningEstimate, setWinningEstimate] = useState<EstimateSummary | null>(null);
   const [isWinning, setIsWinning] = useState(false);
   const [winError, setWinError] = useState<string | null>(null);
-  const [alternatesEstimate,setAlternatesEstimate]=useState<EstimateSummary|null>(null);
   const [winOptions,setWinOptions]=useState<ContractChange[]>([]);
   const [winSelected,setWinSelected]=useState<number[]>([]);
   const [winLoading,setWinLoading]=useState(false);
@@ -216,17 +221,13 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
     setColumnFilters,
     sort,
     setSort,
-    toggleSort,
-    openFilter,
-    setOpenFilter,
     filterControlRoot,
     visibleRows: visibleEstimates,
     clearFilters,
     hasActiveFilters,
   } = activeEngagementTab === "Project" ? projectTable : recurringTable;
   const tabEstimates = activeEngagementTab === "Project" ? projectEstimates : recurringEstimates;
-  const modalSort = !sort ? "" : sort.key === "estimateName" ? `name-${sort.direction}`
-    : sort.key === "quotedTotal" ? `amount-${sort.direction}` : "custom";
+  const modalSort = sort ? `${String(sort.key)}-${sort.direction}` : "";
   function resetListFilters() {
     setApprovalFilter("All");
     clearFilters();
@@ -239,6 +240,15 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
     roundingIncrement,
     lines,
   });
+  let alternateSources: ChangeSourceLine[] = [];
+  let alternatePricingError: string | null = null;
+  if (alternateDrafts.length) {
+    try {
+      alternateSources = draftAlternateSources({ markupMode, estimateMarkupPercent, taxPercent, roundingIncrement, groupingMode, lines });
+    } catch (pricingError) {
+      alternatePricingError = pricingError instanceof Error ? pricingError.message : "Correct base-bid pricing before adding deductions.";
+    }
+  }
 
   function resetForm() {
     setEstimateName("");
@@ -252,6 +262,7 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
     setScopes([]);
     setRoundingIncrement(0);
     setLines([newLine()]);
+    setAlternateDrafts([]);
     setError(null);
     setPrintPdfPopupOpen(false);
     setCollapsedFormScopes({});
@@ -293,6 +304,7 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
       setExpectedEndDate(details.expectedEndDate);
       setScopes([...details.scopes].sort((a, b) => a.sortOrder - b.sortOrder).map((scope) => scope.scopeName));
       setLines(details.lines.map((line) => ({
+        ...newLine(),
         description: line.description,
         quantity: line.quantity,
         unitName: importedUnit(line.unitName),
@@ -305,6 +317,7 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
         lineType: line.lineType,
         scopeName: line.scopeName,
       })));
+      setAlternateDrafts([]);
       setCollapsedFormScopes({});
       setEditingEstimateId(estimate.estimateId);
       setIsCreating(true);
@@ -337,7 +350,8 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
         throw new Error(result?.error ?? "Unable to delete estimate");
       }
       setDeletingEstimate(null);
-      router.refresh();
+      if (selectedEstimate?.estimateId === deletingEstimate.estimateId) router.push("/sales");
+      else router.refresh();
     } catch (deleteErr) {
       setDeleteError(deleteErr instanceof Error ? deleteErr.message : "Unable to delete estimate");
     } finally {
@@ -352,7 +366,7 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
   function renderLineEditor(index: number) {
     const line = lines[index];
     return (
-      <Fragment key={index}>
+      <Fragment key={line.draftLineId}>
         <div className="estimateLineEditor">
           <input aria-label={`Line ${index + 1} description`} placeholder="Description" value={line.description} maxLength={300} onChange={(event) => updateLine(index, { description: event.target.value })} required />
           <input aria-label={`Line ${index + 1} quantity`} type="number" min="0.0001" step="0.0001" value={line.quantity} onChange={(event) => updateLine(index, { quantity: asNumber(event.target.value) })} required />
@@ -462,10 +476,6 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
     setLines((current) => [...current, { ...newLine(), scopeName }]);
   }
 
-  function toggleDetailScopeCollapse(key: string) {
-    setCollapsedDetailScopes((current) => ({ ...current, [key]: !current[key] }));
-  }
-
   async function submitEstimate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSaving(true);
@@ -475,6 +485,7 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
         ...line,
         unitName: requireUnitAbbreviation(line.unitName, unitPresets, index + 1),
       }));
+      if (alternateDrafts.length && alternatePricingError) throw new Error(alternatePricingError);
       const url = editingEstimateId != null ? `/api/sales/estimates/${editingEstimateId}` : "/api/sales/estimates";
       const response = await fetch(url, {
         method: editingEstimateId != null ? "PUT" : "POST",
@@ -507,6 +518,7 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
             lineType: line.lineType,
             scopeName: groupingMode === "Scope" ? line.scopeName : null,
           })),
+          ...(editingEstimateId === null ? { alternates: initialAlternateInputs(alternateDrafts, lines) } : {}),
         }),
       });
       const result = await response.json().catch(() => null);
@@ -528,12 +540,14 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
       showLineTotals: estimate.showLineTotals,
       showSummaryTotal: estimate.showSummaryTotal,
       showScopesOfWork: estimate.showScopesOfWork,
+      showAlternates: estimate.showAlternates,
     });
     setPdfPreviewVersion((version) => version + 1);
     setPrintPdfPopupOpen(true);
   }
 
   async function updatePrintOption(estimateId: number, patch: Partial<EstimatePrintOptions>) {
+    const previousOptions = printOptions;
     const nextOptions = { ...printOptions, ...patch };
     setPrintOptions(nextOptions);
     setPrintOptionsSaving(estimateId);
@@ -548,6 +562,7 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
       if (!response.ok) throw new Error(result?.error ?? "Unable to update print preferences");
       router.refresh();
     } catch (optionsError) {
+      setPrintOptions(previousOptions);
       setError(optionsError instanceof Error ? optionsError.message : "Unable to update print preferences");
     } finally {
       setPrintOptionsSaving(null);
@@ -558,26 +573,6 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
   function confirmPrintPdf(estimateId: number) {
     window.open(`/api/sales/estimates/${estimateId}/pdf`, "_blank", "noopener,noreferrer");
     setPrintPdfPopupOpen(false);
-  }
-
-  async function toggleDetails(estimateId: number) {
-    if (expandedEstimateId === estimateId) {
-      setExpandedEstimateId(null);
-      return;
-    }
-    setExpandedEstimateId(estimateId);
-    if (detailsById[estimateId]) return;
-    setLoadingEstimateId(estimateId);
-    try {
-      const response = await fetch(`/api/sales/estimates?estimateId=${estimateId}`);
-      const result = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(result?.error ?? "Unable to load estimate details");
-      setDetailsById((current) => ({ ...current, [estimateId]: result as EstimateDetails }));
-    } catch (detailError) {
-      setError(detailError instanceof Error ? detailError.message : "Unable to load estimate details");
-    } finally {
-      setLoadingEstimateId(null);
-    }
   }
 
   async function openWinDialog(estimate: EstimateSummary) {
@@ -672,6 +667,7 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
     }
     const scopeName = uniqueScopeName(selectedScopeTemplate.templateName);
     const newLines: EstimateLineDraft[] = selectedScopeTemplate.components.map((component) => ({
+      ...newLine(),
       description: component.description,
       quantity: Number((component.quantityPerUnit * scopeTemplateQuantity).toFixed(6)),
       unitName: importedUnit(component.unitName),
@@ -726,22 +722,30 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
   }
 
   return (
-    <section className="salesWorkspace" ref={filterControlRoot}>
-      <header className="salesToolbar">
+    <section className={`${recordStyles.workspace} ${styles.workspace}`} ref={filterControlRoot}>
+      {selectedEstimate ? <EstimateRecord estimate={selectedEstimate} selectedTab={selectedTab} canEdit={canEdit}
+        loadingEdit={loadingEditEstimateId === selectedEstimate.estimateId}
+        onEdit={() => void openEditForm(selectedEstimate)} onPdf={() => openPrintPdfPopup(selectedEstimate)}
+        onWin={() => void openWinDialog(selectedEstimate)} onDelete={() => openDeleteDialog(selectedEstimate)} /> : <>
+      <header className={`${recordStyles.heading} ${styles.heading}`}>
         <div>
           <p className="salesEyebrow">SALES</p>
           <h1>Sales &amp; Estimates</h1>
         </div>
+        <div className={styles.headerActions}>
+        <details className={styles.libraries}>
+          <summary><Library size={15} aria-hidden="true" /> Libraries</summary>
+          <nav aria-label="Estimate libraries">
+            <Link href="/sales/catalog">Material Catalog</Link>
+            <Link href="/sales/scope-templates">Scope Templates</Link>
+          </nav>
+        </details>
         <button className="financeImportButton" type="button" disabled={!canEdit} onClick={() => { resetForm(); setIsCreating(true); }}>
           <Plus size={15} aria-hidden="true" />
           New estimate
         </button>
+        </div>
       </header>
-
-      <div className="estimateActionsInner">
-        <a className="estimateTextAction" href="/sales/catalog">Material Catalog</a>
-        <a className="estimateTextAction" href="/sales/scope-templates">Scope Templates</a>
-      </div>
 
       <div className="listViewToolbar">
         <div className="engagementTabs" role="tablist" aria-label="Estimate type">
@@ -771,17 +775,28 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
           }))}
           sort={modalSort} onSortChange={(value) => {
             if (!value) setSort(null);
-            else if (value === "name-asc" || value === "name-desc") setSort({ key: "estimateName", direction: value === "name-asc" ? "asc" : "desc" });
-            else if (value === "amount-asc" || value === "amount-desc") setSort({ key: "quotedTotal", direction: value === "amount-asc" ? "asc" : "desc" });
+            else for (const column of activeColumns) {
+              if (value === `${String(column.key)}-asc`) setSort({ key: column.key, direction: "asc" });
+              if (value === `${String(column.key)}-desc`) setSort({ key: column.key, direction: "desc" });
+            }
           }}
-          active={approvalFilter !== "All" || hasActiveFilters} onReset={resetListFilters} />
+          sortOptions={activeColumns.flatMap((column) => [
+            { value: `${String(column.key)}-asc`, label: `${column.label}: ascending` },
+            { value: `${String(column.key)}-desc`, label: `${column.label}: descending` },
+          ])}
+          active={approvalFilter !== "All" || hasActiveFilters} onReset={resetListFilters}>
+          <fieldset className={styles.fieldFilters}>
+            <legend>Filter individual fields</legend>
+            {activeColumns.map((column) => <label key={column.key} className="listViewControlLabel">
+              {column.label}
+              <input type="search" value={columnFilters[column.key] ?? ""} placeholder={`Filter ${column.label.toLowerCase()}`}
+                onChange={(event) => setColumnFilters((current) => ({ ...current, [column.key]: event.target.value }))} />
+            </label>)}
+          </fieldset>
+        </ListViewControls>
       </div>
 
-      <p className="salesWorkflowNote">Draft estimates retain their pricing inputs and line items. Marking one won sends it straight to Projects &amp; Jobs using the engagement type chosen when it was created.</p>
-      {unitPresets.length === 0 && <p className="financeImportError" role="alert">No unit presets are configured. Add units to dbo.UnitsOfMeasurement, then refresh this page.</p>}
-      {unitPresets.length > 0 && !defaultUnit && <p className="estimateInternalNote">No EA preset is configured. Choose a unit for each new line.</p>}
-      {error && <p className="financeImportError" role="alert">{error}</p>}
-
+      <p className={recordStyles.intro}>Open an estimate for scope, pricing, notes, and alternates. Mark it won when approved to carry it into Projects &amp; Jobs.</p>
       <div className="invoiceTableTools">
         <label className="invoiceSearchLabel">
           Search estimates
@@ -801,161 +816,34 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
         )}
       </div>
 
-      <div className="invoiceTableWrapper salesEstimateTableWrapper">
-        <table className="invoiceTable salesEstimateTable">
-          <thead>
-            <tr>
-              {activeColumns.map((column, index) => (
-                <FilterableTableHeaderCell
-                  key={column.key}
-                  column={column}
-                  idPrefix="estimate"
-                  alignPopoverRight={index >= activeColumns.length - 2}
-                  sortDirection={sort?.key === column.key ? sort.direction : null}
-                  filterValue={columnFilters[column.key] ?? ""}
-                  isFilterOpen={openFilter === column.key}
-                  onToggleSort={() => toggleSort(column.key)}
-                  onToggleFilter={() => setOpenFilter((current) => current === column.key ? null : column.key)}
-                  onFilterChange={(value) => setColumnFilters((current) => ({ ...current, [column.key]: value }))}
-                  onClearFilter={() => setColumnFilters((current) => ({ ...current, [column.key]: "" }))}
-                />
-              ))}
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleEstimates.length === 0 ? (
-              <tr><td colSpan={activeColumns.length + 1} className="invoiceNoResults">{(activeEngagementTab === "Project" ? projectEstimates : recurringEstimates).length === 0 ? "No estimates yet." : "No estimates match these filters."}</td></tr>
-            ) : visibleEstimates.map((estimate) => (
-              <Fragment key={estimate.estimateId}>
-                <tr>
-                  {activeColumns.map((column) => (
-                    column.key === "status" ? (
-                      <td key={column.key}><span className={`estimateStatus estimateStatus${estimate.status}`}>{estimate.status}</span></td>
-                    ) : column.key === "quotedTotal" ? (
-                      <td key={column.key}>{money(estimate.quotedTotal ?? 0)}</td>
-                    ) : (
-                      <td key={column.key}>{formatValue(column.key, estimate[column.key])}</td>
-                    )
-                  ))}
-                  <td>
-                    <div className="estimateActionsInner">
-                      <button type="button" className="estimateTextAction" onClick={() => void toggleDetails(estimate.estimateId)}>
-                        {expandedEstimateId === estimate.estimateId ? "Hide scope" : "View scope"}
-                      </button>
-                      <button type="button" className="estimateTextAction" onClick={() => openPrintPdfPopup(estimate)}>
-                        <FileDown size={13} aria-hidden="true" /> PDF
-                      </button>
-                      <button type="button" className="estimateTextAction" onClick={()=>setAlternatesEstimate(estimate)}>Alternates</button>
-                      {canEdit&&estimate.status === "Draft" && (
-                        <button type="button" className="estimateWinAction" onClick={() => void openWinDialog(estimate)}>
-                          Mark won
-                        </button>
-                      )}
-                      {canEdit&&estimate.status !== "Won" && (
-                        <>
-                          <button
-                            type="button"
-                            className="estimateTextAction"
-                            disabled={loadingEditEstimateId === estimate.estimateId}
-                            onClick={() => void openEditForm(estimate)}
-                          >
-                            {loadingEditEstimateId === estimate.estimateId ? "Loading..." : "Edit"}
-                          </button>
-                          <button type="button" className="estimateDangerAction" onClick={() => openDeleteDialog(estimate)}>
-                            Delete
-                          </button>
-                        </>
-                      )}
-                      {estimate.projectId && <a className="estimateTextAction" href={`/projects?created=${estimate.projectId}`}>Open project</a>}
-                    </div>
-                  </td>
-                </tr>
-                {expandedEstimateId === estimate.estimateId && (
-                  <tr>
-                    <td colSpan={activeColumns.length + 1} className="estimateScopeCell">
-                      {loadingEstimateId === estimate.estimateId ? <p>Loading estimate scope...</p> : detailsById[estimate.estimateId] ? (() => {
-                        const details = detailsById[estimate.estimateId];
-                        const lineItem = (line: EstimateDetails["lines"][number]) => (
-                          <li key={line.estimateLineItemId}>
-                            <span>{line.description}</span>
-                            <span>{line.quantity} {line.unitName}</span>
-                            <span>{money(line.unitCost)} / unit</span>
-                            <span>Freight {money(line.freightAmount)} (internal)</span>
-                            {details.markupMode === "perLine" && <span>{line.lineMarkupPercent}% markup</span>}
-                            <span className="estimateLineTypeBadge">{line.lineType}</span>
-                          </li>
-                        );
-                        // A scope (or type) group renders as a collapsible "parent row": its header toggles
-                        // whether the nested line items beneath it are shown, mirroring the View/Hide scope action.
-                        const groupSection = (key: string, title: string, groupLines: EstimateDetails["lines"]) => {
-                          const collapseKey = `${estimate.estimateId}:${key}`;
-                          const collapsed = collapsedDetailScopes[collapseKey];
-                          return (
-                            <div key={key} className="estimateScopeGroup">
-                              <button
-                                type="button"
-                                className="estimateScopeToggle"
-                                aria-expanded={!collapsed}
-                                onClick={() => toggleDetailScopeCollapse(collapseKey)}
-                              >
-                                <span className="estimateScopeToggleIcon">{collapsed ? "▸" : "▾"}</span>
-                                <h4>{title}</h4>
-                                <span className="estimateLineGroupCount">({groupLines.length} line{groupLines.length === 1 ? "" : "s"})</span>
-                              </button>
-                              {!collapsed && <ol>{groupLines.map(lineItem)}</ol>}
-                            </div>
-                          );
-                        };
-                        let groupedContent: ReactNode;
-                        if (details.groupingMode === "Scope") {
-                          const orderedScopes = [...details.scopes].sort((a, b) => a.sortOrder - b.sortOrder);
-                          const ungrouped = details.lines.filter((line) => line.estimateScopeOfWorkId === null);
-                          groupedContent = (
-                            <>
-                              {orderedScopes.map((scope) => {
-                                const scopeLines = details.lines.filter((line) => line.estimateScopeOfWorkId === scope.estimateScopeOfWorkId);
-                                if (scopeLines.length === 0) return null;
-                                return groupSection(`scope-${scope.estimateScopeOfWorkId}`, scope.scopeName, scopeLines);
-                              })}
-                              {ungrouped.length > 0 && groupSection("ungrouped", "Ungrouped", ungrouped)}
-                            </>
-                          );
-                        } else if (details.groupingMode === "Type") {
-                          groupedContent = (
-                            <>
-                              {(["Material", "Labor", "Equipment"] as const).map((lineType) => {
-                                const typeLines = details.lines.filter((line) => line.lineType === lineType);
-                                if (typeLines.length === 0) return null;
-                                return groupSection(`type-${lineType}`, lineType, typeLines);
-                              })}
-                            </>
-                          );
-                        } else {
-                          groupedContent = <ol>{details.lines.map(lineItem)}</ol>;
-                        }
-                        return (
-                          <div className="estimateScope">
-                            <div className="estimateScopeSummary">
-                              <span>Markup: {details.markupMode === "perLine" ? "Per line" : `${details.estimateMarkupPercent}% on estimate`}</span>
-                              <span>Tax: {details.taxPercent}% of cost (internal only)</span>
-                              <span>Round to: {details.roundingIncrement ? money(details.roundingIncrement) : "No rounding"}</span>
-                              <span>Grouping: {details.groupingMode === "None" ? "None" : details.groupingMode === "Scope" ? "By scope of work" : "By line type"}</span>
-                            </div>
-                            {groupedContent}
-                            <DocumentNotes internalNotes={details.internalNotes} customerNotes={details.customerNotes} />
-                            <ContractChangesPanel key={estimate.estimateId} context={{estimateId:estimate.estimateId}}/>
-                          </div>
-                        );
-                      })() : <p>Could not load this estimate&apos;s scope.</p>}
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
+      <div className={recordStyles.list}>
+        {visibleEstimates.length === 0 ? <p className={recordStyles.empty}>{tabEstimates.length === 0 ? "No estimates yet." : "No estimates match these filters."}</p>
+          : visibleEstimates.map((estimate) => <article key={estimate.estimateId} className={recordStyles.card} aria-label={estimate.estimateName}>
+            <div className={recordStyles.identity}>
+              <h2><Link href={`/sales/${estimate.estimateId}`}>{estimate.estimateName}</Link></h2>
+              <p>{estimate.customerName || "Unassigned customer"}</p>
+              <span className={recordStyles.reference}>EST-{estimate.estimateId} &middot; {estimate.lineCount} {estimate.lineCount === 1 ? "line" : "lines"}</span>
+              {estimate.engagementType === "Service" && <>
+                <span className={recordStyles.recurrence}>{estimate.recurrenceFrequency ? formatValue("recurrenceFrequency", estimate.recurrenceFrequency) : "Recurring service"}</span>
+                <span className={recordStyles.dates}>{formatValue("expectedStartDate", estimate.expectedStartDate)} &ndash; {estimate.expectedEndDate ? formatValue("expectedEndDate", estimate.expectedEndDate) : "Ongoing"}</span>
+              </>}
+            </div>
+            <div className={recordStyles.status}><span className={recordStyles.label}>Status</span>
+              <span className={`estimateStatus estimateStatus${estimate.status}`}>{estimate.status}</span></div>
+            <div className={recordStyles.value}><span className={recordStyles.label}>{estimate.engagementType === "Service" ? "Per occurrence" : "Base estimate"}</span>
+              <strong>{money(estimate.quotedTotal)}</strong></div>
+            <div className={recordStyles.actions}>
+              <button type="button" className="projectWorkspaceLink" aria-label={`PDF for ${estimate.estimateName}`} onClick={() => openPrintPdfPopup(estimate)}>
+                <FileDown size={14} aria-hidden="true" /> PDF</button>
+              <Link className={recordStyles.openRecord} href={`/sales/${estimate.estimateId}`} aria-label={`Open estimate: ${estimate.estimateName}`}>
+                Open estimate <ArrowUpRight size={14} aria-hidden="true" /></Link>
+            </div>
+          </article>)}
       </div>
+      </>}
+      {unitPresets.length === 0 && <p className="financeImportError" role="alert">No unit presets are configured. Add units to dbo.UnitsOfMeasurement, then refresh this page.</p>}
+      {unitPresets.length > 0 && !defaultUnit && <p className="estimateInternalNote">No EA preset is configured. Choose a unit for each new line.</p>}
+      {error && <p className="financeImportError" role="alert">{error}</p>}
 
       {isCreating && (
         <Modal titleId="newEstimateTitle" title={editingEstimateId != null ? "Edit estimate" : "New estimate"} eyebrow="SALES & ESTIMATES" onClose={closeForm} closeDisabled={isSaving} closeLabel="Close estimate form" className="estimateDialog">
@@ -974,7 +862,7 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
                   <label className="financeImportField">Type of work
                     <select
                       value={engagementType}
-                      disabled={editingEstimateId != null}
+                      disabled={editingEstimateId != null || alternateDrafts.length > 0}
                       onChange={(event) => setEngagementType(event.target.value as EngagementType)}
                     >
                       <option value="Project">One-time project</option>
@@ -1005,6 +893,7 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
                 {editingEstimateId != null && (
                   <p className="estimateInternalNote">Type of work can&apos;t be changed after an estimate is created — delete and recreate it if the other type is needed.</p>
                 )}
+                {alternateDrafts.length>0&&<p className="estimateInternalNote">Remove the alternate drafts before switching to recurring service. Alternates apply to one-time projects.</p>}
               </fieldset>
 
               <fieldset className="financeImportGroup">
@@ -1101,9 +990,31 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
                 customerHint="Carried into the project when this estimate is won." />
 
               <div className="estimatePreviewTotal">
+                <span>Base estimate total (alternates excluded)</span>
                 <strong>{money(pricing.quotedTotal)}</strong>
                 <small>Internal only — cost {money(pricing.baseSubtotal)} · freight {money(pricing.freightTotal)} · tax {money(pricing.taxTotal)} · markup {money(pricing.markupAmount)}</small>
               </div>
+              {editingEstimateId===null&&engagementType==="Project"&&<section className="estimateAlternateDrafts" aria-label="Estimate alternates">
+                <h3>Alternates</h3>
+                <p>Optional additions or deductions, each priced separately below the base estimate total. Saving creates linked drafts, not customer approvals.</p>
+                {alternatePricingError&&<p className="financeImportError" role="alert">{alternatePricingError}</p>}
+                {alternateDrafts.map((alternate,index)=><section key={index} className="estimateBaseBid" aria-label={`Alternate ${index+1}`}>
+                  <h4>Alternate {index+1}</h4>
+                  <ContractChangeFields input={alternate} sources={alternateSources} unitPresets={unitPresets} disabled={isSaving}
+                    onChange={value=>setAlternateDrafts(current=>current.map((item,position)=>position===index?value:item))}/>
+                  <div className="estimatePreviewTotal">
+                    <span>Alternate {index+1} subtotal{alternate.estimateName?`: ${alternate.estimateName}`:""} (separate from base bid)</span>
+                    <strong>{money(contractChangePreview(alternate,alternateSources))}</strong>
+                  </div>
+                  <button type="button" disabled={isSaving} onClick={()=>setAlternateDrafts(current=>current.filter((_,position)=>position!==index))}>
+                    Remove alternate {index+1}
+                  </button>
+                </section>)}
+                <button type="button" className="estimateAddLine" disabled={isSaving||unitPresets.length===0}
+                  onClick={()=>setAlternateDrafts(current=>[...current,blankContractChange(defaultUnit)])}>
+                  <Plus size={14}/> Add alternate
+                </button>
+              </section>}
               {error && <p className="financeImportError" role="alert">{error}</p>}
               <div className="financeImportActions">
                 <button type="button" className="financeImportCancel" onClick={closeForm} disabled={isSaving}>Cancel</button>
@@ -1123,6 +1034,14 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
           <Modal titleId="printPdfTitle" title={<>Print preview — {previewEstimate?.estimateName ?? "estimate"}</>} eyebrow="SALES & ESTIMATES" onClose={() => setPrintPdfPopupOpen(false)} closeLabel="Close print preview" className="estimatePdfDialog">
               <fieldset className="estimatePdfOptions" disabled={isSavingOptions}>
                 <legend>What should this PDF include?</legend>
+                <label className="estimatePdfCheckbox">
+                  <input
+                    type="checkbox"
+                    checked={printOptions.showAlternates}
+                    onChange={(event) => void updatePrintOption(activeId, { showAlternates: event.target.checked })}
+                  /> Alternates (separate from base bid)
+                </label>
+                <p className="estimateInternalNote">Included alternates appear beneath the base proposed total with separate add/deduct amounts. Draft, proposed, and approved alternates are included; rejected alternates are excluded.</p>
                 <label className="estimatePdfCheckbox">
                   <input
                     type="checkbox"
@@ -1169,10 +1088,6 @@ export default function EstimateWorkspace({ estimates, unitPresets,canEdit=true 
         );
       })()}
 
-      {alternatesEstimate&&<Modal titleId="bidAlternatesTitle" title={`Alternates / ${alternatesEstimate.estimateName}`}
-        eyebrow="SALES & ESTIMATES" className="estimateDialog" onClose={()=>setAlternatesEstimate(null)}>
-        <ContractChangesPanel key={alternatesEstimate.estimateId} context={{estimateId:alternatesEstimate.estimateId}}/>
-      </Modal>}
       {winningEstimate && (
         <Modal titleId="winEstimateTitle" title={<>Send &quot;{winningEstimate.estimateName}&quot; to Projects &amp; Jobs</>} eyebrow="SALES & ESTIMATES" onClose={() => { if (!isWinning&&!winLoading) setWinningEstimate(null); }} closeDisabled={isWinning||winLoading} className="financeProjectDialog">
             <form onSubmit={confirmWin}>

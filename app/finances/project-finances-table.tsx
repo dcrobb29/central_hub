@@ -7,7 +7,10 @@ import type { ProjectFinancialSummary } from "@/app/lib/projects";
 import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
 import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
 import Modal from "@/app/components/modal";
-import TablePagination from "@/app/components/table-pagination";
+import Link from "next/link";
+import FinanceCollection, { FinanceRecord, FinanceFacts } from "./finance-collection";
+import recordStyles from "@/app/components/record-workspace.module.css";
+import styles from "./finance-workspace.module.css";
 
 type Column = TableColumn<ProjectFinancialSummary>;
 
@@ -55,9 +58,10 @@ export default function ProjectFinancesTable({ rows }: { rows: ProjectFinancialS
   const [projectName, setProjectName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const selectedProject = rows.find((project) => project.projectId === selectedId);
+  const table = useFilterableTable(rows, COLUMNS, { searchableValue, compare: compareProjects, initialPageSize: 50 });
   const {
-    search,
-    setSearch,
     columnFilters,
     setColumnFilters,
     sort,
@@ -67,14 +71,7 @@ export default function ProjectFinancesTable({ rows }: { rows: ProjectFinancialS
     filterControlRoot,
     visibleRows,
     paginatedRows,
-    currentPage,
-    setCurrentPage,
-    pageSize,
-    setPageSize,
-    totalPages,
-    clearFilters,
-    hasActiveFilters,
-  } = useFilterableTable(rows, COLUMNS, { searchableValue, compare: compareProjects, initialPageSize: 50 });
+  } = table;
 
   async function submitProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -105,33 +102,32 @@ export default function ProjectFinancesTable({ rows }: { rows: ProjectFinancialS
   }
 
   return (
-    <section className="projectFinancesTablePanel" ref={filterControlRoot}>
-      <div className="projectFinancesToolbar">
-        <div>
-          <p className="financeImportEyebrow">ALL-TIME PROJECT TOTALS</p>
-          <h2>Project financials</h2>
-        </div>
-        <label className="invoiceSearchLabel">
-          Search projects
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search every column"
-            className="invoiceSearchInput"
-          />
-        </label>
-        <button type="button" className="financeImportButton" onClick={() => { setError(null); setIsAddingProject(true); }}>
-          <Plus size={15} aria-hidden="true" />
-          Add project
-        </button>
-        <span className="invoiceResultCount" aria-live="polite">
-          {visibleRows.length} of {rows.length} projects
-        </span>
-        {hasActiveFilters && (
-          <button type="button" className="invoiceClearButton" onClick={clearFilters}>Clear</button>
-        )}
-      </div>
+    <section className={styles.workspace} ref={filterControlRoot}>
+      {selectedProject ? <FinanceRecord key={selectedProject.projectId} title={selectedProject.projectName} collection="project financials" onBack={() => setSelectedId(null)}
+        actions={<Link className="financeImportButton" href={`/projects/${selectedProject.projectId}?tab=finances`}>Open project finances</Link>}
+        overview={<><p className="financeImportHint">All-time totals from invoices and allocated bills.</p><FinanceFacts items={[
+          { label: "Income", value: money(selectedProject.income) },
+          { label: "Costs", value: money(selectedProject.costs) },
+          { label: "Profit", value: <span className={selectedProject.profit < 0 ? "projectProfitNegative" : "projectProfitPositive"}>{money(selectedProject.profit)}</span> },
+          { label: "Unpaid income", value: money(selectedProject.unpaidIncome) },
+          { label: "Unpaid bills", value: money(selectedProject.unpaidCosts) },
+          { label: "Profit margin", value: `${percent.format(selectedProject.profitMargin)}%` },
+        ]} /></>}
+        details={<FinanceFacts items={COLUMNS.map((column) => ({ label: column.label, value: formatValue(column.key, selectedProject[column.key]) }))} />}
+      /> : null}
+      <div hidden={Boolean(selectedProject)} className={!selectedProject ? styles.workspace : undefined}>
+      <FinanceCollection title="Project financials" description="All-time project totals. Open a financial summary for paid and unpaid balances, percentages, and the project workspace."
+        action={<button type="button" className="financeImportButton" onClick={() => { setError(null); setIsAddingProject(true); }}><Plus size={15} aria-hidden="true" />Add project</button>}
+        columns={COLUMNS} controls={table} count={rows.length} itemLabel="projects"
+        cards={paginatedRows.map((project) => <article className={recordStyles.card} key={project.projectId} aria-label={project.projectName}>
+          <div className={recordStyles.identity}><h2><button type="button" className={styles.textButton} onClick={() => setSelectedId(project.projectId)}>{project.projectName}</button></h2>
+            <p>Income {money(project.income)} / Costs {money(project.costs)}</p></div>
+          <div className={recordStyles.status}><span className={recordStyles.label}>Unpaid income</span><strong>{money(project.unpaidIncome)}</strong>
+            <span className={recordStyles.reference}>Unpaid bills {money(project.unpaidCosts)}</span></div>
+          <div className={recordStyles.value}><span className={recordStyles.label}>Profit</span><strong className={project.profit < 0 ? "projectProfitNegative" : "projectProfitPositive"}>{money(project.profit)}</strong>
+            <span className={recordStyles.reference}>{percent.format(project.profitMargin)}% margin</span></div>
+          <div className={recordStyles.actions}><button type="button" className={recordStyles.openRecord} onClick={() => setSelectedId(project.projectId)} aria-label={`Open financials for ${project.projectName}`}>Open financials</button></div>
+        </article>)}>
       <div className="invoiceTableWrapper">
         <table className="invoiceTable projectFinancesTable">
           <thead>
@@ -178,16 +174,8 @@ export default function ProjectFinancesTable({ rows }: { rows: ProjectFinancialS
           </tbody>
         </table>
       </div>
-      <TablePagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        totalItems={visibleRows.length}
-        pageSize={pageSize}
-        onPageChange={setCurrentPage}
-        onPageSizeChange={setPageSize}
-        pageSizeOptions={[25, 50, 100]}
-        itemLabel="projects"
-      />
+      </FinanceCollection>
+      </div>
       {isAddingProject && (
         <Modal titleId="addProjectTitle" title="Add project" eyebrow="PROJECT FINANCES" onClose={closeDialog} closeDisabled={isSaving} className="financeProjectDialog">
             <p className="financeImportHint">Projects can be connected to invoices and bills when those records are added. Existing unassigned records stay unassigned.</p>

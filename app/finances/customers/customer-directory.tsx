@@ -4,6 +4,9 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import Modal from "@/app/components/modal";
+import { FinanceHeading, FinanceRecord, FinanceFacts } from "../finance-collection";
+import recordStyles from "@/app/components/record-workspace.module.css";
+import styles from "../finance-workspace.module.css";
 import {
   CUSTOMER_FIELD_GROUPS, EMPTY_CUSTOMER, customerLabel, customerToDraft,
   type Customer, type CustomerDraft,
@@ -17,6 +20,9 @@ export default function CustomerDirectory({ customers }: { customers: Customer[]
   const [editingId, setEditingId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [view, setView] = useState("cards");
+  const selectedCustomer = customers.find((customer) => customer.customerId === selectedId);
   const visible = useMemo(() => {
     const q = search.trim().toLocaleLowerCase();
     return customers.filter((customer) => (showArchived || customer.isActive) &&
@@ -64,19 +70,48 @@ export default function CustomerDirectory({ customers }: { customers: Customer[]
     } finally { setBusy(false); }
   }
   return (
-    <section className="invoiceTablePanel">
-      <header className="salesToolbar"><div><p className="salesEyebrow">CUSTOMERS</p><h1>Customer directory</h1></div></header>
+    <section className={styles.workspace}>
+      {selectedCustomer ? <FinanceRecord key={selectedCustomer.customerId} title={customerLabel(selectedCustomer)} collection="customers" onBack={() => setSelectedId(null)}
+        actions={<>
+          <button type="button" className="estimateTextAction" disabled={busy} onClick={() => open(selectedCustomer)}>Edit customer</button>
+          <button type="button" className="estimateTextAction" disabled={busy} onClick={() => void changeActive(selectedCustomer)}>{selectedCustomer.isActive ? "Archive" : "Restore"}</button>
+        </>}
+        overview={<FinanceFacts items={[
+          { label: "Contact", value: [selectedCustomer.firstName, selectedCustomer.lastName].filter(Boolean).join(" ") },
+          { label: "Company", value: selectedCustomer.companyName },
+          { label: "Email", value: selectedCustomer.email },
+          { label: "Phone", value: selectedCustomer.phone },
+          { label: "Status", value: selectedCustomer.isActive ? "Active" : "Archived" },
+        ]} />}
+        details={<FinanceFacts items={CUSTOMER_FIELD_GROUPS.flatMap((group) => group.fields.map((field) => ({
+          label: `${group.title}: ${field.label}`, value: selectedCustomer[field.key],
+        })))} />}
+      /> : <>
+      <FinanceHeading title="Customers" description="Your customer directory. Open a customer for contact information, addresses, editing, and archive tools."
+        action={<button type="button" className="financeImportButton" onClick={() => open()} disabled={busy}><Plus size={15} aria-hidden="true" />Add customer</button>} />
+      <div className={styles.toolbar}>
+        <div className="listStatusToggle" role="group" aria-label="Customers display">
+          <button type="button" aria-pressed={view === "cards"} onClick={() => setView("cards")}>Overview</button>
+          <button type="button" aria-pressed={view === "table"} onClick={() => setView("table")}>Detailed table</button>
+        </div>
+        <label className="customerArchivedToggle"><input type="checkbox" checked={showArchived} onChange={(event) => setShowArchived(event.target.checked)} />Show archived</label>
+      </div>
       <div className="invoiceTableTools">
         <label className="invoiceSearchLabel">Search customers
           <input type="search" className="invoiceSearchInput" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Contact, company, or address" />
         </label>
-        <button type="button" className="financeImportButton" onClick={() => open()} disabled={busy}><Plus size={15} aria-hidden="true" />Add customer</button>
-        <label className="customerArchivedToggle"><input type="checkbox" checked={showArchived} onChange={(event) => setShowArchived(event.target.checked)} />Show archived</label>
         <span className="invoiceResultCount" aria-live="polite">{visible.length} customers</span>
       </div>
-      <p className="financeImportHint">Company is optional. Customer changes apply to future selections, not existing invoice details. Archive customers to hide them from new assignments without deleting history.</p>
-      {error && !draft && <p className="financeImportError" role="alert">{error}</p>}
-      <div className="invoiceTableWrapper">
+      {view === "cards" ? <div className={recordStyles.list}>
+        {visible.length === 0 && <p className={recordStyles.empty}>No customers match. Add a customer to get started.</p>}
+        {visible.map((customer) => <article className={recordStyles.card} key={customer.customerId} aria-label={customerLabel(customer)}>
+          <div className={recordStyles.identity}><h2><button type="button" className={styles.textButton} onClick={() => setSelectedId(customer.customerId)}>{customer.companyName || [customer.firstName, customer.lastName].filter(Boolean).join(" ")}</button></h2>
+            {customer.companyName && <p>{[customer.firstName, customer.lastName].filter(Boolean).join(" ")}</p>}</div>
+          <div className={recordStyles.status}><span className={recordStyles.label}>Status</span><strong>{customer.isActive ? "Active" : "Archived"}</strong></div>
+          <div className={recordStyles.status}><span className={recordStyles.label}>Contact</span><span className={styles.hint}>{customer.email || "No email"}</span><span className={styles.hint}>{customer.phone || "No phone"}</span></div>
+          <div className={recordStyles.actions}><button type="button" className={recordStyles.openRecord} onClick={() => setSelectedId(customer.customerId)} aria-label={`Open customer ${customerLabel(customer)}`}>Open customer</button></div>
+        </article>)}
+      </div> : <div className="invoiceTableWrapper">
         <table className="invoiceTable">
           <thead><tr><th>Contact</th><th>Company</th><th>Email / phone</th><th>Billing address</th><th>Shipping address</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
@@ -95,7 +130,10 @@ export default function CustomerDirectory({ customers }: { customers: Customer[]
             </tr>)}
           </tbody>
         </table>
-      </div>
+      </div>}
+      </>}
+      <p className={styles.hint}>Customer changes apply to future selections, not existing invoice details. Archive customers to hide them from new assignments without deleting history.</p>
+      {error && !draft && <p className="financeImportError" role="alert">{error}</p>}
       {draft && <Modal titleId="customerFormTitle" title={editingId === null ? "Add customer" : "Edit customer"} eyebrow="CUSTOMERS" onClose={close} closeDisabled={busy}>
         <form onSubmit={save}>
           <p className="financeImportHint">Contact name is required. Company, contact methods, and addresses are optional.</p>

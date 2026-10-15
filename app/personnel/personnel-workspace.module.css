@@ -1,0 +1,133 @@
+.page {
+  overflow: auto;
+  background: #eaf0ed;
+}
+
+.workspace {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.workspace :global(.personnelToolbar) {
+  margin: 0;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.workspace :global(.personnelActions),
+.sectionHeading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.workspace :global(.personnelToolbar h1) {
+  font-size: 24px;
+}
+
+.workspace :global(.personnelButton),
+.workspace :global(.projectWorkspaceLink) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+}
+
+.workspace :global(.engagementTab) {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.manager {
+  overflow-wrap: anywhere;
+}
+
+.record {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  padding: 0;
+}
+
+.record :global(.projectHubHeader) {
+  flex-wrap: wrap;
+}
+
+.record :global(.projectHubHeader h1),
+.record :global(.projectHubBreadcrumb) {
+  overflow-wrap: anywhere;
+}
+
+.record :global(.projectHubTabs a) {
+  border: 1px solid #cbd8d0;
+  border-bottom-width: 3px;
+  border-radius: 4px 4px 0 0;
+  background: #f4f8f5;
+}
+
+.record :global(.projectHubTabs a[aria-current="page"]) {
+  border-bottom-color: #176347;
+  background: #edf5ef;
+}
+
+.reports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.reports h3 {
+  width: 100%;
+}
+
+.reports a {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.sectionHeading {
+  justify-content: space-between;
+}
+
+.history :global(.personnelHistoryList) {
+  max-height: none;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  margin-top: 16px;
+}
+
+.roles {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}
+
+.chart {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.chart :global(.personnelChartCanvas) {
+  height: clamp(420px, 60dvh, 700px);
+  min-height: 0;
+}
+
+.chart :global(.orgPersonCard) {
+  cursor: pointer;
+  border-color: #729f85;
+}
+
+.chart :global(.orgPersonCard strong) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

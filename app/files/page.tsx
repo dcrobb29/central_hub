@@ -1,9 +1,11 @@
 import FileExplorer from "./file-explorer";
+import recordStyles from "@/app/components/record-workspace.module.css";
+import styles from "./file-workspace.module.css";
 
 export default function FilesPage() {
   return (
-    <div className="body">
+    <main className={`body ${recordStyles.page} ${styles.page}`}>
       <FileExplorer />
-    </div>
+    </main>
   );
 }

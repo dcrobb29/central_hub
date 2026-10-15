@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   Background,
   Controls,
@@ -16,6 +17,7 @@ type PersonNodeData = {
   personId: string;
   name: string;
   role: string;
+  href: string;
 };
 
 type PersonNodeType = Node<PersonNodeData, "person">;
@@ -24,7 +26,7 @@ function PersonCard({ data }: NodeProps<PersonNodeType>) {
   return (
     <article className="orgPersonCard">
       <Handle type="target" position={Position.Top} />
-      <strong>{data.name}</strong>
+      <strong><Link href={data.href} onClick={(event) => event.stopPropagation()}>{data.name}</Link></strong>
       <span>{data.role}</span>
       <Handle type="source" position={Position.Bottom} />
     </article>
@@ -36,7 +38,7 @@ const NODE_WIDTH = 220;
 const UNIT_WIDTH = 280;
 const LEVEL_HEIGHT = 150;
 
-function createGraph(people: Person[], roles: PersonnelRole[]) {
+function createGraph(people: Person[], roles: PersonnelRole[], personHref: (id: string) => string) {
   const peopleById = new Map(people.map((person) => [person.id, person]));
   const rolesById = new Map(roles.map((role) => [role.id, role.name]));
   const children = new Map<string, Person[]>();
@@ -87,6 +89,7 @@ function createGraph(people: Person[], roles: PersonnelRole[]) {
         personId: person.id,
         name: person.name,
         role: rolesById.get(person.roleId) ?? "Role not set",
+        href: personHref(person.id),
       },
     });
 
@@ -127,10 +130,12 @@ export default function PersonnelChart({
   people,
   roles,
   onSelectPerson,
+  personHref,
 }: {
   people: Person[];
   roles: PersonnelRole[];
   onSelectPerson: (id: string | null) => void;
+  personHref: (id: string) => string;
 }) {
   function handleSelectPerson(personId: string) {
     onSelectPerson(personId);
@@ -140,7 +145,7 @@ export default function PersonnelChart({
     onSelectPerson(null);
   }
 
-  const { nodes, edges } = createGraph(people, roles);
+  const { nodes, edges } = createGraph(people, roles, personHref);
 
   return (
     <div className="personnelChartCanvas">
@@ -152,6 +157,7 @@ export default function PersonnelChart({
         onPaneClick={handlePaneClick}
         nodesDraggable={false}
         nodesConnectable={false}
+        nodesFocusable={false}
         elementsSelectable
         fitView
         fitViewOptions={{ padding: 0.2 }}

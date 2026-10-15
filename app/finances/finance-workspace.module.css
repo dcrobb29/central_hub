@@ -1,0 +1,204 @@
+.page {
+  display: block;
+  overflow: auto;
+  background: #eaf0ed;
+  text-align: left;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  min-width: 0;
+}
+
+.navigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: auto;
+  height: auto;
+  margin-bottom: 24px;
+}
+
+.navigation a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid #cbd8d0;
+  border-radius: 4px;
+  background: #fff;
+  color: #294f3e;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.navigation a[aria-current="page"] {
+  border-color: #176347;
+  background: #176347;
+  color: #fff;
+}
+
+.heading,
+.toolbar,
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.heading,
+.toolbar {
+  justify-content: space-between;
+}
+
+.heading h1 {
+  margin: 4px 0 0;
+  font-size: 24px;
+  color: #20362d;
+}
+
+.workspace :global(.invoiceTableWrapper) {
+  flex: none;
+  width: 100%;
+  max-width: 100%;
+}
+
+.workspace :global(.invoiceTableTools) {
+  flex-wrap: wrap;
+}
+
+.workspace :global(.tablePaginationControls),
+.workspace :global(.tablePaginationButtons) {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.workspace :global(.invoiceSearchLabel),
+.workspace :global(.invoiceSearchInput) {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.workspace button,
+.workspace :global(.financeImportButton) {
+  min-height: 40px;
+}
+
+.textButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #20362d;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.record {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+.record h1,
+.record h2,
+.record p,
+.record dd,
+.record a {
+  overflow-wrap: anywhere;
+}
+
+.workspace :global(.projectProfitNegative) {
+  color: #a12828;
+}
+
+.workspace :global(.projectProfitPositive) {
+  color: #176347;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  margin: 0;
+}
+
+.facts > div {
+  min-width: 0;
+}
+
+.facts dt {
+  margin-bottom: 6px;
+  color: #53675d;
+  font-size: 12px;
+}
+
+.facts dd {
+  margin: 0;
+  color: #20362d;
+  font-size: 14px;
+  white-space: pre-wrap;
+}
+
+.section {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid #d0dad4;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.section h2 {
+  margin: 0 0 20px;
+  font-size: 18px;
+}
+
+.record :global(.projectHubTabs) {
+  flex-wrap: wrap;
+}
+
+.record :global(.projectHubTabs button) {
+  padding: 10px 16px;
+  border: 1px solid #cbd8d0;
+  border-bottom-width: 3px;
+  border-radius: 4px 4px 0 0;
+  background: #fff;
+  color: #294f3e;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.record :global(.projectHubTabs button[aria-pressed="true"]) {
+  border-bottom-color: #176347;
+  background: #edf5ef;
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.hint {
+  margin: 0;
+  color: #53675d;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 640px) {
+  .facts,
+  .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (min-width: 1024px) {
+  .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

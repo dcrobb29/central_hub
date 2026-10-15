@@ -437,6 +437,81 @@ Database integration tests use `RUN_DB_TESTS=1` with
 When combining database integration files, use `node --test --test-concurrency=1`
 to avoid competing rollback-only fixtures locking each other's test data.
 
+## Files workspace
+
+Files uses the shared compact-card layout rather than an always-visible sidebar
+and empty preview pane. The current folder is the main surface, with named
+**Open folder**, **Preview**, and **Download** actions. Breadcrumbs and **Up one
+folder** retain folder navigation. Search still matches names within the current
+folder; **Filters & sort** adds file/folder filtering and name order, keeping
+folders before files.
+
+Opening a file shows a focused preview workspace with **Back to folder**, the
+existing download control and all existing image, video, audio, PDF, text,
+Office-document, and unsupported-format renderers. **File details** expands its
+location, size, and modified date. Returning from preview retains the folder's
+search and filters.
+
+**Import** groups file and folder pickers in the shared dialog. Multiple-file
+imports and relative subfolder paths are preserved. Navigation is disabled during
+uploads so the target folder stays fixed. Partial upload failures remain visible
+after refreshing the folder, alongside the number imported. Directory failures
+have an explicit retry action; Office-preview failures also offer retry.
+**New folder** uses the shared form dialog instead of a browser prompt.
+
+Storage paths, duplicate-file protection, upload/download endpoints and preview
+formats are unchanged. The responsive layout uses the same small/medium/large/XL
+breakpoints as other tiles; header/footer stay visible with scrolling contained
+inside the application.
+
+## Finances workspace
+
+Finances follows the same compact overview and focused-record pattern as
+Projects, Sales, and People. The responsive section navigation keeps Customers,
+Invoices, Bills, and Project Finances available without a fixed-width sidebar.
+Invoices, bills, and project financials default to compact cards. **Open invoice**,
+**Open bill**, and **Open financials** reveal an **Overview** and **All details**
+workspace. Customer cards use the same pattern for contact details and addresses.
+
+The **Detailed table** option preserves the full column layouts, column filters,
+sorting, and invoice/bill actions. Both views share search, field filters, sort,
+and pagination. **Filters & sort** makes every original field available from the
+compact view; addresses and other secondary fields remain searchable even when
+not shown on cards. Back controls return to the list without clearing its search,
+filters, sort, or page.
+
+Existing import/edit forms, saved-customer snapshots, notes, email dialogs,
+deletion confirmations, paid dates, split-bill controls, allocation links,
+customer archive/restore, and project creation remain available. Issued-invoice
+and completed-project restrictions are unchanged. Financial calculations and API
+contracts are unchanged; this is a presentation-only pass. Header/footer remain
+visible, while long content and detailed tables scroll within the application.
+
+## People workspace
+
+People uses the same compact overview and focused-record pattern as Sales &
+Estimates and Projects & Jobs. The default **Directory** shows name, role,
+manager, direct-report count, and **Open person**. Search matches name, role,
+and manager; **Filters & sort** provides role filtering and name sorting.
+The full **Organization chart** remains an alternate view with its existing
+zoom/fit controls; selecting a person opens the same focused workspace.
+Chart cards have visibly underlined names and pointer affordances.
+
+Person workspaces use bookmarkable `/personnel?personId={id}&tab=overview`
+and `tab=history` links, with **Overview** and **History** section tabs.
+Overview retains role, manager, direct reports, and **Edit person**.
+Manager/report links open their person workspaces. History retains dated notes,
+loads only when opened, and offers **Add history** in the shared dialog instead
+of an always-visible form. Failed directory/history loads show explicit errors
+and retry controls. **Roles** groups the role list and existing Add role form.
+Person creation still supports no connection, reporting to someone, or managing
+someone; editing still changes name, role, and manager. No personnel API,
+storage, reporting rules, or history schema changes are part of this UI pass.
+
+The directory reuses the shared responsive portfolio styles and small/medium/
+large/XL breakpoints. Header/footer stay visible, with scrolling contained in
+the application content area. Chart and dialog content fit the available width.
+
 ## Field operations planner
 
 Apply [database/field-operations-planning-schema.sql](database/field-operations-planning-schema.sql)
@@ -448,14 +523,31 @@ application only needs SELECT/INSERT/UPDATE permissions.
 The weekly board lists only Active projects and recurring jobs, plus all org-chart
 employees; overhead filtering is not applied. Upcoming jobs remain in Project
 Management for preparation, and Complete jobs are not assignable.
-The Jobs panel defaults to draggable job cards. Its upper-right toggle switches
-to job/date dropdowns and a Schedule button, hiding the draggable pool; switching
-back hides the selectors. Selection values are retained while toggling, and the
-mode stays selected when navigating weeks (a page reload defaults to drag/drop).
-Scheduled visits and resource assignments can still be dragged in either mode.
-The seven-day board remains the primary scheduling view. A single show/hide
-**Weekly availability** panel (shown on initial load, visibility retained while
-navigating weeks) switches between Employees and Equipment.
+The schedule-first layout follows the project/estimate convention of compact
+summaries with explicit access to detail. **Schedule job** expands the job/date
+selectors; **Use drag & drop** switches to the existing job pool and Week view.
+Clicking a pool card also selects that job in the dropdown form. Values are
+retained while switching scheduling modes, and the mode stays selected when
+navigating weeks. A reload starts with scheduling tools collapsed and selection
+mode ready. The date initially follows the selected schedule day when opening
+the tools. Scheduled visits and resource assignments retain drag support.
+
+**View** defaults to Auto: below **md** (768px), show one selected day with
+seven day-navigation buttons and job counts; at medium and larger sizes, show
+the seven-day board. Explicit **Day** and **Week** options work at every size.
+The week board scrolls horizontally when needed, not the document. **sm**
+(640px) aligns day controls in one row, **lg** (1024px) aligns header actions,
+and **xl** (1280px) adds spacing. The application header/footer remain visible;
+the planner scrolls within the content area. These controls also apply to a
+project's embedded Schedule section.
+
+**Availability** opens the existing shared dialog style with Employees/Equipment
+views and the same weekly capacity table. Selecting a date also selects the
+schedule day. Daily/weekly resource-overage warnings remain visible on the
+planner even with availability closed. Missing recurrence details, load failures,
+and unavailable capacity are never hidden inside a disclosure.
+Long instructions are grouped under **How scheduling works**; the immediate-save
+notice remains on the main surface. Refresh behavior and calculations are unchanged.
 
 ### Task assignment modal
 
@@ -465,7 +557,12 @@ after the planning schema (rollback:
 It adds `HoursMode`/`CustomHours` to task assignments and `EstimateLineItemID`
 to tasks. Existing assignments keep their task's planned hours (shown as Custom).
 
-Visit cards list each task with its hours left. The **Assign crew & equipment**
+Visit cards summarize assigned labor-hours and unique crew/equipment counts.
+**Tasks** expands each task's hours left, full assignee names, and whole-job
+estimated labor; task-over-estimate warnings stay visible when collapsed.
+**Move / remove visit** groups occurrence management, including a date selector
+for touch/keyboard users; moving or scheduling selects the destination day.
+The **Assign crew & equipment**
 button opens a modal where employees or equipment are dragged (or selected and
 added) into task zones, moved between tasks, or removed. Changes save immediately.
 Each assignment has an hours mode:

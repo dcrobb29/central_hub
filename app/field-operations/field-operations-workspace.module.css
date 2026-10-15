@@ -1,0 +1,300 @@
+.page {
+  overflow: auto;
+  padding: 20px 12px;
+  text-align: left;
+}
+
+.workspace {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  text-align: left;
+}
+
+.workspace :global(.fieldOperationsHeader) {
+  align-items: flex-start;
+  flex-direction: column;
+  margin: 0;
+}
+
+.workspace :global(.fieldOperationsHeader > div:last-child),
+.actions,
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.workspace :global(.fieldOperationsHeader p) {
+  max-width: 780px;
+  margin: 4px 0;
+  color: #53675d;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.workspace :global(.fieldWeekNavigation) {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  width: 100%;
+  gap: 8px;
+}
+
+.workspace :global(.fieldWeekNavigation strong) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workspace :global(.fieldWeekNavigation button:last-child) {
+  grid-column: 1 / -1;
+}
+
+.workspace :global(.fieldWeekNavigation button),
+.workspace :global(.fieldJobPicker button),
+.workspace :global(.fieldJobPicker select),
+.workspace :global(.fieldAvailabilityToggle),
+.workspace :global(.fieldSegmentedToggle button),
+.actions > button {
+  min-height: 40px;
+}
+
+.toolbar {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.viewPicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #53675d;
+  font-size: 12px;
+}
+
+.viewPicker select {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 40px;
+  padding: 8px;
+  border: 1px solid #bdcbc3;
+  border-radius: 4px;
+  background: #fff;
+  color: #294b3f;
+}
+
+.saveNotice,
+.crewSummary,
+.dayHint {
+  margin: 0;
+  color: #53675d;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.warning {
+  margin: 0;
+  color: #9b3025;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.workspace :global(.fieldJobPicker),
+.workspace :global(.fieldResourceList) {
+  min-width: 0;
+  margin: 0;
+}
+
+.workspace :global(.fieldJobPicker select) {
+  width: 100%;
+  max-width: 100%;
+}
+
+.workspace :global(.fieldJobChip) {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.dayNavigation {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.dayNavigation[hidden],
+.dayHint[hidden] {
+  display: none;
+}
+
+.dayNavigation button {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 4px;
+  border: 1px solid #bdcbc3;
+  border-radius: 4px;
+  background: #fff;
+  color: #294b3f;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dayNavigation button[aria-pressed="true"] {
+  border-color: #176347;
+  background: #176347;
+  color: #fff;
+}
+
+.dayNavigation span,
+.dayNavigation small {
+  font-size: 10px;
+}
+
+.board {
+  min-width: 0;
+}
+
+.board[data-view="day"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.board[data-view="day"] > [data-selected="false"] {
+  display: none;
+}
+
+.workspace :global(.fieldDayHeader) {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.workspace :global(.fieldScheduledJob) {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.workspace :global(.fieldScheduledJob > header) {
+  gap: 6px;
+  margin: 0;
+}
+
+.workspace :global(.fieldScheduledJobHeader strong[draggable="true"]) {
+  padding-left: 8px;
+  border-left: 3px dotted #729f85;
+}
+
+.workspace :global(.fieldScheduledJobHeader strong[draggable="false"]) {
+  cursor: default;
+}
+
+.visitActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.visitActions > * {
+  width: 100%;
+  min-height: 40px;
+  margin: 0;
+  justify-content: center;
+}
+
+.disclosure {
+  min-width: 0;
+}
+
+.disclosure > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #cbd6cf;
+  border-radius: 4px;
+  background: #f4f8f5;
+  color: #294b3f;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.disclosure > summary::after { content: "+"; }
+.disclosure[open] > summary::after { content: "-"; }
+.disclosure > :not(summary) { margin-top: 10px; }
+
+.workspace :global(.fieldTaskSummaryLine),
+.workspace :global(.fieldVisitMove) {
+  flex-wrap: wrap;
+}
+
+.workspace :global(.fieldTaskSummaryLine strong),
+.workspace :global(.fieldTaskSummaryChips span) {
+  overflow-wrap: anywhere;
+}
+
+.workspace :global(.fieldVisitMove select) {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+}
+
+.removeVisit {
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #d4b5b0;
+  border-radius: 4px;
+  background: #fff5f3;
+  color: #9b3025;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.help p {
+  margin: 12px;
+  color: #53675d;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.availabilityDialog:global(.financeImportDialog) {
+  width: min(1100px, 100%);
+  min-width: 0;
+}
+
+.availabilityDialog :global(.fieldSegmentedToggle) {
+  margin-top: 12px;
+}
+
+.availabilityDialog :global(.fieldSegmentedToggle button) {
+  min-height: 40px;
+}
+
+@media (max-width: 767px) {
+  .board[data-view="responsive"] { grid-template-columns: minmax(0, 1fr); }
+  .board[data-view="responsive"] > [data-selected="false"] { display: none; }
+}
+
+@media (min-width: 640px) {
+  .page { padding: 24px; }
+  .dayNavigation { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .workspace :global(.fieldWeekNavigation) { display: flex; width: auto; flex-wrap: wrap; }
+  .workspace :global(.fieldWeekNavigation strong) { min-width: 175px; }
+}
+
+@media (min-width: 768px) {
+  .autoDayNavigation { display: none; }
+}
+
+@media (min-width: 1024px) {
+  .workspace :global(.fieldOperationsHeader) { flex-direction: row; align-items: center; }
+}
+
+@media (min-width: 1280px) {
+  .page { padding: 32px; }
+  .workspace { gap: 20px; }
+}

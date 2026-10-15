@@ -11,7 +11,9 @@ import Modal from "@/app/components/modal";
 import Link from "next/link";
 import { customerLabel, invoiceCustomerSnapshot, type Customer } from "@/app/lib/customer-fields";
 import { DocumentNotesFields } from "@/app/components/document-notes";
-import TablePagination from "@/app/components/table-pagination";
+import FinanceCollection, { FinanceRecord, FinanceFacts } from "./finance-collection";
+import recordStyles from "@/app/components/record-workspace.module.css";
+import styles from "./finance-workspace.module.css";
 
 type Column = TableColumn<Invoice>;
 
@@ -202,12 +204,13 @@ export default function InvoiceTable({ className, invoices, projectOptions, cust
   const [emailNote, setEmailNote] = useState("");
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailStatusMessage, setEmailStatusMessage] = useState<{ text: string; isError: boolean } | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const selectedInvoice = invoices.find((invoice) => invoice.id === selectedId);
   const selectedCustomer = customers.find((customer) => String(customer.customerId) === invoiceDraft.customerId);
   const originalCustomerId = invoices.find((invoice) => invoice.id === editingInvoiceId)?.customerId;
   const editingManagedInvoice = invoices.find((invoice) => invoice.id === editingInvoiceId)?.billingManaged ?? false;
+  const table = useFilterableTable(invoices, COLUMNS, { searchableValue, compare: compareInvoices, initialPageSize: 50 });
   const {
-    search,
-    setSearch,
     columnFilters,
     setColumnFilters,
     sort,
@@ -215,16 +218,9 @@ export default function InvoiceTable({ className, invoices, projectOptions, cust
     openFilter,
     setOpenFilter,
     filterControlRoot,
-    visibleRows: visibleInvoices,
     paginatedRows: paginatedInvoices,
-    currentPage,
-    setCurrentPage,
-    pageSize,
-    setPageSize,
-    totalPages,
-    clearFilters,
-    hasActiveFilters,
-  } = useFilterableTable(invoices, COLUMNS, { searchableValue, compare: compareInvoices, initialPageSize: 50 });
+    visibleRows: visibleInvoices,
+  } = table;
 
   async function submitInvoice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -291,6 +287,7 @@ export default function InvoiceTable({ className, invoices, projectOptions, cust
       const result = await response.json().catch(() => null);
       if (!response.ok) throw new Error(result?.error ?? "Unable to delete invoice");
       setDeletingInvoice(null);
+      setSelectedId(null);
       router.refresh();
     } catch (error) {
       setDeleteError(error instanceof Error ? error.message : "Unable to delete invoice");
@@ -335,9 +332,7 @@ export default function InvoiceTable({ className, invoices, projectOptions, cust
         text: `Invoice sent to ${data.recipientEmail}!${sim}`,
         isError: false,
       });
-      // Update local invoice state
-      emailingInvoice.lastEmailedAt = new Date().toISOString();
-      emailingInvoice.lastEmailedTo = data.recipientEmail;
+      setEmailingInvoice({ ...emailingInvoice, lastEmailedAt: new Date().toISOString(), lastEmailedTo: data.recipientEmail });
       router.refresh();
     } catch (err) {
       setEmailStatusMessage({
@@ -349,30 +344,52 @@ export default function InvoiceTable({ className, invoices, projectOptions, cust
     }
   }
 
+  function invoiceActions(invoice: Invoice) {
+    const completed = projectOptions.some((project) => project.projectId === invoice.projectId && project.projectStatus === "Complete");
+    return <>
+      <button type="button" className="estimateTextAction" onClick={() => openEmailDialog(invoice)}>Email</button>
+      <button type="button" className="estimateTextAction" disabled={!invoice.billingManaged && completed} onClick={() => openEditForm(invoice)}>Edit</button>
+      <button type="button" className="estimateDangerAction" disabled={invoice.billingManaged || completed} onClick={() => { setDeleteError(null); setDeletingInvoice(invoice); }}>Delete</button>
+    </>;
+  }
+
   return (
-    <section className="invoiceTablePanel" ref={filterControlRoot}>
-      <div className="invoiceTableTools">
-        <label className="invoiceSearchLabel">
-          Search invoices
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search every column"
-            className="invoiceSearchInput"
-          />
-        </label>
-        <button type="button" className="financeImportButton" onClick={openCreateForm}>
-          <Plus size={15} aria-hidden="true" />
-          Import invoice
-        </button>
-        <span className="invoiceResultCount" aria-live="polite">
-          {visibleInvoices.length} of {invoices.length} invoices
-        </span>
-        {hasActiveFilters && (
-          <button type="button" className="invoiceClearButton" onClick={clearFilters}>Clear</button>
-        )}
-      </div>
+    <section className={styles.workspace} ref={filterControlRoot}>
+      {selectedInvoice ? <FinanceRecord key={selectedInvoice.id} title={`Invoice ${selectedInvoice.invoiceNo}`} collection="invoices" onBack={() => setSelectedId(null)}
+        actions={invoiceActions(selectedInvoice)}
+        overview={<>
+          <FinanceFacts items={[
+            { label: "Customer", value: [selectedInvoice.firstName, selectedInvoice.lastName, selectedInvoice.companyName].filter(Boolean).join(" ") },
+            { label: "Project", value: selectedInvoice.projectId === null ? "Unassigned" : <Link href={`/projects/${selectedInvoice.projectId}?tab=finances`}>{selectedInvoice.projectName || "Open project"}</Link> },
+            { label: "Amount", value: formatValue("invoiceAmount", selectedInvoice.invoiceAmount) },
+            { label: "Payment", value: selectedInvoice.invoicePaidDate ? `Paid ${formatValue("invoicePaidDate", selectedInvoice.invoicePaidDate)}` : "Unpaid" },
+            { label: "Due date", value: formatValue("invoiceDueDate", selectedInvoice.invoiceDueDate) },
+            { label: "Email status", value: formatValue("lastEmailedAt", selectedInvoice.lastEmailedAt) },
+          ]} />
+          {selectedInvoice.billingManaged && <p className="financeImportHint">Issued project allocations are protected. Edit allows notes, contact/address details, and paid date updates; deletion is unavailable.</p>}
+          {!selectedInvoice.billingManaged && projectOptions.some((project) => project.projectId === selectedInvoice.projectId && project.projectStatus === "Complete") && <p className="financeImportHint">This completed project is read-only. Editing and deletion are unavailable.</p>}
+        </>}
+        details={<FinanceFacts items={[
+          ...COLUMNS.map((column) => ({ label: column.label, value: formatValue(column.key, selectedInvoice[column.key]) })),
+          { label: "Last emailed to", value: selectedInvoice.lastEmailedTo },
+          { label: "Internal notes", value: selectedInvoice.internalNotes },
+          { label: "Customer notes", value: selectedInvoice.customerNotes },
+        ]} />}
+      /> : null}
+      <div hidden={Boolean(selectedInvoice)} className={!selectedInvoice ? styles.workspace : undefined}>
+      <FinanceCollection title="Invoices" description="Invoices at a glance. Open an invoice for payment dates, customer details, email, and editing."
+        action={<button type="button" className="financeImportButton" onClick={openCreateForm}><Plus size={15} aria-hidden="true" />Import invoice</button>}
+        columns={COLUMNS} controls={table} count={invoices.length} itemLabel="invoices"
+        cards={paginatedInvoices.map((invoice) => <article className={recordStyles.card} key={invoice.id} aria-label={`Invoice ${invoice.invoiceNo}`}>
+          <div className={recordStyles.identity}><h2><button type="button" className={styles.textButton} onClick={() => setSelectedId(invoice.id)}>Invoice {invoice.invoiceNo}</button></h2>
+            <p>{[invoice.firstName, invoice.lastName, invoice.companyName].filter(Boolean).join(" ") || "No customer details"}</p>
+            <p>{invoice.projectName || "Unassigned project"}</p></div>
+          <div className={recordStyles.status}><span className={recordStyles.label}>Payment</span><strong>{invoice.invoicePaidDate ? "Paid" : "Unpaid"}</strong>
+            <span className={recordStyles.dates}>Due {formatValue("invoiceDueDate", invoice.invoiceDueDate) || "not set"}</span>
+            <span className={recordStyles.reference}>{formatValue("lastEmailedAt", invoice.lastEmailedAt)}</span></div>
+          <div className={recordStyles.value}><span className={recordStyles.label}>Amount</span><strong>{formatValue("invoiceAmount", invoice.invoiceAmount) || "Not provided"}</strong></div>
+          <div className={recordStyles.actions}><button type="button" className={recordStyles.openRecord} onClick={() => setSelectedId(invoice.id)} aria-label={`Open invoice ${invoice.invoiceNo}`}>Open invoice</button></div>
+        </article>)}>
       <div className="invoiceTableWrapper">
         <table className={className}>
           <thead>
@@ -419,27 +436,15 @@ export default function InvoiceTable({ className, invoices, projectOptions, cust
                   </td>
                 ))}
                 <td>
-                  <div className="estimateActionsInner">
-                    <button type="button" className="estimateTextAction" onClick={() => openEmailDialog(invoice)}>Email</button>
-                    <button type="button" className="estimateTextAction" disabled={!invoice.billingManaged && projectOptions.some((project) => project.projectId === invoice.projectId && project.projectStatus === "Complete")} onClick={() => openEditForm(invoice)}>Edit</button>
-                    <button type="button" className="estimateDangerAction" disabled={invoice.billingManaged || projectOptions.some((project) => project.projectId === invoice.projectId && project.projectStatus === "Complete")} onClick={() => { setDeleteError(null); setDeletingInvoice(invoice); }}>Delete</button>
-                  </div>
+                  <div className="estimateActionsInner">{invoiceActions(invoice)}</div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <TablePagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        totalItems={visibleInvoices.length}
-        pageSize={pageSize}
-        onPageChange={setCurrentPage}
-        onPageSizeChange={setPageSize}
-        pageSizeOptions={[25, 50, 100]}
-        itemLabel="invoices"
-      />
+      </FinanceCollection>
+      </div>
       {isImportOpen && (
         <Modal
           titleId="invoiceImportTitle"

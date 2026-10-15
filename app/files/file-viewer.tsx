@@ -39,21 +39,27 @@ function getExtension(name: string) {
 function DocumentPreview({ file }: { file: FileEntry }) {
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    setPreview(null);
-    setError(null);
-    fetch(`/api/files/preview?path=${encodeURIComponent(file.path)}`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to generate preview");
-        return res.json();
+    const controller = new AbortController();
+    fetch(`/api/files/preview?path=${encodeURIComponent(file.path)}`, { signal: controller.signal })
+      .then(async (res) => {
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error ?? "Unable to generate a preview for this file.");
+        return body as PreviewResult;
       })
-      .then(setPreview)
-      .catch(() => setError("Unable to generate a preview for this file."));
-  }, [file.path]);
+      .then((result) => { if (!controller.signal.aborted) setPreview(result); })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setError(error instanceof Error ? error.message : "Unable to generate a preview for this file.");
+      });
+    return () => controller.abort();
+  }, [file.path, attempt]);
 
-  if (error) return <p>{error}</p>;
-  if (!preview) return <p>Generating preview...</p>;
+  if (error) return <div><p role="alert" className="financeImportError">{error}</p><button type="button" className="projectWorkspaceLink" onClick={() => {
+    setError(null); setPreview(null); setAttempt((value) => value + 1);
+  }}>Retry preview</button></div>;
+  if (!preview) return <p role="status">Generating preview...</p>;
 
   if (preview.kind === "html") {
     const safeHtml = DOMPurify.sanitize(preview.html);
@@ -102,7 +108,7 @@ export default function FileViewer({ file }: { file: FileEntry | null }) {
       {AUDIO_EXT.includes(ext) && <audio src={src} controls className="fileViewerAudio" />}
       {ext === ".pdf" && <iframe src={src} className="fileViewerFrame" title={file.name} />}
       {TEXT_EXT.includes(ext) && <iframe src={src} className="fileViewerFrame" title={file.name} />}
-      {DOCUMENT_PREVIEW_EXT.includes(ext) && <DocumentPreview file={file} />}
+      {DOCUMENT_PREVIEW_EXT.includes(ext) && <DocumentPreview key={file.path} file={file} />}
       {officeLabel && <p>{officeLabel} — no inline preview available.</p>}
       {!IMAGE_EXT.includes(ext) &&
         !VIDEO_EXT.includes(ext) &&
@@ -114,4 +120,3 @@ export default function FileViewer({ file }: { file: FileEntry | null }) {
     </div>
   );
 }
-

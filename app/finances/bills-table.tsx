@@ -11,7 +11,9 @@ import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-t
 import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
 import Modal from "@/app/components/modal";
 import BillSplitToggle from "@/app/components/bill-split-toggle";
-import TablePagination from "@/app/components/table-pagination";
+import FinanceCollection, { FinanceRecord, FinanceFacts } from "./finance-collection";
+import recordStyles from "@/app/components/record-workspace.module.css";
+import styles from "./finance-workspace.module.css";
 
 type Column = TableColumn<Bill>;
 
@@ -151,6 +153,8 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
   const [deletingBill, setDeletingBill] = useState<Bill | null>(null);
   const [isDeletingBill, setIsDeletingBill] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedBill = bills.find((bill) => bill.id === selectedId);
 
   const allocationsByBillId = useMemo(() => {
     const map = new Map<string, AllocationBill>();
@@ -160,9 +164,8 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
     return map;
   }, [allocations]);
 
+  const table = useFilterableTable(bills, COLUMNS, { searchableValue, compare: compareBills, initialPageSize: 50 });
   const {
-    search,
-    setSearch,
     columnFilters,
     setColumnFilters,
     sort,
@@ -172,14 +175,7 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
     filterControlRoot,
     visibleRows: visibleBills,
     paginatedRows: paginatedBills,
-    currentPage,
-    setCurrentPage,
-    pageSize,
-    setPageSize,
-    totalPages,
-    clearFilters,
-    hasActiveFilters,
-  } = useFilterableTable(bills, COLUMNS, { searchableValue, compare: compareBills, initialPageSize: 50 });
+  } = table;
 
   async function submitBill(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -235,6 +231,7 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
       const result = await response.json().catch(() => null);
       if (!response.ok) throw new Error(result?.error ?? "Unable to delete bill");
       setDeletingBill(null);
+      setSelectedId(null);
       router.refresh();
     } catch (error) {
       setDeleteError(error instanceof Error ? error.message : "Unable to delete bill");
@@ -249,30 +246,61 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
     setDeleteError(null);
   }
 
+  function billActions(bill: Bill) {
+    const isReadOnly = Boolean(allocationsByBillId.get(bill.id)?.readOnly);
+    return <>
+      <button type="button" className="estimateTextAction" disabled={isReadOnly} onClick={() => openEditForm(bill)}>Edit</button>
+      <button type="button" className="estimateDangerAction" disabled={isReadOnly} onClick={() => { setDeleteError(null); setDeletingBill(bill); }}>Delete</button>
+      {(bill.projectId !== null || bill.isSplit) && <Link href={bill.projectId !== null ? `/projects/${bill.projectId}?tab=finances` : "/projects"} className="estimateTextAction">Allocate costs</Link>}
+    </>;
+  }
+
+  function allocationSummary(bill: Bill) {
+    const allocation = allocationsByBillId.get(bill.id);
+    return allocation ? <FinanceFacts items={[
+      { label: "Allocated", value: formatValue("billAmount", String(allocation.allocatedAmount)) },
+      { label: "Unallocated", value: allocation.remainingAmount === null ? "Correct bill amount" : formatValue("billAmount", String(allocation.remainingAmount)) },
+    ]} /> : null;
+  }
+
   return (
-    <section className="invoiceTablePanel" ref={filterControlRoot}>
-      <div className="invoiceTableTools">
-        <label className="invoiceSearchLabel">
-          Search bills
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search every column"
-            className="invoiceSearchInput"
-          />
-        </label>
-        <button type="button" className="financeImportButton" onClick={openCreateForm}>
-          <Plus size={15} aria-hidden="true" />
-          Import bill
-        </button>
-        <span className="invoiceResultCount" aria-live="polite">
-          {visibleBills.length} of {bills.length} bills
-        </span>
-        {hasActiveFilters && (
-          <button type="button" className="invoiceClearButton" onClick={clearFilters}>Clear</button>
-        )}
-      </div>
+    <section className={styles.workspace} ref={filterControlRoot}>
+      {selectedBill ? <FinanceRecord key={selectedBill.id} title={`Bill ${selectedBill.billNo}`} collection="bills" onBack={() => setSelectedId(null)}
+        actions={billActions(selectedBill)}
+        overview={<>
+          <FinanceFacts items={[
+            { label: "Company", value: selectedBill.companyName },
+            { label: "Project", value: selectedBill.projectId === null ? "Unassigned" : <Link href={`/projects/${selectedBill.projectId}?tab=finances`}>{selectedBill.projectName || "Open project"}</Link> },
+            { label: "Amount", value: formatValue("billAmount", selectedBill.billAmount) },
+            { label: "Payment", value: selectedBill.billPaidDate ? `Paid ${formatValue("billPaidDate", selectedBill.billPaidDate)}` : "Unpaid" },
+            { label: "Due date", value: formatValue("billDueDate", selectedBill.billDueDate) },
+          ]} />
+          <h3>Project allocation</h3>
+          {allocationSummary(selectedBill)}
+          <BillSplitToggle billId={selectedBill.id} isSplit={selectedBill.isSplit} disabled={Boolean(allocationsByBillId.get(selectedBill.id)?.readOnly)} />
+          {selectedBill.isSplit && <p className={styles.hint}>Only allocated costs count toward each job.</p>}
+          {allocationsByBillId.get(selectedBill.id)?.readOnly && <p className={styles.hint}>This bill is connected to a completed project and is read-only.</p>}
+        </>}
+        details={<FinanceFacts items={[{ label: "ID", value: selectedBill.id }, ...COLUMNS.map((column) => ({ label: column.label, value: formatValue(column.key, selectedBill[column.key]) }))]} />}
+      /> : null}
+      <div hidden={Boolean(selectedBill)} className={!selectedBill ? styles.workspace : undefined}>
+      <FinanceCollection title="Bills" description="Bills at a glance. Open a bill to update payment details, assign its project, or manage split-cost allocations."
+        action={<button type="button" className="financeImportButton" onClick={openCreateForm}><Plus size={15} aria-hidden="true" />Import bill</button>}
+        columns={COLUMNS} controls={table} count={bills.length} itemLabel="bills"
+        cards={paginatedBills.map((bill) => {
+          const allocation = allocationsByBillId.get(bill.id);
+          return <article className={recordStyles.card} key={bill.id} aria-label={`Bill ${bill.billNo}`}>
+            <div className={recordStyles.identity}><h2><button type="button" className={styles.textButton} onClick={() => setSelectedId(bill.id)}>Bill {bill.billNo}</button></h2>
+              <p>{bill.companyName || "No company details"}</p><p>{bill.isSplit ? "Split across projects" : bill.projectName || "Unassigned project"}</p>
+              {allocation && <span className={recordStyles.reference}>Unallocated: {allocation.remainingAmount === null ? "Correct bill amount" : formatValue("billAmount", String(allocation.remainingAmount))}</span>}
+            </div>
+            <div className={recordStyles.status}><span className={recordStyles.label}>Payment</span><strong>{bill.billPaidDate ? "Paid" : "Unpaid"}</strong>
+              <span className={recordStyles.dates}>Due {formatValue("billDueDate", bill.billDueDate)}</span>
+              {allocation?.readOnly && <span className={recordStyles.reference}>Read-only project</span>}</div>
+            <div className={recordStyles.value}><span className={recordStyles.label}>Amount</span><strong>{formatValue("billAmount", bill.billAmount)}</strong></div>
+            <div className={recordStyles.actions}><button type="button" className={recordStyles.openRecord} onClick={() => setSelectedId(bill.id)} aria-label={`Open bill ${bill.billNo}`}>Open bill</button></div>
+          </article>;
+        })}>
       <div className="invoiceTableWrapper">
         <table className="invoiceTable">
           <thead>
@@ -312,11 +340,7 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
                     )}
                   </td>)}
                   <td>
-                    <div className="estimateActionsInner">
-                      <button type="button" className="estimateTextAction" disabled={isReadOnly} onClick={() => openEditForm(bill)}>Edit</button>
-                      <button type="button" className="estimateDangerAction" disabled={isReadOnly} onClick={() => { setDeleteError(null); setDeletingBill(bill); }}>Delete</button>
-                      {(bill.projectId !== null || bill.isSplit) && <Link href={bill.projectId !== null ? `/projects/${bill.projectId}?tab=finances` : "/projects"} className="estimateTextAction">Allocate costs</Link>}
-                    </div>
+                    <div className="estimateActionsInner">{billActions(bill)}</div>
                     <BillSplitToggle billId={bill.id} isSplit={bill.isSplit} disabled={isReadOnly} />
                     {bill.isSplit && <small className="billAllocationBalance">Only allocated costs count toward each job.</small>}
                   </td>
@@ -326,16 +350,8 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
           </tbody>
         </table>
       </div>
-      <TablePagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        totalItems={visibleBills.length}
-        pageSize={pageSize}
-        onPageChange={setCurrentPage}
-        onPageSizeChange={setPageSize}
-        pageSizeOptions={[25, 50, 100]}
-        itemLabel="bills"
-      />
+      </FinanceCollection>
+      </div>
       {isImportOpen && (
         <Modal
           titleId="billImportTitle"

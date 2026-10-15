@@ -4,6 +4,7 @@ import { getCurrentWeekRange } from "@/app/lib/field-operations-dates";
 import { getPersonnelData } from "@/app/lib/personnel";
 import FieldOperationsWorkspace from "./field-operations-workspace";
 import { requireProjectSession } from "@/app/lib/project-access";
+import styles from "./field-operations-workspace.module.css";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ export default async function FieldOperationsPage() {
     getFieldOperationsSchedule(week.startDate, week.endDate, organizationId),
   ]);
   return (
-    <main className="body fieldOperationsBody">
+    <main className={`body fieldOperationsBody ${styles.page}`}>
       <FieldOperationsWorkspace
         projects={projects}
         employees={personnel.people}

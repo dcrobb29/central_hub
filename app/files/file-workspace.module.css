@@ -1,0 +1,151 @@
+.page {
+  overflow: auto;
+  background: #eaf0ed;
+  text-align: left;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+}
+
+.heading,
+.toolbar,
+.actions,
+.breadcrumb,
+.importActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+}
+
+.heading,
+.toolbar {
+  justify-content: space-between;
+}
+
+.heading h1 {
+  margin: 4px 0 0;
+  color: #20362d;
+  font-size: 24px;
+  overflow-wrap: anywhere;
+}
+
+.heading > div,
+.breadcrumb > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workspace button,
+.workspace :global(.projectWorkspaceLink),
+.workspace :global(.importButton) {
+  min-height: 40px;
+}
+
+.workspace :global(.projectWorkspaceLink) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.workspace :global(.invoiceTableTools) {
+  flex-wrap: wrap;
+}
+
+.workspace :global(.invoiceSearchLabel),
+.workspace :global(.invoiceSearchInput) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.name {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #20362d;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.name svg {
+  flex-shrink: 0;
+}
+
+.name span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.details,
+.preview {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid #d0dad4;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.details summary {
+  cursor: pointer;
+  color: #294f3e;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  margin: 20px 0 0;
+}
+
+.facts dt {
+  color: #53675d;
+  font-size: 12px;
+}
+
+.facts dd {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.preview :global(.fileViewerHeader) {
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.preview :global(.fileViewerHeader h2) {
+  min-width: 0;
+  margin: 0;
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.preview :global(.documentPreview),
+.preview :global(.slidesPreview) {
+  overflow-wrap: anywhere;
+}
+
+.importActions {
+  margin-top: 20px;
+}
+
+@media (min-width: 768px) {
+  .facts { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); }
+}

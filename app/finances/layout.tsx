@@ -1,10 +1,14 @@
 import FinanceSidebar from "./sidebar";
+import recordStyles from "@/app/components/record-workspace.module.css";
+import styles from "./finance-workspace.module.css";
 
 export default function FinancesLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="body financeLayout">
-      <FinanceSidebar />
-      <div className="financeContent">{children}</div>
-    </div>
+    <main className={`body ${recordStyles.page} ${styles.page}`}>
+      <div className={recordStyles.workspace}>
+        <FinanceSidebar />
+        {children}
+      </div>
+    </main>
   );
 }

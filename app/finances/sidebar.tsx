@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import styles from "./finance-workspace.module.css";
 
 // Add new entries here as more finance tables are built out.
 const NAV_ITEMS = [
@@ -16,12 +17,12 @@ export default function FinanceSidebar() {
   const pathname = usePathname();
 
   return (
-    <nav className="financeSidebar">
+    <nav className={styles.navigation} aria-label="Finance sections">
       {NAV_ITEMS.map((item) => (
         <Link
           key={item.href}
           href={item.href}
-          className={pathname === item.href ? "financeSidebarLink financeSidebarLinkActive" : "financeSidebarLink"}
+          aria-current={pathname === item.href ? "page" : undefined}
         >
           {item.label}
         </Link>

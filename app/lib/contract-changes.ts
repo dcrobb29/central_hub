@@ -1,6 +1,7 @@
 import { getPool, sql } from "./db";
 import { rollbackIfActive } from "./sql-transactions";
 import { ProjectAccessError } from "./project-access-error";
+import { canWinEstimate } from "./estimate-status";
 import { billingCents } from "./project-billing-pricing";
 import { ensureProjectBillingSnapshot } from "./project-billing";
 import { insertScopesAndLines, type CreateEstimateInput, type EstimateLineInput } from "./estimates";
@@ -213,7 +214,7 @@ export async function saveContractChangeInTransaction(tx: sql.Transaction, conte
     const parent = await lockParent(tx, context, org);
     if (parent.engagementType !== "Project") fail("Alternates and change orders are not enabled for recurring agreements.");
     if (parent.projectStatus === "Complete") fail("Reopen this project before changing its contract.");
-    if (!context.projectId && parent.status !== "Draft") fail("Alternates can only be drafted before the bid is accepted.");
+    if (!context.projectId && !canWinEstimate(parent.status)) fail("Alternates require a Draft or Sent estimate.");
     const kind = context.projectId ? "ChangeOrder" : "Alternate";
     let existing: ContractChange | undefined;
     if (changeId) {
@@ -349,7 +350,7 @@ export async function transitionContractChange(context: ChangeContext, org: numb
   try {
     const parent = await lockParent(tx, context, org);
     if (parent.engagementType !== "Project" || parent.projectStatus === "Complete") fail("An open one-time job is required.");
-    if(!context.projectId&&parent.status!=="Draft")fail("This bid is already accepted. Use a linked change order.");
+    if (!context.projectId && !canWinEstimate(parent.status)) fail("Alternates require a Draft or Sent estimate. Accepted bids use linked change orders.");
     if (action === "approve") {
       await approveChangeInTransaction(tx, parent, id, version, userId, approvedAt, reference);
     } else if(action==="remove") {

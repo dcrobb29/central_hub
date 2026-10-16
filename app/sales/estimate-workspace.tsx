@@ -2,7 +2,7 @@
 import Button from "@/app/components/button";
 import { WorkspaceHeading } from "@/app/components/workspace-ui";
 
-import { Fragment, useRef, useState, type FormEvent } from "react";
+import { Fragment, useRef, useState, type SubmitEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowUpRight, FileDown, Library, Plus, Trash2 } from "lucide-react";
@@ -30,6 +30,8 @@ import { draftAlternateSources, initialAlternateInputs, type EstimateLineDraft }
 import ListViewControls from "@/app/components/list-view-controls";
 import { DocumentNotesFields } from "@/app/components/document-notes";
 import EstimateRecord from "./estimate-record";
+import EstimateStatusSelector from "./estimate-status-selector";
+import { ESTIMATE_STATUSES } from "@/app/lib/estimate-status";
 import recordStyles from "@/app/components/record-workspace.module.css";
 import styles from "./estimate-workspace.module.css";
 import {
@@ -210,7 +212,8 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
   const projectEstimates = estimates.filter((estimate) => estimate.engagementType === "Project");
   const recurringEstimates = estimates.filter((estimate) => estimate.engagementType === "Service");
   const matchesApproval = (estimate: EstimateSummary) => approvalFilter === "All"
-    || (approvalFilter === "Approved" ? estimate.status === "Won" : estimate.status !== "Won");
+    || (approvalFilter === "Approved" ? estimate.status === "Won"
+      : approvalFilter === "Not approved" ? estimate.status !== "Won" : estimate.status === approvalFilter);
 
   const projectTable = useFilterableTable(projectEstimates.filter(matchesApproval), PROJECT_COLUMNS, { searchableValue, compare: compareEstimates });
   const recurringTable = useFilterableTable(recurringEstimates.filter(matchesApproval), RECURRING_COLUMNS, { searchableValue, compare: compareEstimates });
@@ -478,7 +481,7 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
     setLines((current) => [...current, { ...newLine(), scopeName }]);
   }
 
-  async function submitEstimate(event: FormEvent<HTMLFormElement>) {
+  async function submitEstimate(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSaving(true);
     setError(null);
@@ -695,7 +698,7 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
     setSelectedScopeTemplate(null);
   }
 
-  async function confirmWin(event: FormEvent<HTMLFormElement>) {
+  async function confirmWin(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!winningEstimate) return;
     setIsWinning(true);
@@ -765,9 +768,10 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
           </button>
         </div>
         <ListViewControls id="estimates" label="Estimates" status={approvalFilter} onStatusChange={setApprovalFilter}
-          statuses={["All", "Not approved", "Approved"].map((value) => ({
+          statuses={["All", "Not approved", "Approved", ...ESTIMATE_STATUSES].map((value) => ({
             value, label: value, count: tabEstimates.filter((estimate) => value === "All"
-              || (value === "Approved" ? estimate.status === "Won" : estimate.status !== "Won")).length,
+              || (value === "Approved" ? estimate.status === "Won"
+                : value === "Not approved" ? estimate.status !== "Won" : estimate.status === value)).length,
           }))}
           sort={modalSort} onSortChange={(value) => {
             if (!value) setSort(null);
@@ -818,21 +822,22 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
             <div className={recordStyles.identity}>
               <h2><Link href={`/sales/${estimate.estimateId}`}>{estimate.estimateName}</Link></h2>
               <p>{estimate.customerName || "Unassigned customer"}</p>
-              <span className={recordStyles.reference}>EST-{estimate.estimateId} &middot; {estimate.lineCount} {estimate.lineCount === 1 ? "line" : "lines"}</span>
+              {/* <span className={recordStyles.reference}>EST-{estimate.estimateId} &middot; {estimate.lineCount} {estimate.lineCount === 1 ? "line" : "lines"}</span> */}
               {estimate.engagementType === "Service" && <>
                 <span className={recordStyles.recurrence}>{estimate.recurrenceFrequency ? formatValue("recurrenceFrequency", estimate.recurrenceFrequency) : "Recurring service"}</span>
                 <span className={recordStyles.dates}>{formatValue("expectedStartDate", estimate.expectedStartDate)} &ndash; {estimate.expectedEndDate ? formatValue("expectedEndDate", estimate.expectedEndDate) : "Ongoing"}</span>
               </>}
             </div>
             <div className={recordStyles.status}><span className={recordStyles.label}>Status</span>
-              <span className={`estimateStatus estimateStatus${estimate.status}`}>{estimate.status}</span></div>
+              <EstimateStatusSelector estimate={estimate} canEdit={canEdit}
+                onWin={() => void openWinDialog(estimate)} /></div>
             <div className={recordStyles.value}><span className={recordStyles.label}>{estimate.engagementType === "Service" ? "Per occurrence" : "Base estimate"}</span>
               <strong>{money(estimate.quotedTotal)}</strong></div>
             <div className={recordStyles.actions}>
               <button type="button" className="projectWorkspaceLink" aria-label={`PDF for ${estimate.estimateName}`} onClick={() => openPrintPdfPopup(estimate)}>
-                <FileDown size={14} aria-hidden="true" /> PDF</button>
-              <Link className={recordStyles.openRecord} href={`/sales/${estimate.estimateId}`} aria-label={`Open estimate: ${estimate.estimateName}`}>
-                Open estimate <ArrowUpRight size={14} aria-hidden="true" /></Link>
+                <FileDown size={24} aria-hidden="true" /></button>
+              {/* <Link className={recordStyles.openRecord} href={`/sales/${estimate.estimateId}`} aria-label={`Open estimate: ${estimate.estimateName}`}>
+                Open estimate <ArrowUpRight size={14} aria-hidden="true" /></Link> */}
             </div>
           </article>)}
       </div>

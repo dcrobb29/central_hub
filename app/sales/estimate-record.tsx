@@ -7,6 +7,7 @@ import type { EstimateDetails, LineType } from "@/app/lib/estimates";
 import ContractChangesPanel from "@/app/components/contract-changes-panel";
 import { DocumentNotes } from "@/app/components/document-notes";
 import styles from "./estimate-workspace.module.css";
+import EstimateStatusSelector from "./estimate-status-selector";
 
 const money = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 const tabs = [["overview", "Overview"], ["scope", "Scope & Pricing"], ["alternates", "Alternates"]] as const;
@@ -29,14 +30,13 @@ export default function EstimateRecord({ estimate, selectedTab, canEdit, loading
     </nav>
     <header className="projectHubHeader">
       <div><p className="salesEyebrow">ESTIMATE WORKSPACE / EST-{estimate.estimateId}</p><h1>{estimate.estimateName}</h1></div>
-      <span className={`estimateStatus estimateStatus${estimate.status}`}>{estimate.status}</span>
+      <EstimateStatusSelector estimate={estimate} canEdit={canEdit} onWin={onWin} />
     </header>
     <div className={styles.recordActions} aria-label="Estimate actions">
       {canEdit && estimate.status !== "Won" && <button type="button" className="financeImportButton" disabled={loadingEdit} onClick={onEdit}>
         {loadingEdit ? "Loading..." : "Edit estimate"}
       </button>}
-      <button type="button" className="projectWorkspaceLink" onClick={onPdf}><FileDown size={15} aria-hidden="true" /> PDF</button>
-      {canEdit && estimate.status === "Draft" && <button type="button" className="projectWorkspaceLink" onClick={onWin}>Mark won</button>}
+      <button type="button" className="projectWorkspaceLink" onClick={onPdf}><FileDown size={24} aria-hidden="true" /></button>
       {estimate.projectId && <Link className="projectWorkspaceLink" href={`/projects/${estimate.projectId}`}>Open project</Link>}
       {canEdit && estimate.status !== "Won" && <details className={styles.moreActions}>
         <summary>More actions</summary>
@@ -61,10 +61,7 @@ export default function EstimateRecord({ estimate, selectedTab, canEdit, loading
       </dl>
       <p className="projectCostHint">Alternates are priced separately from the base estimate. Marking an estimate won carries its accepted scope into Projects &amp; Jobs.</p>
       <DocumentNotes internalNotes={estimate.internalNotes} customerNotes={estimate.customerNotes} />
-      <div className="projectHubShortcuts">
-        <Link href={href("scope")}>Scope &amp; Pricing</Link>
-        <Link href={href("alternates")}>Alternates</Link>
-      </div>
+
     </section> : tab === "scope" ? <section className="projectHubSection">
       <h2>Scope &amp; pricing</h2>
       <EstimateScope key={`${estimate.estimateId}:${estimate.revisionId}`} details={estimate} />

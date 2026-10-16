@@ -1,5 +1,6 @@
 import { getPool, sql } from "@/app/lib/db";
 import type { ProjectStatus } from "@/app/lib/project-status";
+import { canWinEstimate, isEditableEstimateStatus, type EditableEstimateStatus, type EstimateStatus } from "@/app/lib/estimate-status";
 import { rollbackIfActive } from "@/app/lib/sql-transactions";
 import { validateRecurringSchedule } from "@/app/lib/recurring-dates";
 import { getUnitsOfMeasurement } from "@/app/lib/units-of-measurement";
@@ -66,7 +67,7 @@ export type EstimateSummary = {
   customerName: string | null;
   internalNotes: string | null;
   customerNotes: string | null;
-  status: "Draft" | "Won" | "Lost";
+  status: EstimateStatus;
   engagementType: EngagementType;
   recurrenceFrequency: RecurrenceFrequency;
   expectedStartDate: string | null;
@@ -482,7 +483,7 @@ export async function updateEstimate(estimateId: number, input: CreateEstimateIn
   }
 }
 
-// Only draft (never-won) estimates can be deleted. Children are removed in FK order since none of
+// Only never-won estimates can be deleted. Children are removed in FK order since none of
 // the Estimate* tables cascade deletes.
 export async function deleteEstimate(estimateId: number): Promise<void> {
   const pool = await getPool();
@@ -531,6 +532,34 @@ export async function deleteEstimate(estimateId: number): Promise<void> {
 }
 
 export type InitialAlternateApproval = { selections: { changeId: number; version: number }[]; userId: number; approvedAt: string; reference: string };
+export async function setEstimateStatus(estimateId: number, organizationId: number, status: EditableEstimateStatus): Promise<void> {
+  if (!isEditableEstimateStatus(status)) throw new ProjectAccessError("Choose Draft, Sent, or Lost.", 400);
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+  try {
+    const result = await transaction.request()
+      .input("id", sql.Int, estimateId)
+      .input("org", sql.Int, organizationId)
+      .query<{ status: EstimateStatus }>(`
+        SELECT EstimateStatus AS status FROM dbo.Estimates WITH (UPDLOCK, HOLDLOCK)
+        WHERE EstimateID=@id AND OrganizationID=@org AND DocumentKind='Base'
+      `);
+    const estimate = result.recordset[0];
+    if (!estimate) throw new ProjectAccessError("Estimate not found.", 404);
+    if (estimate.status === "Won") throw new ProjectAccessError("Won estimates cannot change status.", 409);
+    await transaction.request()
+      .input("id", sql.Int, estimateId)
+      .input("org", sql.Int, organizationId)
+      .input("status", sql.VarChar(16), status)
+      .query("UPDATE dbo.Estimates SET EstimateStatus=@status WHERE EstimateID=@id AND OrganizationID=@org AND DocumentKind='Base'");
+    await transaction.commit();
+  } catch (error) {
+    await rollbackIfActive(transaction);
+    throw error;
+  }
+}
+
 export async function winEstimate(estimateId: number, alternateApproval?: InitialAlternateApproval): Promise<number> {
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
@@ -565,7 +594,7 @@ export async function winEstimate(estimateId: number, alternateApproval?: Initia
       `);
     const estimate = estimateResult.recordset[0];
     if (!estimate) throw new Error("not-found");
-    if (estimate.EstimateStatus !== "Draft") throw new Error("not-draft");
+    if (!canWinEstimate(estimate.EstimateStatus)) throw new Error("not-draft");
     if (!estimate.EstimateRevisionID) throw new Error("no-revision");
     if (estimate.EngagementType === "Service") {
       try {
@@ -606,7 +635,7 @@ export async function winEstimate(estimateId: number, alternateApproval?: Initia
     for (const selection of alternateApproval?.selections ?? []) {
       await approveChangeInTransaction(transaction, {
         estimateId, revisionId: estimate.EstimateRevisionID, organizationId: estimate.OrganizationID, projectId,
-        status: "Draft", engagementType: estimate.EngagementType, projectStatus: "Upcoming",
+        status: estimate.EstimateStatus, engagementType: estimate.EngagementType, projectStatus: "Upcoming",
         title: estimate.EstimateName, quotedTotal: estimate.QuotedTotal,
       }, selection.changeId, selection.version, alternateApproval!.userId, alternateApproval!.approvedAt, alternateApproval!.reference, true);
     }

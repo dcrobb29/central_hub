@@ -104,7 +104,7 @@ export default function ContractChangesPanel({context}:{context:ChangeContext}) 
   const input=editor?.input;
   const preview=input?contractChangePreview(input,data?.sourceLines??[]):0;
   const editable=data?.canEdit&&data.parent.engagementType==="Project"&&data.parent.projectStatus!=="Complete"&&
-    (context.projectId||data.parent.status==="Draft");
+    (context.projectId||data.parent.status==="Draft"||data.parent.status==="Sent");
   return <section className="projectHubSection contractChangesPanel" aria-busy={busy}>
     <h2>{context.projectId?"Alternates & change orders":"Bid alternates"}</h2>
     <p>Draft and proposed values do not change the contract. Approved documents are locked; corrections require a new change order.</p>

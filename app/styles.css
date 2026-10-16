@@ -397,6 +397,7 @@
 }
 
 .estimateStatusWon { background: #e0eee7; color: #176347; }
+.estimateStatusSent { background: #e5edf7; color: #28558a; }
 .estimateStatusLost { background: #f5e4e2; color: #943b32; }
 
 .estimateActionsInner {

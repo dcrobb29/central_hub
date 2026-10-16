@@ -15,7 +15,7 @@ BEGIN
         CustomerName nvarchar(150) NULL,
         EstimateStatus varchar(16) NOT NULL CONSTRAINT DF_Estimates_Status DEFAULT 'Draft',
         CreatedAt datetime2(0) NOT NULL CONSTRAINT DF_Estimates_CreatedAt DEFAULT SYSUTCDATETIME(),
-        CONSTRAINT CK_Estimates_Status CHECK (EstimateStatus IN ('Draft', 'Won', 'Lost'))
+        CONSTRAINT CK_Estimates_Status CHECK (EstimateStatus IN ('Draft', 'Sent', 'Won', 'Lost'))
     );
 END;
 GO

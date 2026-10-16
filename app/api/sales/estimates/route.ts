@@ -4,6 +4,7 @@ import { InvalidUnitPresetError } from "@/app/lib/unit-presets";
 import { parseNotes } from "@/app/lib/document-notes";
 import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
 import { getPool, sql } from "@/app/lib/db";
+import { isEditableEstimateStatus } from "@/app/lib/estimate-status";
 import type { InitialAlternateInput } from "@/app/lib/contract-changes";
 import { isCalendarDate as validApprovalDate } from "@/app/lib/recurring-dates";
 import { RECURRENCE_FREQUENCIES, isCalendarDate, validateRecurringSchedule } from "@/app/lib/recurring-dates";
@@ -12,6 +13,7 @@ import {
   getEstimateDetails,
   getEstimates,
   setEstimatePrintOptions,
+  setEstimateStatus,
   winEstimate,
   type CreateEstimateInput,
   type EngagementType,
@@ -242,6 +244,21 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Invalid estimate ID" }, { status: 400 });
   }
 
+  if (body?.action === "set-status") {
+    if (!isEditableEstimateStatus(body.status)) {
+      return NextResponse.json({ error: "Choose Draft, Sent, or Lost. Use the approval dialog to mark an estimate won." }, { status: 400 });
+    }
+    try {
+      const session = await requireProjectSession(request, "sales.write");
+      await setEstimateStatus(estimateId, session.organization.organizationId, body.status);
+      return NextResponse.json({ estimateId, status: body.status });
+    } catch (error) {
+      if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
+      console.error("Unable to update estimate status", error);
+      return NextResponse.json({ error: "Unable to update estimate status" }, { status: 500 });
+    }
+  }
+
   if (body?.action === "set-print-options") {
     if (
       typeof body.showQuantities !== "boolean" ||
@@ -297,7 +314,7 @@ export async function PATCH(request: NextRequest) {
       if (isCompletedProjectError(error)) return NextResponse.json({ error: COMPLETED_PROJECT_MESSAGE }, { status: 409 });
       const reason = error instanceof Error ? error.message : "";
       if (reason === "not-found") return NextResponse.json({ error: "Estimate not found" }, { status: 404 });
-      if (reason === "not-draft") return NextResponse.json({ error: "Only draft estimates can be marked as won" }, { status: 409 });
+      if (reason === "not-draft") return NextResponse.json({ error: "Only Draft or Sent estimates can be marked as won. Reopen a Lost estimate first." }, { status: 409 });
       if (reason === "no-revision") return NextResponse.json({ error: "Estimate has no saved revision" }, { status: 400 });
       if (reason === "invalid-recurring-schedule") return NextResponse.json({ error: "Edit this recurring estimate to supply a valid start date, expected end date, and frequency before accepting it" }, { status: 400 });
       if (typeof error === "object" && error !== null && "number" in error && [2601, 2627].includes(Number(error.number))) {

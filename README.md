@@ -12,6 +12,84 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Initial Azure SQL schema
+
+[database/azure-sql-baseline.sql](database/azure-sql-baseline.sql) is a schema-only
+snapshot exported from the working local `centralHubTest` database on 2026-10-16.
+It targets Azure SQL Database and includes 47 tables, 4 views, 59 triggers,
+177 indexes (including primary/unique constraints), 143 foreign keys, 65 check
+constraints, and 118 defaults. No table rows, database users, logins, credentials,
+or permission grants were exported. Azure SQL syntax parsing passed; this is
+not yet evidence of a successful deployment to an empty Azure database.
+
+Use it only to initialize a **new, empty database**, not to upgrade an existing
+database. In SSMS, connect to the Azure SQL server using the configured
+authentication method (Microsoft Entra MFA for the administrator if Entra-only
+authentication is enabled), open a query explicitly targeting the intended
+database, and open the baseline script. Validate it in a disposable database
+before executing it against the deployment database. No `CREATE DATABASE` or
+`USE` statement is included. Execution is not wrapped in one transaction; if a
+batch fails, stop and investigate rather than rerunning over partial objects.
+
+After the baseline, apply
+[database/estimate-status-schema.sql](database/estimate-status-schema.sql):
+the local snapshot still has the old Draft/Won/Lost constraint and does not
+include the newer Sent status.
+
+Do not replay all older migration files or run the organization foundation
+bootstrap: their existing schema changes are already reflected in this snapshot,
+and the foundation bootstrap is restricted to the local database name.
+Some captured defaults still assign `OrganizationID = 1`. A separately reviewed
+initialization step must provide the intended organization, reference data
+(including units), access roles/permissions, and owner/demo accounts before the
+app is usable. Schema creation alone does not provide a working application login.
+Database access for the App Service identity/user must also be granted separately.
+
+For future changes, keep versioned migration scripts as the source of truth and
+record applied migrations; do not repeatedly overwrite Azure from the local
+schema. The baseline does not install a migration-history runner.
+
+### Azure demo initialization
+
+After the baseline and estimate status migration, run
+[database/azure-sql-initialize.sql](database/azure-sql-initialize.sql) in SSMS
+against `overhead-testdb`. It refuses another database name and runs in one
+transaction with explicit rollback on failure. No local database changes or
+business-data migration are required. It initializes:
+
+- `Overhead Demo` (`overhead-demo`) at OrganizationID 1, matching the baseline's
+  legacy single-organization defaults.
+- Doug (`dcrobb29@gmail.com`) with the Owner role and 17 explicit permissions.
+- Recruiter Demo (`demo@overhead.example`) with a Viewer role containing only the
+  seven explicit module `.read` permissions, no `.write` or `.manage` grants.
+- Twelve approved local unit presets and the employee job titles CEO, VP, and
+  Project Manager. Job titles do not grant application permissions.
+- Internal test-plan metadata (two seats, no billing provider) and invoice
+  settings. This does not represent a purchased subscription.
+
+Both users are deliberately created **inactive**, with NULL password hashes.
+The existing login still accepts a shared practice password for active users.
+Do not activate these accounts or expose the demo as production-ready until that
+behavior is removed, a strong `SESSION_SECRET` is set, passwords are provisioned
+privately, and route-level authorization is validated. Read-only role grants
+are not proof that every existing endpoint enforces them. No password, secret,
+SQL database principal, managed-identity grant, or Entra user is created here.
+The `.example` demo email is a login identifier, not a deliverable mailbox.
+
+The script can be rerun before account activation: it adds missing seed records
+without resetting passwords, changing existing names, deleting roles, or
+silently removing unexpected grants. Conflicting organizations, account state,
+memberships, grants, units, or subscription metadata cause an error and rollback.
+It refuses reruns after either account is activated or receives a password.
+Its result sets should show the two inactive/uncredentialed users, Owner with
+17 permissions, Viewer with 7, twelve unit presets, and three job titles on a
+fresh baseline. No demo estimates, projects, customers, bills, or employees
+are inserted. Deploying realistic demo business data is a separate step.
+Validation performed: Azure SQL syntax parsing, SQL Server compile-only
+(`NOEXEC`) validation against the local schema, and checks of the permission
+and reference-data counts. Seed execution and rerun behavior have not yet been
+tested against an empty database; nothing was executed against Azure.
+
 ## Interaction styling
 
 Shared, low-specificity styles in `app/styles.css` give links an underline,
@@ -75,9 +153,24 @@ breadcrumb and section-tab conventions as project workspaces:
   internal freight/tax, per-line markup, and collapsible scope/type groups.
 - **Alternates**: the existing separate alternate management and approval tools.
 
-PDF is available from both cards and the workspace. Edit and Mark won are in the
-workspace action bar; Delete is under **More actions** and still requires
-confirmation. Won/read-only estimates retain their existing action restrictions.
+Apply `database\estimate-status-schema.sql` with an admin SQL connection before
+using the estimate status selector. It adds **Sent** to the allowed database
+statuses without changing existing records. The matching rollback refuses to
+run while Sent records remain, avoiding silent loss of sent tracking.
+
+Both cards and the workspace have an estimate-specific status selector:
+**Draft**, **Sent** (manually recorded; this does not send an email), **Won**, and
+**Lost**. Draft, Sent, and Lost can be changed to each other. Selecting Won from
+Draft or Sent opens the existing approval/alternate selection dialog and creates
+the project only after confirmation. Reopen a Lost estimate as Draft or Sent
+before winning it. Won estimates remain locked. Sent estimates still support
+editing and bid alternates. Status filters include Sent and Lost so estimators
+can identify sent bids and candidates for archival; Lost does not automatically
+archive or delete a record.
+
+PDF is available from both cards and the workspace. Edit is in the workspace
+action bar; Delete is under **More actions** and still requires confirmation.
+Won/read-only estimates retain their existing action restrictions.
 The existing new/edit forms, alternate-draft editor, PDF settings/preview, and
 win/conversion workflows are unchanged. The overview no longer expands these
 details inside each card. Both portfolios retain the viewport-contained shell

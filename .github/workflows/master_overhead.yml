@@ -23,17 +23,27 @@ jobs:
         with:
           node-version: '24.x'
 
-      - name: npm install, build, and test
+      - name: Install dependencies and build Next.js
         run: |
-          npm install
-          npm run build --if-present
-          npm run test --if-present
+          npm ci
+          npm run build
+
+      - name: Package and verify production application
+        run: |
+          test -f .next/BUILD_ID
+          test -f node_modules/next/dist/bin/next
+          test -x node_modules/.bin/next
+          zip -q -r deployment.zip .next node_modules public package.json package-lock.json next.config.ts \
+            -x '.next/cache/*'
+          unzip -Z1 deployment.zip | grep -Fx '.next/BUILD_ID'
+          unzip -Z1 deployment.zip | grep -Fx 'node_modules/next/dist/bin/next'
+          unzip -Z1 deployment.zip | grep -Fx 'node_modules/.bin/next'
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: .
+          path: deployment.zip
 
   deploy:
     runs-on: ubuntu-latest
@@ -47,7 +57,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: node-app
-      
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -61,5 +71,5 @@ jobs:
         with:
           app-name: 'Overhead'
           slot-name: 'Production'
-          package: .
-          
+          package: deployment.zip
+          startup-command: 'npm run start -- --hostname 0.0.0.0 --port $PORT'

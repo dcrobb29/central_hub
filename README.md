@@ -12,6 +12,27 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Azure App Service deployment
+
+[The Overhead workflow](.github/workflows/master_overhead.yml) builds on Ubuntu
+with Node 24 using `npm ci` and `npm run build`. It packages the production
+`.next` directory, dependencies (including the Next.js executable), public
+assets, package manifests, and Next configuration into `deployment.zip`.
+Passing one ZIP between jobs preserves hidden build files and executable
+entries that loose-file artifact uploads can omit. Build cache, local
+environment files, and uploaded business files are not packaged.
+
+Deployment uses the existing Azure OIDC identity and starts Next.js with
+`npm run start -- --hostname 0.0.0.0 --port $PORT`. The runtime must not rebuild
+this prebuilt artifact: keep App Service `SCM_DO_BUILD_DURING_DEPLOYMENT`
+disabled/unset. Runtime secrets belong in App Service environment variables,
+not the ZIP. Configure durable uploaded-file storage separately.
+
+A successful workflow is not a runtime health check. Confirm Next.js reports
+ready in App Service Log stream and test the default hostname after deployment.
+`next: not found` indicates missing runtime dependencies/executable resolution;
+a missing production build indicates missing `.next` output.
+
 ## Initial Azure SQL schema
 
 [database/azure-sql-baseline.sql](database/azure-sql-baseline.sql) is a schema-only

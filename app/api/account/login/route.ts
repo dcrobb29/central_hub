@@ -1,27 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   authenticateUser,
-  listLocalUsersForLogin,
   signSessionToken,
   SESSION_COOKIE_NAME,
-  PRACTICE_PASSWORD,
 } from "@/app/lib/auth";
 import { getCurrentSession } from "@/app/lib/account";
-
-export async function GET() {
-  try {
-    const localUsers = await listLocalUsersForLogin();
-    return NextResponse.json({
-      practicePassword: PRACTICE_PASSWORD,
-      localUsers,
-    });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unable to list users" },
-      { status: 500 },
-    );
-  }
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,8 +21,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: authResult.error }, { status: 401 });
     }
 
-    const token = signSessionToken(authResult.user);
     const session = await getCurrentSession(authResult.user.email);
+    const token = signSessionToken(authResult.user);
 
     const response = NextResponse.json({
       success: true,
@@ -59,8 +42,9 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
+    console.error("Unable to sign in", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Sign-in failed" },
+      { error: "Sign-in is unavailable. Please try again later." },
       { status: 500 },
     );
   }

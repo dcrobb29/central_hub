@@ -1,43 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import type { LocalLoginOption } from "@/app/lib/auth";
+import { useState, type SubmitEvent } from "react";
+import { useSearchParams } from "next/navigation";
 
 export default function LoginClient() {
-  const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTarget = searchParams.get("redirect") || "/";
+  const requestedTarget = searchParams.get("redirect") || "/";
+  const redirectTarget = requestedTarget.startsWith("/") && !requestedTarget.startsWith("//")
+    && !requestedTarget.includes("\\") ? requestedTarget : "/";
 
-  const [email, setEmail] = useState("dcrobb29@gmail.com");
-  const [password, setPassword] = useState("Password1!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [practicePassword, setPracticePassword] = useState("Password1!");
-  const [localUsers, setLocalUsers] = useState<LocalLoginOption[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const res = await fetch("/api/account/login");
-        if (res.ok && !cancelled) {
-          const data = await res.json();
-          if (data.practicePassword) setPracticePassword(data.practicePassword);
-          if (Array.isArray(data.localUsers)) setLocalUsers(data.localUsers);
-        }
-      } catch {
-        // Ignore in local dev
-      }
-    }
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
     setError(null);
@@ -62,19 +40,13 @@ export default function LoginClient() {
     }
   }
 
-  function handleSelectUser(user: LocalLoginOption) {
-    setEmail(user.email);
-    setPassword(practicePassword);
-    setError(null);
-  }
-
   return (
     <main className="loginShell">
       <div className="loginCard">
         <div className="loginHeader">
           <img src="/logo.png" alt="Resolution" className="loginLogo" />
           <h1 className="loginTitle">Sign in to your account</h1>
-          <p className="loginSubtitle">Enter your credentials or pick a test user below</p>
+          <p className="loginSubtitle">Enter your email address and password.</p>
         </div>
 
         {error && (
@@ -121,46 +93,11 @@ export default function LoginClient() {
             </div>
           </label>
 
-          <div className="loginPracticeHint">
-            <span>
-              Practice password: <strong>{practicePassword}</strong>
-            </span>
-            <button
-              type="button"
-              onClick={() => setPassword(practicePassword)}
-              disabled={busy}
-            >
-              Fill password
-            </button>
-          </div>
-
           <button type="submit" className="loginButton" disabled={busy}>
             {busy ? "Signing in..." : "Sign in"}
           </button>
         </form>
 
-        {localUsers.length > 0 && (
-          <section className="loginQuickSection" aria-label="Available test accounts">
-            <h2 className="loginQuickTitle">Quick test accounts</h2>
-            <div className="loginQuickList">
-              {localUsers.map((u) => (
-                <button
-                  key={u.email}
-                  type="button"
-                  className="loginQuickButton"
-                  onClick={() => handleSelectUser(u)}
-                  disabled={busy}
-                >
-                  <span className="loginQuickInfo">
-                    <strong>{u.displayName}</strong>
-                    <small>{u.email}</small>
-                  </span>
-                  {u.roleName && <span className="loginQuickRole">{u.roleName}</span>}
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
       </div>
     </main>
   );

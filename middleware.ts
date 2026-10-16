@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-
-const SESSION_COOKIE_NAME = "central_hub_session";
+import { SESSION_COOKIE_NAME, verifySessionToken } from "@/app/lib/auth";
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Never redirect API routes, internal next assets, or files
+  // Login/logout must remain reachable without a session.
   if (
-    pathname.startsWith("/api") ||
+    pathname === "/api/account/login" ||
+    pathname === "/api/account/logout" ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico" ||
     /\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js)$/.test(pathname)
@@ -15,12 +15,25 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const hasSession = request.cookies.has(SESSION_COOKIE_NAME);
+  let hasSession = false;
+  try {
+    hasSession = verifySessionToken(request.cookies.get(SESSION_COOKIE_NAME)?.value) !== null;
+  } catch (error) {
+    console.error("Unable to verify session", error);
+    return NextResponse.json({ error: "Authentication is unavailable." }, { status: 503 });
+  }
+
+  if (pathname.startsWith("/api/")) {
+    return hasSession ? NextResponse.next()
+      : NextResponse.json({ error: "Please sign in." }, { status: 401 });
+  }
 
   // If visiting /login while already having a session, redirect to home
   if (pathname === "/login") {
     if (hasSession) {
-      const redirectUrl = request.nextUrl.searchParams.get("redirect") || "/";
+      const requested = request.nextUrl.searchParams.get("redirect") || "/";
+      const redirectUrl = requested.startsWith("/") && !requested.startsWith("//")
+        && !requested.includes("\\") ? requested : "/";
       return NextResponse.redirect(new URL(redirectUrl, request.url));
     }
     return NextResponse.next();
@@ -37,6 +50,7 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
+  runtime: "nodejs",
   matcher: [
     /*
      * Match all request paths except:
@@ -44,8 +58,7 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - public files with extensions (e.g. .png, .jpg, .svg)
-     * - /api/* routes (APIs handle auth internally)
      */
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)|api).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

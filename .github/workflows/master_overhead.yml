@@ -32,11 +32,14 @@ jobs:
         run: |
           test -f .next/BUILD_ID
           test -f node_modules/next/dist/bin/next
+          test -f node_modules/next/dist/server/require-hook.js
+          node node_modules/next/dist/bin/next --version
           test -x node_modules/.bin/next
           zip -q -r deployment.zip .next node_modules public package.json package-lock.json next.config.ts \
             -x '.next/cache/*'
           unzip -Z1 deployment.zip | grep -Fx '.next/BUILD_ID'
           unzip -Z1 deployment.zip | grep -Fx 'node_modules/next/dist/bin/next'
+          unzip -Z1 deployment.zip | grep -Fx 'node_modules/next/dist/server/require-hook.js'
           unzip -Z1 deployment.zip | grep -Fx 'node_modules/.bin/next'
 
       - name: Upload artifact for deployment job
@@ -72,4 +75,4 @@ jobs:
           app-name: 'Overhead'
           slot-name: 'Production'
           package: deployment.zip
-          startup-command: 'npm run start -- --hostname 0.0.0.0 --port $PORT'
+          startup-command: 'node node_modules/next/dist/bin/next start --hostname 0.0.0.0 --port $PORT'

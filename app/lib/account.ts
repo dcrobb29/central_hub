@@ -4,7 +4,6 @@ import {
   getOrganizationInvoiceSettings,
 } from "./invoice-settings";
 
-import { hashPassword, PRACTICE_PASSWORD } from "./auth";
 
 export type AccountUser = {
   userId: number;
@@ -108,9 +107,10 @@ export type OrganizationSettingsData = {
   invoiceSettings: OrganizationInvoiceSettings;
 };
 
-export async function getCurrentSession(emailOverride?: string): Promise<AccountSession> {
+export async function getCurrentSession(emailOverride: string): Promise<AccountSession> {
+  const email = emailOverride.trim().toLowerCase();
+  if (!email) throw new Error("An authenticated email is required.");
   const pool = await getPool();
-  const email = emailOverride?.trim().toLowerCase() || "dcrobb29@gmail.com";
 
   const userResult = await pool.request()
     .input("email", sql.NVarChar(254), email)
@@ -135,36 +135,10 @@ export async function getCurrentSession(emailOverride?: string): Promise<Account
       FROM dbo.Users u
       JOIN dbo.OrganizationMemberships m ON m.UserID = u.UserID AND m.IsActive = 1
       JOIN dbo.Organizations o ON o.OrganizationID = m.OrganizationID
-      WHERE u.NormalizedEmail = @email
+      WHERE u.NormalizedEmail = @email AND u.IsActive = 1
     `);
 
-  let record = userResult.recordset[0];
-  if (!record) {
-    const fallback = await pool.request().query<{
-      UserID: number;
-      Email: string;
-      DisplayName: string;
-      Phone: string | null;
-      IsActive: boolean;
-      OrganizationID: number;
-      OrganizationKey: string;
-      OrganizationName: string;
-      OrgStatus: string;
-      OrgCreatedAt: Date;
-      MembershipID: number;
-      MembershipIsActive: boolean;
-    }>(`
-      SELECT TOP (1)
-        u.UserID, u.Email, u.DisplayName, u.Phone, u.IsActive,
-        o.OrganizationID, o.OrganizationKey, o.OrganizationName, o.Status AS OrgStatus, o.CreatedAt AS OrgCreatedAt,
-        m.MembershipID, m.IsActive AS MembershipIsActive
-      FROM dbo.Users u
-      JOIN dbo.OrganizationMemberships m ON m.UserID = u.UserID
-      JOIN dbo.Organizations o ON o.OrganizationID = m.OrganizationID
-      ORDER BY m.MembershipID ASC
-    `);
-    record = fallback.recordset[0];
-  }
+  const record = userResult.recordset[0];
 
   if (!record) {
     throw new Error("No active organization user session found in database.");
@@ -666,10 +640,9 @@ export async function addOrganizationMember(
         .input("email", sql.NVarChar(254), trimmedEmail)
         .input("displayName", sql.NVarChar(150), trimmedName)
         .input("phone", sql.NVarChar(50), input.phone ? input.phone.trim() : null)
-        .input("passwordHash", sql.NVarChar(255), hashPassword(PRACTICE_PASSWORD))
         .query<{ UserID: number }>(`
-          INSERT INTO dbo.Users (Email, DisplayName, Phone, PasswordHash)
-          VALUES (@email, @displayName, @phone, @passwordHash);
+          INSERT INTO dbo.Users (Email, DisplayName, Phone, PasswordHash, IsActive)
+          VALUES (@email, @displayName, @phone, NULL, 0);
           SELECT CONVERT(int, SCOPE_IDENTITY()) AS UserID;
         `);
       userId = insertedUser.recordset[0].UserID;

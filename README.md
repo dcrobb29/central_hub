@@ -23,7 +23,10 @@ entries that loose-file artifact uploads can omit. Build cache, local
 environment files, and uploaded business files are not packaged.
 
 Deployment uses the existing Azure OIDC identity and starts Next.js with
-`npm run start -- --hostname 0.0.0.0 --port $PORT`. The runtime must not rebuild
+`node node_modules/next/dist/bin/next start --hostname 0.0.0.0 --port $PORT`.
+Invoking the real CLI avoids `.bin/next` links being dereferenced into copied
+files during packaging, which breaks the CLI's relative imports (for example,
+`../server/require-hook`). The runtime must not rebuild
 this prebuilt artifact: keep App Service `SCM_DO_BUILD_DURING_DEPLOYMENT`
 disabled/unset. Runtime secrets belong in App Service environment variables,
 not the ZIP. Configure durable uploaded-file storage separately.
@@ -89,10 +92,11 @@ business-data migration are required. It initializes:
   settings. This does not represent a purchased subscription.
 
 Both users are deliberately created **inactive**, with NULL password hashes.
-The existing login still accepts a shared practice password for active users.
-Do not activate these accounts or expose the demo as production-ready until that
-behavior is removed, a strong `SESSION_SECRET` is set, passwords are provisioned
-privately, and route-level authorization is validated. Read-only role grants
+The login no longer has prefilled credentials, an account picker, a public
+account directory, a practice-password bypass, or plaintext password acceptance.
+Deploy this updated code before activating accounts. Set a strong
+`SESSION_SECRET`, provision passwords privately, and validate route-level
+authorization before exposing the demo as production-ready. Read-only role grants
 are not proof that every existing endpoint enforces them. No password, secret,
 SQL database principal, managed-identity grant, or Entra user is created here.
 The `.example` demo email is a login identifier, not a deliverable mailbox.
@@ -110,6 +114,42 @@ Validation performed: Azure SQL syntax parsing, SQL Server compile-only
 (`NOEXEC`) validation against the local schema, and checks of the permission
 and reference-data counts. Seed execution and rerun behavior have not yet been
 tested against an empty database; nothing was executed against Azure.
+
+### Application login and SQL authentication
+
+Application login and database login are separate. A SQL administrator or an
+Entra SQL administrator is not automatically an application user. Website login
+requires an active `Users` record with an individual PBKDF2 password hash,
+an active organization membership, and explicit role permissions.
+New users created through membership settings are inactive with no password;
+there is no default initial password. Provision credentials separately before
+activation. Existing plaintext passwords must be reset; existing PBKDF2 hashes
+remain supported. New hashes use PBKDF2-SHA256 with 600,000 iterations.
+
+`SESSION_SECRET` must contain at least 32 bytes and be configured privately in
+App Service environment variables and, for local session use, untracked
+`.env.local`. There is no built-in fallback, even locally. Missing/weak secrets
+fail session signing/verification. Login service errors are logged server-side,
+not returned as database error details to the browser.
+Session API reads require a valid active session (not an email query parameter);
+profile updates are restricted to the authenticated user's own ID.
+Middleware now verifies signed session tokens rather than trusting cookie
+presence, and rejects unauthenticated API requests except login/logout.
+Module-specific role and active-account checks must still be enforced by each
+endpoint; the middleware gate is not a replacement for those checks.
+
+For SQL username/password connectivity, the Azure SQL server must permit SQL
+authentication. Configure a dedicated least-privilege application SQL user
+through private `DB_USER`/`DB_PASSWORD` App Service settings, alongside `DB_SERVER`,
+`DB_NAME`, encryption, and firewall settings. Do not use the SQL administrator
+as the web app database identity. Entra-only SQL instead requires managed identity
+connection support and corresponding database grants.
+
+Run focused authentication regression checks with
+`node --experimental-strip-types --test app/lib/auth.test.mjs app/lib/login-access.test.mjs`.
+These changes remove practice access; they are not a certification of all
+application routes. Rate limiting and a complete authorization review remain
+separate pre-launch work.
 
 ## Interaction styling
 

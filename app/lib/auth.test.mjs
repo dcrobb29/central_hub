@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
+import crypto from "node:crypto";
+
+process.env.SESSION_SECRET = crypto.randomBytes(32).toString("hex");
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -15,28 +18,48 @@ registerHooks({
 });
 
 const {
-  PRACTICE_PASSWORD,
   hashPassword,
   verifyPassword,
   signSessionToken,
   verifySessionToken,
 } = await import("./auth.ts");
 
-test("practice password verification", () => {
-  assert.equal(PRACTICE_PASSWORD, "Password1!");
-  assert.ok(verifyPassword("Password1!", null));
-  assert.ok(verifyPassword("Password1!", "arbitrary_hash"));
+test("no practice password or plaintext fallback is accepted", () => {
+  assert.equal(verifyPassword("Password1!", null), false);
+  assert.equal(verifyPassword("Password1!", "arbitrary_hash"), false);
+  assert.equal(verifyPassword("Password1!", "Password1!"), false);
   assert.equal(verifyPassword("WrongPassword", null), false);
   assert.equal(verifyPassword("WrongPassword", "some_stored_hash"), false);
 });
 
 test("custom pbkdf2 password hashing and verification", () => {
   const hash = hashPassword("Secret123!");
-  assert.ok(hash.startsWith("pbkdf2:10000:"));
+  assert.ok(hash.startsWith("pbkdf2:600000:"));
   assert.ok(verifyPassword("Secret123!", hash));
   assert.equal(verifyPassword("WrongPassword", hash), false);
-  // Practice password still succeeds for testing
-  assert.ok(verifyPassword("Password1!", hash));
+  assert.equal(verifyPassword("Password1!", hash), false);
+});
+
+test("existing PBKDF2 hashes still work, malformed hashes fail closed", () => {
+  const salt = "ab".repeat(16);
+  const hash = crypto.pbkdf2Sync("Existing password", salt, 10000, 32, "sha256").toString("hex");
+  assert.equal(verifyPassword("Existing password", `pbkdf2:10000:${salt}:${hash}`), true);
+  for (const value of ["pbkdf2:0:x:x", "pbkdf2:NaN:x:x", `pbkdf2:9999999:${salt}:${hash}`, `pbkdf2:10000:${salt}:bad`]) {
+    assert.equal(verifyPassword("Existing password", value), false);
+  }
+});
+
+test("session secret has no default and rejects weak configuration", () => {
+  const original = process.env.SESSION_SECRET;
+  try {
+    for (const value of [undefined, "", "too-short"]) {
+      if (value === undefined) delete process.env.SESSION_SECRET;
+      else process.env.SESSION_SECRET = value;
+      assert.throws(() => signSessionToken({ userId: 1, email: "owner@example.com", displayName: "Owner" }), /SESSION_SECRET/);
+    }
+  } finally {
+    process.env.SESSION_SECRET = original;
+  }
 });
 
 test("session token signing and verification", () => {
@@ -72,4 +95,7 @@ test("tampered session token is rejected", () => {
   assert.equal(verifySessionToken(tamperedSig), null);
   assert.equal(verifySessionToken(""), null);
   assert.equal(verifySessionToken("not-a-token"), null);
+  assert.equal(verifySessionToken(`${b64}.x`), null);
+  assert.equal(verifySessionToken(`${b64}.${"x".repeat(100)}`), null);
+  assert.equal(verifySessionToken(`${b64}.${"\u00e9".repeat(43)}`), null);
 });

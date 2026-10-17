@@ -59,6 +59,7 @@ BEGIN TRY
   DECLARE @table sysname;
   DECLARE @constraint sysname;
   DECLARE @definition nvarchar(max);
+  DECLARE @statement nvarchar(max);
   DECLARE defaults_cursor CURSOR LOCAL FAST_FORWARD FOR
     SELECT TableName FROM @targets ORDER BY TableName;
 
@@ -79,7 +80,8 @@ BEGIN TRY
       IF REPLACE(REPLACE(REPLACE(REPLACE(@definition, N'(', N''), N')', N''), N' ', N''), NCHAR(9), N'') <> N'1'
         THROW 51061, 'An OrganizationID default is not the reviewed value 1; no defaults were removed.', 1;
 
-      EXEC(N'ALTER TABLE dbo.' + QUOTENAME(@table) + N' DROP CONSTRAINT ' + QUOTENAME(@constraint) + N';');
+      SET @statement = N'ALTER TABLE dbo.' + QUOTENAME(@table) + N' DROP CONSTRAINT ' + QUOTENAME(@constraint) + N';';
+      EXEC sys.sp_executesql @statement;
     END;
 
     FETCH NEXT FROM defaults_cursor INTO @table;

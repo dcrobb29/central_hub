@@ -23,7 +23,7 @@ function formatModified(value?: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-export default function FileExplorer() {
+export default function FileExplorer({ canWrite }: { canWrite: boolean }) {
   const [currentPath, setCurrentPath] = useState("");
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null);
@@ -94,6 +94,10 @@ export default function FileExplorer() {
 
   async function handleImport(fileList: FileList | null) {
     const files = fileList ? Array.from(fileList) : [];
+    if (!canWrite) {
+      setImportError("You do not have permission to import files.");
+      return;
+    }
     if (files.length === 0 || busy) return;
     setShowImport(false);
     setIsUploading(true);
@@ -126,6 +130,10 @@ export default function FileExplorer() {
 
   async function handleCreateFolder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canWrite) {
+      setFolderError("You do not have permission to create folders.");
+      return;
+    }
     if (!folderName.trim()) {
       setFolderError("Enter a folder name.");
       return;
@@ -182,8 +190,8 @@ export default function FileExplorer() {
       <div className={styles.preview}><FileViewer key={selectedFile.path} file={selectedFile} /></div>
     </> : <>
       <WorkspaceHeading title="Files" eyebrow="FILES & DOCUMENTS" actions={<>
-          <button type="button" className="projectWorkspaceLink" disabled={busy} aria-haspopup="dialog" onClick={() => { setFolderName(""); setFolderError(null); setShowFolderForm(true); }}><Plus size={15} aria-hidden="true" />New folder</button>
-          <Button className="financeImportButton" disabled={busy} aria-haspopup="dialog" onClick={() => setShowImport(true)}><Upload size={15} aria-hidden="true" />Import</Button>
+          <button type="button" className="projectWorkspaceLink" disabled={busy || !canWrite} aria-haspopup="dialog" onClick={() => { setFolderName(""); setFolderError(null); setShowFolderForm(true); }}><Plus size={15} aria-hidden="true" />New folder</button>
+          <Button className="financeImportButton" disabled={busy || !canWrite} aria-haspopup="dialog" onClick={() => setShowImport(true)}><Upload size={15} aria-hidden="true" />Import</Button>
       </>} />
       <p className={recordStyles.intro}>Files at a glance. Open folders to browse, or preview a file before downloading.</p>
       <div className={styles.toolbar}>

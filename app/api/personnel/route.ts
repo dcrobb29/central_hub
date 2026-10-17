@@ -3,22 +3,33 @@ import {
   addPerson,
   addRole,
   getPersonnelData,
+  PersonnelRecordError,
   updatePerson,
 } from "@/app/lib/personnel";
+import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
 
 function isUniqueConstraintError(error: unknown) {
   return typeof error === "object" && error !== null && "number" in error && [2601, 2627].includes(Number(error.number));
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    return NextResponse.json(await getPersonnelData());
-  } catch {
+    const session = await requireProjectSession(request, "personnel.read");
+    return NextResponse.json(await getPersonnelData(session.organization.organizationId));
+  } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: "Unable to load personnel. Check the Personnel tables and database permissions." }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
+  let organizationId: number;
+  try {
+    organizationId = (await requireProjectSession(request, "personnel.write")).organization.organizationId;
+  } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
+    throw error;
+  }
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
@@ -28,8 +39,8 @@ export async function POST(request: NextRequest) {
     if (body.action === "add-role") {
       const name = typeof body.name === "string" ? body.name.trim() : "";
       if (!name) return NextResponse.json({ error: "Enter a role name" }, { status: 400 });
-      await addRole(name);
-      return NextResponse.json(await getPersonnelData(), { status: 201 });
+      await addRole(name, organizationId);
+      return NextResponse.json(await getPersonnelData(organizationId), { status: 201 });
     }
 
     if (body.action === "add-person") {
@@ -53,15 +64,17 @@ export async function POST(request: NextRequest) {
         roleId,
         relationType,
         relationPersonId,
-      });
+      }, organizationId);
       return NextResponse.json({
-        ...await getPersonnelData(),
+        ...await getPersonnelData(organizationId),
         createdPersonId: String(employeeId),
       }, { status: 201 });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof PersonnelRecordError) return NextResponse.json({ error: error.message }, { status: 400 });
     if (isUniqueConstraintError(error)) {
       return NextResponse.json({ error: "That role already exists" }, { status: 409 });
     }
@@ -73,6 +86,13 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  let organizationId: number;
+  try {
+    organizationId = (await requireProjectSession(request, "personnel.write")).organization.organizationId;
+  } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
+    throw error;
+  }
   const body = await request.json().catch(() => null);
   const id = Number(body?.id);
   const name = typeof body?.name === "string" ? body.name.trim() : "";
@@ -87,7 +107,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   try {
-    const data = await getPersonnelData();
+    const data = await getPersonnelData(organizationId);
     const person = data.people.find((item) => item.id === String(id));
     if (!person) return NextResponse.json({ error: "Person not found" }, { status: 404 });
     if (!data.roles.some((role) => role.id === String(roleId))) {
@@ -104,9 +124,14 @@ export async function PATCH(request: NextRequest) {
       ancestorId = data.people.find((item) => item.id === ancestorId)?.managerId ?? null;
     }
 
-    await updatePerson({ id, name, roleId, managerId });
-    return NextResponse.json(await getPersonnelData());
-  } catch {
+    await updatePerson({ id, name, roleId, managerId }, organizationId);
+    return NextResponse.json(await getPersonnelData(organizationId));
+  } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof PersonnelRecordError) return NextResponse.json({ error: error.message }, { status: 404 });
+    if (typeof error === "object" && error !== null && "number" in error && [51050, 51051].includes(Number(error.number))) {
+      return NextResponse.json({ error: Number(error.number) === 51050 ? "Choose a role in your organization" : "Choose a person in your organization" }, { status: 400 });
+    }
     return NextResponse.json({ error: "Unable to update personnel data. Check database permissions." }, { status: 500 });
   }
 }

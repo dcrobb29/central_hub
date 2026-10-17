@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import sql from "mssql";
 
 process.env.SESSION_SECRET = crypto.randomBytes(32).toString("hex");
-const state = { rows: [], queries: [], session: null };
+const state = { rows: [], queries: [], inputs: {}, session: null, queryError: null };
 globalThis.loginAccessTest = state;
 globalThis.loginAccessSql = sql;
 
@@ -21,8 +21,12 @@ registerHooks({
       format: "module", shortCircuit: true,
       source: `export const sql = globalThis.loginAccessSql;
         export const getPool = async () => ({request: () => ({
-          input() { return this; },
-          async query(query) { globalThis.loginAccessTest.queries.push(query); return {recordset: globalThis.loginAccessTest.rows}; }
+          input(name, type, value) { globalThis.loginAccessTest.inputs[name] = value; return this; },
+          async query(query) {
+            globalThis.loginAccessTest.queries.push(query);
+            if (globalThis.loginAccessTest.queryError) throw globalThis.loginAccessTest.queryError;
+            return {recordset: globalThis.loginAccessTest.rows};
+          }
         })});`,
     };
     if (url === new URL("./project-access.ts", import.meta.url).href) return {
@@ -38,7 +42,7 @@ registerHooks({
   },
 });
 
-const { authenticateUser, hashPassword } = await import("./auth.ts");
+const { authenticateUser, hashPassword, getActiveOrganizationId, verifyActiveSessionToken } = await import("./auth.ts");
 const { getCurrentSession } = await import("./account.ts");
 const loginRoute = await import("../api/account/login/route.ts");
 const sessionRoute = await import("../api/account/session/route.ts");
@@ -46,19 +50,93 @@ const { NextRequest } = await import("next/server.js");
 const { middleware } = await import("../../middleware.ts");
 const { signSessionToken } = await import("./auth.ts");
 
-test("page and API entry points reject fabricated cookies; login stays public", () => {
-  assert.equal(middleware(new NextRequest("http://localhost/api/account/settings")).status, 401);
-  assert.equal(middleware(new NextRequest("http://localhost/projects", {
+test("page and API entry points reject fabricated cookies; login stays public", async () => {
+  state.rows = [{ OrganizationID: 7 }];
+  assert.equal((await middleware(new NextRequest("http://localhost/api/account/settings"))).status, 401);
+  assert.equal((await middleware(new NextRequest("http://localhost/projects", {
     headers: { cookie: "central_hub_session=forged" },
-  })).status, 307);
-  assert.equal(middleware(new NextRequest("http://localhost/api/account/settings", {
+  }))).status, 307);
+  assert.equal((await middleware(new NextRequest("http://localhost/api/account/settings", {
     headers: { cookie: "central_hub_session=forged" },
-  })).status, 401);
-  assert.equal(middleware(new NextRequest("http://localhost/login")).status, 200);
+  }))).status, 401);
+  assert.equal((await middleware(new NextRequest("http://localhost/login"))).status, 200);
   const token = signSessionToken({ userId: 12, email: "owner@example.com", displayName: "Owner" });
-  assert.equal(middleware(new NextRequest("http://localhost/projects", {
+  assert.equal((await middleware(new NextRequest("http://localhost/projects", {
     headers: { cookie: `central_hub_session=${token}` },
-  })).status, 200);
+  }))).status, 200);
+});
+
+test("organization lookup requires an authenticated identity and never uses a fallback", async () => {
+  state.rows = [{ OrganizationID: 7 }];
+  state.queries = [];
+  for (const request of [
+    new NextRequest("http://localhost/api/finances/invoices"),
+    new NextRequest("http://localhost/api/finances/invoices", { headers: { cookie: "central_hub_session=forged" } }),
+  ]) {
+    await assert.rejects(() => getActiveOrganizationId(request), (error) => error.status === 401);
+  }
+  assert.equal(state.queries.length, 0);
+
+  const token = signSessionToken({ userId: 12, email: "owner@example.com", displayName: "Owner" });
+  const headers = { cookie: `central_hub_session=${token}` };
+  assert.equal(await getActiveOrganizationId(new NextRequest("http://localhost/api/finances/invoices", { headers })), 7);
+  assert.equal(await getActiveOrganizationId(new Request("http://localhost/api/finances/invoices", { headers })), 7);
+  assert.equal(state.inputs.userId, 12);
+  assert.equal(state.inputs.email, "owner@example.com");
+  assert.equal(state.queries.length, 2);
+  for (const query of state.queries) {
+    assert.match(query, /u\.UserID = @userId/);
+    assert.match(query, /u\.NormalizedEmail = @email/);
+    assert.match(query, /u\.IsActive = 1/);
+    assert.match(query, /m\.IsActive = 1/);
+    assert.match(query, /o\.Status <> 'Archived'/);
+    assert.match(query, /ORDER BY m\.OrganizationID, m\.MembershipID/);
+  }
+});
+
+test("revocation takes effect on the next request even with the same signed cookie", async () => {
+  const token = signSessionToken({ userId: 12, email: "owner@example.com", displayName: "Owner" });
+  const request = (path) => new NextRequest(`http://localhost${path}`, {
+    headers: { cookie: `central_hub_session=${token}` },
+  });
+  state.rows = [{ OrganizationID: 7 }];
+  assert.equal((await middleware(request("/api/finances/invoices"))).status, 200);
+  assert.equal((await middleware(request("/login"))).status, 307);
+  state.rows = [];
+  state.queries = [];
+  assert.equal(await verifyActiveSessionToken(token), null);
+  await assert.rejects(() => getActiveOrganizationId(request("/api/finances/invoices")), (error) => error.status === 401);
+  assert.equal(state.queries.length, 2);
+  assert.equal((await middleware(request("/api/finances/invoices"))).status, 401);
+  const page = await middleware(request("/projects"));
+  assert.equal(page.status, 307);
+  assert.equal(new URL(page.headers.get("location")).pathname, "/login");
+  assert.equal((await middleware(request("/login"))).status, 200);
+});
+
+test("database failures deny access explicitly and do not select another organization", async () => {
+  const token = signSessionToken({ userId: 12, email: "owner@example.com", displayName: "Owner" });
+  const request = new NextRequest("http://localhost/api/finances/invoices", {
+    headers: { cookie: `central_hub_session=${token}` },
+  });
+  state.queryError = new Error("Test database unavailable");
+  state.queries = [];
+  const originalError = console.error;
+  const errors = [];
+  console.error = (...args) => errors.push(args);
+  try {
+    await assert.rejects(() => getActiveOrganizationId(request), /Test database unavailable/);
+    assert.equal(state.queries.length, 1);
+    const response = await middleware(request);
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "Authentication is unavailable." });
+    assert.equal(errors.length, 1);
+    assert.equal((await middleware(new NextRequest("http://localhost/api/account/login", { method: "POST" }))).status, 200);
+    assert.equal((await middleware(new NextRequest("http://localhost/api/account/logout", { method: "POST" }))).status, 200);
+  } finally {
+    state.queryError = null;
+    console.error = originalError;
+  }
 });
 
 test("login no longer exposes a GET account/password directory", () => {
@@ -88,6 +166,9 @@ test("unknown session identity never falls back to the first organization owner"
   await assert.rejects(() => getCurrentSession("unknown@example.com"), /No active organization user/);
   assert.equal(state.queries.length, 1);
   assert.match(state.queries[0], /u\.IsActive = 1/);
+  assert.match(state.queries[0], /m\.IsActive = 1/);
+  assert.match(state.queries[0], /o\.Status <> 'Archived'/);
+  assert.match(state.queries[0], /ORDER BY m\.OrganizationID, m\.MembershipID/);
   await assert.rejects(() => getCurrentSession(""), /authenticated email/);
   assert.equal(state.queries.length, 1);
 });

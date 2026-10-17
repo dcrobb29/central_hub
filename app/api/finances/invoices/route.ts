@@ -4,7 +4,7 @@ import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/pr
 import { amountValue, describeValidationError, isoDateValue, optionalIsoDateValue, optionalProjectId, textValue, ValidationError } from "@/app/lib/validation";
 import { optionalCustomerId } from "@/app/lib/customer-fields";
 import { NotesValidationError, parseNotes } from "@/app/lib/document-notes";
-import { getActiveOrganizationId } from "@/app/lib/auth";
+import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
 
 // Shared by POST (create) and the [id] route's PUT (update) so both stay in lockstep.
 export function parseInvoiceInput(body: unknown): InvoiceInput {
@@ -40,12 +40,16 @@ export function parseInvoiceInput(body: unknown): InvoiceInput {
 }
 
 export function describeInvoiceSqlError(error: unknown): { message: string; status: number } {
+  if (error instanceof ProjectAccessError) return { message: error.message, status: error.status };
   if (isCompletedProjectError(error)) return { message: COMPLETED_PROJECT_MESSAGE, status: 409 };
   if (typeof error === "object" && error !== null && "number" in error && error.number === 51041 && "message" in error) {
     return { message: String(error.message), status: 409 };
   }
   if (typeof error === "object" && error !== null && "number" in error && error.number === 51040) {
     return { message: "Choose an active customer. Archived customers cannot be used for new assignments.", status: 409 };
+  }
+  if (typeof error === "object" && error !== null && "number" in error && error.number === 51044) {
+    return { message: "The selected project no longer exists", status: 404 };
   }
   if (typeof error === "object" && error !== null && "number" in error && error.number === 547) {
     return { message: "The selected project or customer no longer exists", status: 400 };
@@ -58,10 +62,12 @@ export function describeInvoiceSqlError(error: unknown): { message: string; stat
 
 export async function GET(request: NextRequest) {
   try {
-    const organizationId = await getActiveOrganizationId(request);
+    const session = await requireProjectSession(request, "finances.read");
+    const organizationId = session.organization.organizationId;
     const invoices = await getInvoices({ organizationId });
     return NextResponse.json(invoices);
   } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
     console.error("Failed to fetch invoices", error);
     return NextResponse.json({ error: "Unable to fetch invoices" }, { status: 500 });
   }
@@ -78,10 +84,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const organizationId = await getActiveOrganizationId(request);
+    const session = await requireProjectSession(request, "finances.write");
+    const organizationId = session.organization.organizationId;
     const id = await addInvoice(invoiceInput, organizationId);
     return NextResponse.json({ id }, { status: 201 });
   } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
     console.error("Invoice save failed", error);
     const { message, status } = describeInvoiceSqlError(error);
     return NextResponse.json({ error: message }, { status });

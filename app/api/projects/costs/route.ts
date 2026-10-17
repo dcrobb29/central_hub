@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       if (!("projectId" in body) || !positiveId(body.projectId) || !("costId" in body) || !positiveId(body.costId)) {
         throw new ProjectCostError("Choose a valid project and cost row");
       }
-      await removeProjectBillCost(body.projectId, body.costId);
+      await removeProjectBillCost(body.projectId, body.costId, session.organization.organizationId);
       return NextResponse.json({ success: true });
     }
     if (body.action !== "save") throw new ProjectCostError("Choose a valid cost action");
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     if (!bill.recordset[0]) throw new ProjectAccessError("Supplier bill not found.", 404);
     const costId = "costId" in body ? body.costId : null;
     if (costId !== null && !positiveId(costId)) throw new ProjectCostError("Choose a valid cost row");
-    return NextResponse.json({ costId: await saveProjectBillCost(input, costId) }, { status: costId === null ? 201 : 200 });
+    return NextResponse.json({ costId: await saveProjectBillCost(input, costId, session.organization.organizationId) }, { status: costId === null ? 201 : 200 });
   } catch (error) {
     if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
     if (error instanceof ProjectBillAssignmentError) return NextResponse.json({ error: error.message }, { status: 409 });

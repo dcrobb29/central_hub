@@ -4,7 +4,7 @@ import { describeValidationError } from "@/app/lib/validation";
 import { describeInvoiceSqlError, parseInvoiceInput } from "../route";
 import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
 import { NotesValidationError } from "@/app/lib/document-notes";
-import { getActiveOrganizationId } from "@/app/lib/auth";
+import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const invoiceId = Number((await params).id);
@@ -21,10 +21,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   try {
-    const organizationId = await getActiveOrganizationId(request);
+    const session = await requireProjectSession(request, "finances.write");
+    const organizationId = session.organization.organizationId;
     await updateInvoice(invoiceId, invoiceInput, organizationId);
     return NextResponse.json({ id: invoiceId });
   } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
+    console.error("Invoice update failed", error);
     const { message, status } = describeInvoiceSqlError(error);
     return NextResponse.json({ error: message }, { status });
   }
@@ -37,10 +40,12 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   }
 
   try {
-    const organizationId = await getActiveOrganizationId(request);
+    const session = await requireProjectSession(request, "finances.write");
+    const organizationId = session.organization.organizationId;
     await deleteInvoice(invoiceId, organizationId);
     return NextResponse.json({ id: invoiceId });
   } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
     if (isCompletedProjectError(error)) return NextResponse.json({ error: COMPLETED_PROJECT_MESSAGE }, { status: 409 });
     if (typeof error === "object" && error !== null && "number" in error && Number(error.number) === 51041) {
       return NextResponse.json({ error: describeInvoiceSqlError(error).message }, { status: 409 });

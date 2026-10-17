@@ -10,15 +10,23 @@ import {
   deleteOrArchiveEmployee,
 } from "@/app/lib/account";
 import { updateOrganizationInvoiceSettings } from "@/app/lib/invoice-settings";
+import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
 
 export async function GET(request: NextRequest) {
   try {
-    const orgId = Number(request.nextUrl.searchParams.get("organizationId")) || 1;
+    const session = await requireProjectSession(request, "organization.manage");
+    const orgId = session.organization.organizationId;
+    const requestedId = request.nextUrl.searchParams.get("organizationId");
+    if (requestedId !== null && Number(requestedId) !== orgId) {
+      throw new ProjectAccessError("You do not have access to this organization.", 403);
+    }
     const settings = await getOrganizationSettings(orgId);
-    return NextResponse.json(settings);
+    return NextResponse.json(settings, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
+    console.error("Unable to load organization settings", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unable to load settings" },
+      { error: "Unable to load settings" },
       { status: 500 },
     );
   }
@@ -26,13 +34,29 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await requireProjectSession(request, "organization.manage");
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== "object") {
       return NextResponse.json({ error: "Invalid request payload" }, { status: 400 });
     }
 
-    const organizationId = Number(body.organizationId) || 1;
+    const organizationId = session.organization.organizationId;
+    if (body.organizationId !== undefined && Number(body.organizationId) !== organizationId) {
+      throw new ProjectAccessError("You do not have access to this organization.", 403);
+    }
     const action = body.action;
+    if (["add-member", "update-member", "link-employee", "unlink-employee"].includes(action)
+        && !session.permissions.includes("members.manage")) {
+      throw new ProjectAccessError("You do not have permission to manage members.", 403);
+    }
+    if ((["link-employee", "unlink-employee", "toggle-employee-active", "delete-employee"].includes(action)
+        || (action === "add-member" && body.linkEmployeeId != null))
+        && !session.permissions.includes("personnel.write")) {
+      throw new ProjectAccessError("You do not have permission to manage personnel.", 403);
+    }
+    if (action === "update-invoice-settings" && !session.permissions.includes("finances.write")) {
+      throw new ProjectAccessError("You do not have permission to change invoice settings.", 403);
+    }
 
     if (action === "update-organization-name") {
       const name = typeof body.name === "string" ? body.name : "";
@@ -137,6 +161,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
+    console.error("Unable to process organization settings", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to process settings request" },
       { status: 400 },

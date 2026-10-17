@@ -52,7 +52,7 @@ function compareProjects(left: ProjectFinancialSummary, right: ProjectFinancialS
   return Number(left[key]) - Number(right[key]);
 }
 
-export default function ProjectFinancesTable({ rows }: { rows: ProjectFinancialSummary[] }) {
+export default function ProjectFinancesTable({ rows, canCreateProject = false }: { rows: ProjectFinancialSummary[]; canCreateProject?: boolean }) {
   const router = useRouter();
   const [isAddingProject, setIsAddingProject] = useState(false);
   const [projectName, setProjectName] = useState("");
@@ -117,7 +117,7 @@ export default function ProjectFinancesTable({ rows }: { rows: ProjectFinancialS
       /> : null}
       <div hidden={Boolean(selectedProject)} className={!selectedProject ? styles.workspace : undefined}>
       <FinanceCollection title="Project financials" description="All-time project totals. Open a financial summary for paid and unpaid balances, percentages, and the project workspace."
-        action={<button type="button" className="financeImportButton" onClick={() => { setError(null); setIsAddingProject(true); }}><Plus size={15} aria-hidden="true" />Add project</button>}
+        action={canCreateProject ? <button type="button" className="financeImportButton" onClick={() => { setError(null); setIsAddingProject(true); }}><Plus size={15} aria-hidden="true" />Add project</button> : undefined}
         columns={COLUMNS} controls={table} count={rows.length} itemLabel="projects"
         cards={paginatedRows.map((project) => <article className={recordStyles.card} key={project.projectId} aria-label={project.projectName}>
           <div className={recordStyles.identity}><h2><button type="button" className={styles.textButton} onClick={() => setSelectedId(project.projectId)}>{project.projectName}</button></h2>
@@ -176,7 +176,7 @@ export default function ProjectFinancesTable({ rows }: { rows: ProjectFinancialS
       </div>
       </FinanceCollection>
       </div>
-      {isAddingProject && (
+      {canCreateProject && isAddingProject && (
         <Modal titleId="addProjectTitle" title="Add project" eyebrow="PROJECT FINANCES" onClose={closeDialog} closeDisabled={isSaving} className="financeProjectDialog">
             <p className="financeImportHint">Projects can be connected to invoices and bills when those records are added. Existing unassigned records stay unassigned.</p>
             <form onSubmit={submitProject}>

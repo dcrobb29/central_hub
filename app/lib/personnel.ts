@@ -24,35 +24,41 @@ export type PersonnelData = {
   people: Person[];
 };
 
-export async function getPersonnelData(organizationId?: number): Promise<PersonnelData> {
+export class PersonnelRecordError extends Error {}
+
+export async function getPersonnelData(organizationId: number): Promise<PersonnelData> {
   const pool = await getPool();
   const [rolesResult, employeesResult] = await Promise.all([
-    pool.request().query<PersonnelRole>(`
+    pool.request().input("organizationId", sql.Int, organizationId).query<PersonnelRole>(`
       SELECT CAST(RoleID AS nvarchar(20)) AS id, RoleName AS name
       FROM dbo.Roles
+      WHERE OrganizationID = @organizationId
       ORDER BY RoleName
     `),
-    pool.request().input("organizationId", sql.Int, organizationId ?? null).query<Person>(`
+    pool.request().input("organizationId", sql.Int, organizationId).query<Person>(`
       SELECT
-        CAST(EmployeeID AS nvarchar(20)) AS id,
-        EmployeeName AS name,
-        CAST(RoleID AS nvarchar(20)) AS roleId,
-        CAST(ManagerID AS nvarchar(20)) AS managerId
-      FROM dbo.Employees
-      WHERE (@organizationId IS NULL OR OrganizationID = @organizationId)
-      ORDER BY EmployeeName
+        CAST(e.EmployeeID AS nvarchar(20)) AS id,
+        e.EmployeeName AS name,
+        CAST(e.RoleID AS nvarchar(20)) AS roleId,
+        CAST(m.EmployeeID AS nvarchar(20)) AS managerId
+      FROM dbo.Employees e
+      JOIN dbo.Roles r ON r.RoleID = e.RoleID AND r.OrganizationID = e.OrganizationID
+      LEFT JOIN dbo.Employees m ON m.EmployeeID = e.ManagerID AND m.OrganizationID = e.OrganizationID
+      WHERE e.OrganizationID = @organizationId
+      ORDER BY e.EmployeeName
     `),
   ]);
 
   return { roles: rolesResult.recordset, people: employeesResult.recordset };
 }
 
-export async function addRole(name: string): Promise<void> {
+export async function addRole(name: string, organizationId: number): Promise<void> {
   const pool = await getPool();
   await pool
     .request()
     .input("name", sql.NVarChar(80), name)
-    .query("INSERT INTO dbo.Roles (RoleName) VALUES (@name)");
+    .input("organizationId", sql.Int, organizationId)
+    .query("INSERT INTO dbo.Roles (RoleName, OrganizationID) VALUES (@name, @organizationId)");
 }
 
 export async function addPerson(input: {
@@ -60,7 +66,7 @@ export async function addPerson(input: {
   roleId: number;
   relationType: "none" | "reportsTo" | "manages";
   relationPersonId: number | null;
-}): Promise<number> {
+}, organizationId: number): Promise<number> {
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
   await transaction.begin();
@@ -68,15 +74,25 @@ export async function addPerson(input: {
 
   try {
     const managerId = input.relationType === "reportsTo" ? input.relationPersonId : null;
+    const role = await transaction.request().input("roleId", sql.Int, input.roleId).input("organizationId", sql.Int, organizationId)
+      .query("SELECT RoleID FROM dbo.Roles WITH (UPDLOCK, HOLDLOCK) WHERE RoleID = @roleId AND OrganizationID = @organizationId");
+    if (!role.recordset[0]) throw new PersonnelRecordError("Choose a role in your organization");
+    if (input.relationPersonId !== null) {
+      const relatedPerson = await transaction.request().input("employeeId", sql.Int, input.relationPersonId)
+        .input("organizationId", sql.Int, organizationId)
+        .query("SELECT EmployeeID FROM dbo.Employees WITH (UPDLOCK, HOLDLOCK) WHERE EmployeeID = @employeeId AND OrganizationID = @organizationId");
+      if (!relatedPerson.recordset[0]) throw new PersonnelRecordError("Choose a person in your organization");
+    }
     const inserted = await transaction
       .request()
       .input("name", sql.NVarChar(200), input.name)
       .input("roleId", sql.Int, input.roleId)
       .input("managerId", sql.Int, managerId)
+      .input("organizationId", sql.Int, organizationId)
       .query<{ EmployeeID: number }>(`
-        INSERT INTO dbo.Employees (EmployeeName, RoleID, ManagerID)
+        INSERT INTO dbo.Employees (EmployeeName, RoleID, ManagerID, OrganizationID)
         OUTPUT inserted.EmployeeID
-        VALUES (@name, @roleId, @managerId)
+        VALUES (@name, @roleId, @managerId, @organizationId)
       `);
 
     newEmployeeId = inserted.recordset[0].EmployeeID;
@@ -85,7 +101,8 @@ export async function addPerson(input: {
         .request()
         .input("employeeId", sql.Int, input.relationPersonId)
         .input("managerId", sql.Int, newEmployeeId)
-        .query("UPDATE dbo.Employees SET ManagerID = @managerId WHERE EmployeeID = @employeeId");
+        .input("organizationId", sql.Int, organizationId)
+        .query("UPDATE dbo.Employees SET ManagerID = @managerId WHERE EmployeeID = @employeeId AND OrganizationID = @organizationId");
     }
     await transaction.commit();
     return newEmployeeId;
@@ -100,26 +117,36 @@ export async function updatePerson(input: {
   name: string;
   roleId: number;
   managerId: number | null;
-}): Promise<void> {
+}, organizationId: number): Promise<void> {
   const pool = await getPool();
-  await pool
-    .request()
+  const result = await pool.request()
     .input("id", sql.Int, input.id)
     .input("name", sql.NVarChar(200), input.name)
     .input("roleId", sql.Int, input.roleId)
     .input("managerId", sql.Int, input.managerId)
+    .input("organizationId", sql.Int, organizationId)
     .query(`
+      IF NOT EXISTS (SELECT 1 FROM dbo.Roles WHERE RoleID = @roleId AND OrganizationID = @organizationId)
+        THROW 51050, 'Choose a role in your organization', 1;
+      IF @managerId IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM dbo.Employees WHERE EmployeeID = @managerId AND OrganizationID = @organizationId
+      ) THROW 51051, 'Choose a person in your organization', 1;
+      DECLARE @updated TABLE(EmployeeID int);
       UPDATE dbo.Employees
       SET EmployeeName = @name, RoleID = @roleId, ManagerID = @managerId
-      WHERE EmployeeID = @id
+      OUTPUT inserted.EmployeeID INTO @updated
+      WHERE EmployeeID = @id AND OrganizationID = @organizationId;
+      SELECT EmployeeID FROM @updated;
     `);
+  if (!result.recordset[0]) throw new PersonnelRecordError("Person not found");
 }
 
-export async function getEmployeeHistory(employeeId: number): Promise<EmployeeHistoryEntry[]> {
+export async function getEmployeeHistory(employeeId: number, organizationId: number): Promise<EmployeeHistoryEntry[]> {
   const pool = await getPool();
   const result = await pool
     .request()
     .input("employeeId", sql.Int, employeeId)
+    .input("organizationId", sql.Int, organizationId)
     .query<EmployeeHistoryEntry>(`
       SELECT
         CAST(EmployeeHistoryID AS nvarchar(20)) AS id,
@@ -127,7 +154,7 @@ export async function getEmployeeHistory(employeeId: number): Promise<EmployeeHi
         CONVERT(varchar(10), EventDate, 23) AS eventDate,
         Notes AS notes
       FROM dbo.EmployeeHistory
-      WHERE EmployeeID = @employeeId
+      WHERE EmployeeID = @employeeId AND OrganizationID = @organizationId
       ORDER BY EventDate DESC, EmployeeHistoryID DESC
     `);
   return result.recordset;
@@ -137,15 +164,18 @@ export async function addEmployeeHistory(input: {
   employeeId: number;
   eventDate: string;
   notes: string;
-}): Promise<void> {
+}, organizationId: number): Promise<void> {
   const pool = await getPool();
   await pool
     .request()
     .input("employeeId", sql.Int, input.employeeId)
     .input("eventDate", sql.Date, new Date(`${input.eventDate}T00:00:00`))
     .input("notes", sql.NVarChar(sql.MAX), input.notes)
+    .input("organizationId", sql.Int, organizationId)
     .query(`
-      INSERT INTO dbo.EmployeeHistory (EmployeeID, EventDate, Notes)
-      VALUES (@employeeId, @eventDate, @notes)
+      INSERT INTO dbo.EmployeeHistory (EmployeeID, EventDate, Notes, OrganizationID)
+      SELECT @employeeId, @eventDate, @notes, @organizationId
+      FROM dbo.Employees WHERE EmployeeID = @employeeId AND OrganizationID = @organizationId;
+      IF @@ROWCOUNT = 0 THROW 51052, 'Employee not found', 1;
     `);
 }

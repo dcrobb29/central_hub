@@ -14,7 +14,7 @@ export function renderProjectInvoicePdf(
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const config: OrganizationInvoiceSettings = {
-      organizationId: settings?.organizationId ?? 1,
+      organizationId: settings?.organizationId ?? invoice.organizationId,
       ...DEFAULT_INVOICE_SETTINGS,
       ...(settings ?? {}),
     };

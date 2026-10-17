@@ -6,6 +6,7 @@ import {
 } from "@/app/lib/invoice-settings";
 import type { Invoice } from "@/app/lib/invoices";
 import type { BillingInvoice } from "@/app/lib/project-billing";
+import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
 
 const SAMPLE_INVOICE: Invoice = {
   id: 99999,
@@ -78,7 +79,12 @@ const SAMPLE_BILLING: BillingInvoice = {
 
 export async function GET(request: NextRequest) {
   try {
-    const orgId = Number(request.nextUrl.searchParams.get("organizationId")) || 1;
+    const session = await requireProjectSession(request, "organization.manage");
+    const orgId = session.organization.organizationId;
+    const requestedId = request.nextUrl.searchParams.get("organizationId");
+    if (requestedId !== null && Number(requestedId) !== orgId) {
+      throw new ProjectAccessError("You do not have access to this organization.", 403);
+    }
     const settings = await getOrganizationInvoiceSettings(orgId);
     const pdf = await renderProjectInvoicePdf(SAMPLE_INVOICE, SAMPLE_BILLING, settings);
 
@@ -89,6 +95,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
     console.error("Template preview PDF failed:", error);
     return NextResponse.json({ error: "Failed to generate preview PDF" }, { status: 500 });
   }
@@ -96,6 +103,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    await requireProjectSession(request, "organization.manage");
     const body = (await request.json().catch(() => ({}))) as Partial<OrganizationInvoiceSettings>;
     const pdf = await renderProjectInvoicePdf(SAMPLE_INVOICE, SAMPLE_BILLING, body as OrganizationInvoiceSettings);
 
@@ -106,6 +114,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
     console.error("Template preview POST failed:", error);
     return NextResponse.json({ error: "Failed to render preview PDF" }, { status: 500 });
   }

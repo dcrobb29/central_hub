@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE_NAME, verifySessionToken } from "@/app/lib/auth";
+import { SESSION_COOKIE_NAME, verifyActiveSessionToken } from "@/app/lib/auth";
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Login/logout must remain reachable without a session.
@@ -17,7 +17,7 @@ export function middleware(request: NextRequest) {
 
   let hasSession = false;
   try {
-    hasSession = verifySessionToken(request.cookies.get(SESSION_COOKIE_NAME)?.value) !== null;
+    hasSession = await verifyActiveSessionToken(request.cookies.get(SESSION_COOKIE_NAME)?.value) !== null;
   } catch (error) {
     console.error("Unable to verify session", error);
     return NextResponse.json({ error: "Authentication is unavailable." }, { status: 503 });

@@ -130,8 +130,8 @@ export async function includeSampleData(organizationId?: number): Promise<Sample
     let leadRoleId: number;
     let techRoleId: number;
 
-    const existingRoles = await transaction.request().query<{ RoleID: number; RoleName: string }>(`
-      SELECT RoleID, RoleName FROM dbo.Roles
+    const existingRoles = await transaction.request().input("orgId", sql.Int, orgId).query<{ RoleID: number; RoleName: string }>(`
+      SELECT RoleID, RoleName FROM dbo.Roles WHERE OrganizationID = @orgId
     `);
 
     const pmRole = existingRoles.recordset.find((r) => r.RoleName.toLowerCase().includes("project manager") || r.RoleName.toLowerCase().includes("manager"));
@@ -140,7 +140,8 @@ export async function includeSampleData(organizationId?: number): Promise<Sample
     } else {
       const rRes = await transaction.request()
         .input("name", sql.NVarChar(80), "Operations Manager (Sample)")
-        .query<{ id: number }>("INSERT INTO dbo.Roles (RoleName) VALUES (@name); SELECT CONVERT(int, SCOPE_IDENTITY()) AS id;");
+        .input("orgId", sql.Int, orgId)
+        .query<{ id: number }>("INSERT INTO dbo.Roles (RoleName, OrganizationID) VALUES (@name, @orgId); SELECT CONVERT(int, SCOPE_IDENTITY()) AS id;");
       managerRoleId = rRes.recordset[0].id;
       tracker.add("Roles", managerRoleId);
     }
@@ -151,7 +152,8 @@ export async function includeSampleData(organizationId?: number): Promise<Sample
     } else {
       const rRes = await transaction.request()
         .input("name", sql.NVarChar(80), "Crew Lead (Sample)")
-        .query<{ id: number }>("INSERT INTO dbo.Roles (RoleName) VALUES (@name); SELECT CONVERT(int, SCOPE_IDENTITY()) AS id;");
+        .input("orgId", sql.Int, orgId)
+        .query<{ id: number }>("INSERT INTO dbo.Roles (RoleName, OrganizationID) VALUES (@name, @orgId); SELECT CONVERT(int, SCOPE_IDENTITY()) AS id;");
       leadRoleId = rRes.recordset[0].id;
       tracker.add("Roles", leadRoleId);
     }
@@ -162,7 +164,8 @@ export async function includeSampleData(organizationId?: number): Promise<Sample
     } else {
       const rRes = await transaction.request()
         .input("name", sql.NVarChar(80), "Field Technician (Sample)")
-        .query<{ id: number }>("INSERT INTO dbo.Roles (RoleName) VALUES (@name); SELECT CONVERT(int, SCOPE_IDENTITY()) AS id;");
+        .input("orgId", sql.Int, orgId)
+        .query<{ id: number }>("INSERT INTO dbo.Roles (RoleName, OrganizationID) VALUES (@name, @orgId); SELECT CONVERT(int, SCOPE_IDENTITY()) AS id;");
       techRoleId = rRes.recordset[0].id;
       tracker.add("Roles", techRoleId);
     }

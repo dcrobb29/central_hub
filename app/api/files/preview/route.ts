@@ -6,6 +6,8 @@ import ExcelJS from "exceljs";
 import JSZip from "jszip";
 import { XMLParser } from "fast-xml-parser";
 import { resolveSafePath } from "@/app/lib/file-storage";
+import { requireProjectSession } from "@/app/lib/project-access";
+import { fileAccessErrorResponse } from "@/app/lib/file-access";
 
 const MAX_ROWS = 500;
 const MAX_COLS = 50;
@@ -94,21 +96,17 @@ async function previewPptx(filePath: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const relativePath = request.nextUrl.searchParams.get("path");
-  if (!relativePath) {
-    return NextResponse.json({ error: "Missing path" }, { status: 400 });
-  }
-
-  let filePath: string;
   try {
-    filePath = resolveSafePath(relativePath);
-  } catch {
-    return NextResponse.json({ error: "Invalid path" }, { status: 400 });
-  }
+    const session = await requireProjectSession(request, "projects.read");
+    const relativePath = request.nextUrl.searchParams.get("path");
+    if (!relativePath) {
+      return NextResponse.json({ error: "Missing path" }, { status: 400 });
+    }
 
-  const ext = path.extname(filePath).toLowerCase();
+    const filePath = await resolveSafePath(relativePath, session.organization.organizationId);
 
-  try {
+    const ext = path.extname(filePath).toLowerCase();
+
     if (ext === ".docx") {
       return NextResponse.json(await previewDocx(filePath));
     }
@@ -119,7 +117,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(await previewPptx(filePath));
     }
     return NextResponse.json({ error: "Unsupported file type for preview" }, { status: 415 });
-  } catch {
-    return NextResponse.json({ error: "Failed to generate preview" }, { status: 500 });
+  } catch (error) {
+    return fileAccessErrorResponse(error, "Failed to generate preview");
   }
 }

@@ -63,10 +63,22 @@ include the newer Sent status.
 Do not replay all older migration files or run the organization foundation
 bootstrap: their existing schema changes are already reflected in this snapshot,
 and the foundation bootstrap is restricted to the local database name.
-Some captured defaults still assign `OrganizationID = 1`. A separately reviewed
-initialization step must provide the intended organization, reference data
-(including units), access roles/permissions, and owner/demo accounts before the
-app is usable. Schema creation alone does not provide a working application login.
+
+The baseline contains legacy `OrganizationID = 1` defaults on tenant-owned
+tables. After reviewing the intended database and baseline, apply
+[database/organization-defaults-removal.sql](database/organization-defaults-removal.sql)
+before seeding organization data. The guarded, transactional script verifies the
+expected schema and removes only `OrganizationID` defaults whose value is `1`;
+it does not change existing rows and is safe to rerun after a completed run.
+The migration is prepared for review and is not run by the application or
+deployment workflow. The app now supplies the authenticated membership's
+organization ID on the covered business reads and writes rather than relying on
+a database default.
+
+A separately reviewed initialization step must provide the intended organization,
+reference data (including units), access roles/permissions, and owner/demo
+accounts before the app is usable. Schema creation alone does not provide a
+working application login.
 Database access for the App Service identity/user must also be granted separately.
 
 For future changes, keep versioned migration scripts as the source of truth and
@@ -134,9 +146,45 @@ not returned as database error details to the browser.
 Session API reads require a valid active session (not an email query parameter);
 profile updates are restricted to the authenticated user's own ID.
 Middleware now verifies signed session tokens rather than trusting cookie
-presence, and rejects unauthenticated API requests except login/logout.
-Module-specific role and active-account checks must still be enforced by each
+presence, and checks the current active user and organization membership in SQL
+on protected requests. Inactive/deleted users, revoked memberships, and archived
+organizations cannot continue using an otherwise unexpired cookie. Database
+verification failures return 503 rather than allowing access.
+Unauthenticated API requests are rejected except login/logout.
+Organization resolution requires an authenticated active membership; it never
+falls back to the first organization or organization 1. Background scripts must
+pass an explicit organization ID instead of relying on request context.
+For users with multiple active memberships, both account and organization lookup
+currently select the lowest organization ID; an organization switcher is not yet
+implemented.
+Module-specific role and resource ownership checks must still be enforced by each
 endpoint; the middleware gate is not a replacement for those checks.
+
+Organization settings and invoice-template previews require `organization.manage`
+and use the session's organization, rejecting mismatched request organization IDs.
+Member changes additionally require `members.manage`; employee changes and links
+require `personnel.write`; invoice template changes require `finances.write`.
+The settings menu is hidden without `organization.manage`. Membership updates
+verify tenant ownership before changing any role assignments. Attaching an
+existing account to a different organization is blocked until an invitation
+acceptance flow exists.
+
+Invoice listing and next-number lookup require `finances.read`; creation,
+updates, deletion, and emailing require `finances.write`. Resource lookups use the
+authorized organization, not a caller-supplied tenant ID.
+
+The file explorer uses existing `projects.read` / `projects.write` permissions
+for reads / writes. Its files are isolated under
+`storage/files/organizations/<OrganizationID>`; API paths remain relative to that
+organization's root. Traversal, Windows alternate data streams, and symbolic
+links/junctions in tenant paths are rejected. Uploads cannot overwrite an existing
+file. Legacy files directly under `storage/files` remain untouched and are no
+longer served by the explorer. A trusted administrator must determine ownership
+and explicitly move any needed legacy files into the correct organization root
+before users can see them. Do not put links to shared folders in tenant roots.
+This change does not configure durable Azure storage: with run-from-package,
+the app directory is read-only, so uploads still require a separate writable,
+persistent storage solution before production use.
 
 For SQL username/password connectivity, the Azure SQL server must permit SQL
 authentication. Configure a dedicated least-privilege application SQL user
@@ -146,7 +194,7 @@ as the web app database identity. Entra-only SQL instead requires managed identi
 connection support and corresponding database grants.
 
 Run focused authentication regression checks with
-`node --experimental-strip-types --test app/lib/auth.test.mjs app/lib/login-access.test.mjs`.
+`node --experimental-strip-types --test app/lib/auth.test.mjs app/lib/login-access.test.mjs app/lib/access-boundaries.test.mjs app/lib/member-boundaries.test.mjs`.
 These changes remove practice access; they are not a certification of all
 application routes. Rate limiting and a complete authorization review remain
 separate pre-launch work.

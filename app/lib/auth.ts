@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import sql from "mssql";
 import { getPool } from "./db";
+import { ProjectAccessError } from "./project-access-error";
 
 export const SESSION_COOKIE_NAME = "central_hub_session";
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60; // 7 days
@@ -153,50 +154,47 @@ export async function authenticateUser(
   };
 }
 
+export async function verifyActiveSessionToken(
+  token: string | null | undefined,
+): Promise<(SessionPayload & { organizationId: number }) | null> {
+  const payload = verifySessionToken(token);
+  if (!payload) return null;
+
+  const pool = await getPool();
+  const result = await pool.request()
+    .input("userId", sql.Int, payload.userId)
+    .input("email", sql.NVarChar(254), payload.email.trim().toLowerCase())
+    .query<{ OrganizationID: number }>(`
+      SELECT TOP (1) m.OrganizationID
+      FROM dbo.Users u
+      JOIN dbo.OrganizationMemberships m ON m.UserID = u.UserID AND m.IsActive = 1
+      JOIN dbo.Organizations o ON o.OrganizationID = m.OrganizationID AND o.Status <> 'Archived'
+      WHERE u.UserID = @userId AND u.NormalizedEmail = @email AND u.IsActive = 1
+      ORDER BY m.OrganizationID, m.MembershipID
+    `);
+  const membership = result.recordset[0];
+  return membership ? { ...payload, organizationId: membership.OrganizationID } : null;
+}
+
 export async function getActiveOrganizationId(
   request?: Request | { cookies?: { get(name: string): { value: string } | undefined } }
 ): Promise<number> {
-  try {
-    let token: string | undefined;
-    if (request && "cookies" in request && typeof request.cookies?.get === "function") {
+  let token: string | undefined;
+  if (request) {
+    if ("cookies" in request && typeof request.cookies?.get === "function") {
       token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-    } else {
-      const { cookies } = await import("next/headers");
-      const cookieStore = await cookies();
-      token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    } else if ("headers" in request) {
+      token = request.headers.get("cookie")?.split(";")
+        .map((cookie) => cookie.trim())
+        .find((cookie) => cookie.startsWith(`${SESSION_COOKIE_NAME}=`))
+        ?.slice(SESSION_COOKIE_NAME.length + 1);
     }
-    if (token) {
-      const payload = verifySessionToken(token);
-      if (payload?.email) {
-        const pool = await getPool();
-        const userResult = await pool.request()
-          .input("email", sql.NVarChar(254), payload.email.trim().toLowerCase())
-          .query<{ OrganizationID: number }>(`
-            SELECT TOP (1) m.OrganizationID
-            FROM dbo.Users u
-            JOIN dbo.OrganizationMemberships m ON m.UserID = u.UserID AND m.IsActive = 1
-            WHERE u.NormalizedEmail = LOWER(LTRIM(RTRIM(@email)))
-          `);
-        if (userResult.recordset[0]?.OrganizationID) {
-          return userResult.recordset[0].OrganizationID;
-        }
-      }
-    }
-  } catch {
-    // In background scripts or unit tests without Next.js request context, ignore error and fall back
+  } else {
+    const { cookies } = await import("next/headers");
+    token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
   }
 
-  try {
-    const pool = await getPool();
-    const fallback = await pool.request().query<{ OrganizationID: number }>(`
-      SELECT TOP (1) OrganizationID FROM dbo.Organizations WHERE Status != 'Archived' ORDER BY OrganizationID ASC
-    `);
-    if (fallback.recordset[0]?.OrganizationID) {
-      return fallback.recordset[0].OrganizationID;
-    }
-  } catch {
-    // ignore
-  }
-
-  return 1;
+  const session = await verifyActiveSessionToken(token);
+  if (!session) throw new ProjectAccessError("Please sign in with an active organization account.", 401);
+  return session.organizationId;
 }

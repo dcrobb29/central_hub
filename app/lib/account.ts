@@ -135,7 +135,8 @@ export async function getCurrentSession(emailOverride: string): Promise<AccountS
       FROM dbo.Users u
       JOIN dbo.OrganizationMemberships m ON m.UserID = u.UserID AND m.IsActive = 1
       JOIN dbo.Organizations o ON o.OrganizationID = m.OrganizationID
-      WHERE u.NormalizedEmail = @email AND u.IsActive = 1
+      WHERE u.NormalizedEmail = @email AND u.IsActive = 1 AND o.Status <> 'Archived'
+      ORDER BY m.OrganizationID, m.MembershipID
     `);
 
   const record = userResult.recordset[0];
@@ -656,6 +657,10 @@ export async function addOrganizationMember(
         WHERE OrganizationID = @organizationId AND UserID = @userId
       `);
 
+    if (existingUser.recordset[0] && !existingMem.recordset[0]) {
+      throw new Error("An existing account must accept an invitation before joining another organization. Invitations are not yet available.");
+    }
+
     let membershipId: number;
     if (existingMem.recordset[0]) {
       membershipId = existingMem.recordset[0].MembershipID;
@@ -722,6 +727,15 @@ export async function updateOrganizationMember(
   await transaction.begin();
 
   try {
+    const membership = await transaction.request()
+      .input("organizationId", sql.Int, organizationId)
+      .input("membershipId", sql.Int, membershipId)
+      .query<{ MembershipID: number }>(`
+        SELECT MembershipID FROM dbo.OrganizationMemberships WITH (UPDLOCK, HOLDLOCK)
+        WHERE OrganizationID = @organizationId AND MembershipID = @membershipId
+      `);
+    if (!membership.recordset[0]) throw new Error("Organization membership not found");
+
     if (input.isActive !== undefined) {
       await transaction.request()
         .input("organizationId", sql.Int, organizationId)
@@ -745,8 +759,9 @@ export async function updateOrganizationMember(
       if (!roleCheck.recordset[0]) throw new Error("Selected access role does not exist in this organization");
 
       await transaction.request()
+        .input("organizationId", sql.Int, organizationId)
         .input("membershipId", sql.Int, membershipId)
-        .query("DELETE FROM dbo.MembershipAccessRoles WHERE MembershipID = @membershipId");
+        .query("DELETE FROM dbo.MembershipAccessRoles WHERE OrganizationID = @organizationId AND MembershipID = @membershipId");
 
       await transaction.request()
         .input("organizationId", sql.Int, organizationId)

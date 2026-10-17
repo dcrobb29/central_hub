@@ -12,7 +12,7 @@ import {
   type Customer, type CustomerDraft,
 } from "@/app/lib/customer-fields";
 
-export default function CustomerDirectory({ customers }: { customers: Customer[] }) {
+export default function CustomerDirectory({ customers, canWrite = false }: { customers: Customer[]; canWrite?: boolean }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
@@ -72,10 +72,10 @@ export default function CustomerDirectory({ customers }: { customers: Customer[]
   return (
     <section className={styles.workspace}>
       {selectedCustomer ? <FinanceRecord key={selectedCustomer.customerId} title={customerLabel(selectedCustomer)} collection="customers" onBack={() => setSelectedId(null)}
-        actions={<>
+        actions={canWrite ? <>
           <button type="button" className="estimateTextAction" disabled={busy} onClick={() => open(selectedCustomer)}>Edit customer</button>
           <button type="button" className="estimateTextAction" disabled={busy} onClick={() => void changeActive(selectedCustomer)}>{selectedCustomer.isActive ? "Archive" : "Restore"}</button>
-        </>}
+        </> : undefined}
         overview={<FinanceFacts items={[
           { label: "Contact", value: [selectedCustomer.firstName, selectedCustomer.lastName].filter(Boolean).join(" ") },
           { label: "Company", value: selectedCustomer.companyName },
@@ -88,7 +88,7 @@ export default function CustomerDirectory({ customers }: { customers: Customer[]
         })))} />}
       /> : <>
       <FinanceHeading title="Customers" description="Your customer directory. Open a customer for contact information, addresses, editing, and archive tools."
-        action={<button type="button" className="financeImportButton" onClick={() => open()} disabled={busy}><Plus size={15} aria-hidden="true" />Add customer</button>} />
+        action={canWrite ? <button type="button" className="financeImportButton" onClick={() => open()} disabled={busy}><Plus size={15} aria-hidden="true" />Add customer</button> : undefined} />
       <div className={styles.toolbar}>
         <div className="listStatusToggle" role="group" aria-label="Customers display">
           <button type="button" aria-pressed={view === "cards"} onClick={() => setView("cards")}>Overview</button>
@@ -123,10 +123,10 @@ export default function CustomerDirectory({ customers }: { customers: Customer[]
               <td>{[customer.billingAddressLine1, customer.billingAddressLine2, customer.billingAddressCity, customer.billingAddressState, customer.billingAddressZip].filter(Boolean).join(", ") || "-"}</td>
               <td>{[customer.shippingAddressLine1, customer.shippingAddressLine2, customer.shippingAddressCity, customer.shippingAddressState, customer.shippingAddressZip].filter(Boolean).join(", ") || "-"}</td>
               <td>{customer.isActive ? "Active" : "Archived"}</td>
-              <td><div className="estimateActionsInner">
+              <td>{canWrite && <div className="estimateActionsInner">
                 <button type="button" className="estimateTextAction" disabled={busy} onClick={() => open(customer)} aria-label={`Edit ${customerLabel(customer)}`}>Edit</button>
                 <button type="button" className="estimateTextAction" disabled={busy} onClick={() => void changeActive(customer)} aria-label={`${customer.isActive ? "Archive" : "Restore"} ${customerLabel(customer)}`}>{customer.isActive ? "Archive" : "Restore"}</button>
-              </div></td>
+              </div>}</td>
             </tr>)}
           </tbody>
         </table>
@@ -134,7 +134,7 @@ export default function CustomerDirectory({ customers }: { customers: Customer[]
       </>}
       <p className={styles.hint}>Customer changes apply to future selections, not existing invoice details. Archive customers to hide them from new assignments without deleting history.</p>
       {error && !draft && <p className="financeImportError" role="alert">{error}</p>}
-      {draft && <Modal titleId="customerFormTitle" title={editingId === null ? "Add customer" : "Edit customer"} eyebrow="CUSTOMERS" onClose={close} closeDisabled={busy}>
+      {canWrite && draft && <Modal titleId="customerFormTitle" title={editingId === null ? "Add customer" : "Edit customer"} eyebrow="CUSTOMERS" onClose={close} closeDisabled={busy}>
         <form onSubmit={save}>
           <p className="financeImportHint">Contact name is required. Company, contact methods, and addresses are optional.</p>
           {CUSTOMER_FIELD_GROUPS.map((group) => <fieldset className="financeImportGroup" key={group.title}>

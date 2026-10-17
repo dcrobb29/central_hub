@@ -4,7 +4,7 @@ import { getProjectInvoiceBilling } from "@/app/lib/project-billing";
 import { renderProjectInvoicePdf } from "@/app/lib/project-invoice-pdf";
 import { getCustomers } from "@/app/lib/customers";
 import { sendEmail } from "@/app/lib/email";
-import { getActiveOrganizationId } from "@/app/lib/auth";
+import { ProjectAccessError, requireProject, requireProjectSession } from "@/app/lib/project-access";
 import {
   getOrganizationInvoiceSettings,
   interpolateEmailTemplate,
@@ -20,12 +20,13 @@ export async function POST(
   }
 
   try {
+    const session = await requireProjectSession(request, "finances.write");
     const body = await request.json().catch(() => ({}));
     const overrideEmail = typeof body?.recipientEmail === "string" && body.recipientEmail.trim() ? body.recipientEmail.trim() : null;
     const overrideSubject = typeof body?.subject === "string" && body.subject.trim() ? body.subject.trim() : null;
     const customMessage = typeof body?.customMessage === "string" && body.customMessage.trim() ? body.customMessage.trim() : null;
 
-    const organizationId = await getActiveOrganizationId(request);
+    const organizationId = session.organization.organizationId;
     const invoices = await getInvoices({ invoiceId: id, organizationId });
     const invoice = invoices[0];
     if (!invoice) {
@@ -41,7 +42,7 @@ export async function POST(
     let customerName = [invoice.firstName, invoice.lastName].filter(Boolean).join(" ") || invoice.companyName || "Valued Customer";
 
     if (!recipientEmail && invoice.customerId) {
-      const customers = await getCustomers();
+      const customers = await getCustomers(organizationId);
       const customer = customers.find((c) => c.customerId === invoice.customerId);
       if (customer?.email) {
         recipientEmail = customer.email;
@@ -68,6 +69,7 @@ export async function POST(
     // Render invoice PDF with organization settings
     let pdfBuffer: Buffer;
     if (invoice.projectId && invoice.billingManaged) {
+      await requireProject(invoice.projectId, organizationId);
       const billing = await getProjectInvoiceBilling(invoice.projectId, id);
       if (!billing || billing.amount === null) {
         return NextResponse.json({ error: "Invoice billing details are unavailable" }, { status: 409 });
@@ -212,7 +214,7 @@ ${companyDisplayName}`;
     }
 
     // Record delivery timestamp and recipient in database
-    await recordInvoiceEmailed(id, recipientEmail).catch((err) => {
+    await recordInvoiceEmailed(id, recipientEmail, organizationId).catch((err) => {
       console.error("Failed to update LastEmailedAt for invoice:", err);
     });
 
@@ -224,6 +226,7 @@ ${companyDisplayName}`;
       lastEmailedAt: new Date().toISOString(),
     });
   } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
     console.error("Invoice email delivery endpoint failed:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to send invoice email" },

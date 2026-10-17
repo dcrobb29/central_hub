@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { addBill, type BillInput } from "@/app/lib/bills";
 import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
 import { amountValue, describeValidationError, isoDateValue, optionalIsoDateValue, optionalProjectId, textValue, ValidationError } from "@/app/lib/validation";
+import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
 
 // Shared by POST (create) and the [id] route's PUT (update) so both stay in lockstep.
 export function parseBillInput(body: unknown): BillInput {
@@ -38,6 +39,9 @@ export function describeBillSqlError(error: unknown): { message: string; status:
   if (typeof error === "object" && error !== null && "number" in error && error.number === 547) {
     return { message: "The selected project no longer exists", status: 400 };
   }
+  if (typeof error === "object" && error !== null && "number" in error && [51043, 51044].includes(Number(error.number))) {
+    return { message: "The bill or project no longer exists", status: 404 };
+  }
   if (typeof error === "object" && error !== null && "number" in error && [2601, 2627].includes(Number(error.number))) {
     return { message: "A bill with that ID already exists", status: 409 };
   }
@@ -45,6 +49,13 @@ export function describeBillSqlError(error: unknown): { message: string; status:
 }
 
 export async function POST(request: NextRequest) {
+  let organizationId: number;
+  try {
+    organizationId = (await requireProjectSession(request, "finances.write")).organization.organizationId;
+  } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
+    throw error;
+  }
   const body = await request.json().catch(() => null);
 
   let id: string;
@@ -57,7 +68,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await addBill({ id, ...billInput });
+    await addBill({ id, ...billInput, organizationId });
     return NextResponse.json({ id }, { status: 201 });
   } catch (error) {
     const { message, status } = describeBillSqlError(error);

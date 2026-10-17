@@ -134,9 +134,9 @@ export type ProjectWithEstimate = {
   lines: ProjectScopeLine[];
 };
 
-export async function getEstimates(organizationId?:number): Promise<EstimateSummary[]> {
+export async function getEstimates(organizationId:number): Promise<EstimateSummary[]> {
   const pool = await getPool();
-  const result = await pool.request().input("org",sql.Int,organizationId??null).query<EstimateSummary>(`
+  const result = await pool.request().input("org",sql.Int,organizationId).query<EstimateSummary>(`
     SELECT
       e.EstimateID AS estimateId,
       e.EstimateName AS estimateName,
@@ -176,7 +176,7 @@ export async function getEstimates(organizationId?:number): Promise<EstimateSumm
       WHERE li.EstimateRevisionID = r.EstimateRevisionID
     ) lines
     LEFT JOIN dbo.Projects p ON p.AcceptedEstimateRevisionID = r.EstimateRevisionID
-    WHERE e.DocumentKind='Base' AND (@org IS NULL OR e.OrganizationID=@org)
+    WHERE e.DocumentKind='Base' AND e.OrganizationID=@org
     ORDER BY e.CreatedAt DESC, e.EstimateID DESC
   `);
   return result.recordset;
@@ -262,7 +262,7 @@ export async function getEstimateDetails(estimateId: number): Promise<EstimateDe
   return { ...summary, lines: linesWithScopeNames, scopes: scopes.recordset };
 }
 
-export async function createEstimate(input: CreateEstimateInput, organizationId?:number, alternates: InitialAlternateInput[] = []): Promise<number> {
+export async function createEstimate(input: CreateEstimateInput, organizationId:number, alternates: InitialAlternateInput[] = []): Promise<number> {
   if (alternates.length && input.engagementType !== "Project")
     throw new ProjectAccessError("Alternates are not enabled for recurring agreements.", 400);
   input = await canonicalizeEstimateUnits(input);
@@ -281,7 +281,7 @@ export async function createEstimate(input: CreateEstimateInput, organizationId?
       .input("recurrenceFrequency", sql.VarChar(16), input.recurrenceFrequency)
       .input("expectedStartDate", sql.Date, input.expectedStartDate)
       .input("expectedEndDate", sql.Date, input.expectedEndDate)
-      .input("org",sql.Int,organizationId??null)
+      .input("org",sql.Int,organizationId)
       .query<{ EstimateID: number }>(`
         INSERT INTO dbo.Estimates (
           EstimateName, CustomerName, InternalNotes, CustomerNotes, EngagementType, RecurrenceFrequency, ExpectedStartDate, ExpectedEndDate,OrganizationID
@@ -668,11 +668,11 @@ export async function setEstimatePrintOptions(estimateId: number, options: Estim
     `);
 }
 
-export async function getProjectsWithEstimates(filter: { projectId?: number; organizationId?: number } = {}): Promise<ProjectWithEstimate[]> {
+export async function getProjectsWithEstimates(filter: { organizationId: number; projectId?: number }): Promise<ProjectWithEstimate[]> {
   const pool = await getPool();
   const result = await pool.request()
     .input("projectId", sql.Int, filter.projectId ?? null)
-    .input("organizationId", sql.Int, filter.organizationId ?? null)
+    .input("organizationId", sql.Int, filter.organizationId)
     .query<ProjectWithEstimate & { landedCostOverride:number|null; lineTaxPercent: number | null; estimateLineItemId: number | null; scopeName: string | null; freightAmount: number | null; lineNumber: number | null; description: string | null; lineType: LineType | null; quantity: number | null; unitName: string | null; unitCost: number | null; lineMarkupPercent: number | null }>(`
     SELECT
       p.ProjectID AS projectId,
@@ -709,7 +709,7 @@ export async function getProjectsWithEstimates(filter: { projectId?: number; org
     LEFT JOIN dbo.EffectiveProjectEstimateLines li ON li.ProjectID = p.ProjectID
     LEFT JOIN dbo.EstimateScopesOfWork s ON s.EstimateScopeOfWorkID = li.EstimateScopeOfWorkID
     WHERE (@projectId IS NULL OR p.ProjectID = @projectId)
-      AND (@organizationId IS NULL OR p.OrganizationID = @organizationId)
+      AND p.OrganizationID = @organizationId
     ORDER BY p.ProjectID DESC, li.LineNumber
   `);
 

@@ -13,6 +13,9 @@ registerHooks({
     if (specifier === "./auth" || specifier === "./auth.ts") {
       return nextResolve(new URL("./auth.ts", import.meta.url).href, context);
     }
+    if (specifier === "./project-access-error") {
+      return nextResolve(new URL("./project-access-error.ts", import.meta.url).href, context);
+    }
     return nextResolve(specifier, context);
   },
 });

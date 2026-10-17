@@ -22,6 +22,9 @@ export default function SettingsModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const canManageMembers = session.permissions.includes("members.manage");
+  const canManagePersonnel = session.permissions.includes("personnel.write");
+  const canManageInvoices = session.permissions.includes("finances.write");
 
   // Edit Org Name
   const [orgName, setOrgName] = useState(session.organization.organizationName);
@@ -410,7 +413,7 @@ export default function SettingsModal({
             <button
               type="button"
               className="importButton"
-              disabled={busy}
+              disabled={busy || !canManageMembers}
               onClick={() => setIsAddingMember((v) => !v)}
             >
               {isAddingMember ? "Cancel" : "Add member"}
@@ -470,7 +473,7 @@ export default function SettingsModal({
                     Link with Existing Personnel Hierarchy Person
                     <select
                       value={newMemberLinkEmp}
-                      disabled={busy}
+                      disabled={busy || !canManagePersonnel}
                       onChange={(e) => setNewMemberLinkEmp(e.target.value)}
                     >
                       <option value="">Do not link (create pure login user)</option>
@@ -528,7 +531,7 @@ export default function SettingsModal({
                       <select
                         aria-label={`Role for ${m.displayName}`}
                         value={m.roles[0]?.accessRoleId ?? ""}
-                        disabled={busy || m.userId === session.user.userId}
+                        disabled={busy || !canManageMembers || m.userId === session.user.userId}
                         onChange={(e) => handleMemberRoleChange(m.membershipId, Number(e.target.value))}
                       >
                         {data.accessRoles.map((r) => (
@@ -542,7 +545,7 @@ export default function SettingsModal({
                       <select
                         aria-label={`Link hierarchy person for ${m.displayName}`}
                         value={m.linkedEmployee?.employeeId ?? ""}
-                        disabled={busy}
+                        disabled={busy || !canManageMembers || !canManagePersonnel}
                         onChange={(e) => handleLinkEmployee(m.membershipId, e.target.value)}
                       >
                         <option value="">Unlinked (portal only)</option>
@@ -565,7 +568,7 @@ export default function SettingsModal({
                         <button
                           type="button"
                           className="estimateTextAction"
-                          disabled={busy}
+                          disabled={busy || !canManageMembers}
                           onClick={() => handleToggleMemberActive(m.membershipId, m.isActive)}
                         >
                           {m.isActive ? "Deactivate" : "Activate"}
@@ -625,7 +628,7 @@ export default function SettingsModal({
                         <button
                           type="button"
                           className="estimateTextAction"
-                          disabled={busy}
+                          disabled={busy || !canManagePersonnel}
                           onClick={() => handleToggleEmployeeActive(e.employeeId, e.isActive)}
                         >
                           {e.isActive ? "Archive" : "Restore"}
@@ -633,7 +636,7 @@ export default function SettingsModal({
                         <button
                           type="button"
                           className="estimateTextAction estimateTextActionDanger"
-                          disabled={busy}
+                          disabled={busy || !canManagePersonnel}
                           onClick={() => handleDeleteEmployee(e.employeeId)}
                         >
                           Remove
@@ -1074,7 +1077,7 @@ export default function SettingsModal({
               <button
                 type="submit"
                 className="financeImportSubmit"
-                disabled={busy}
+                disabled={busy || !canManageInvoices}
               >
                 {busy ? "Saving..." : "Save Invoice Settings"}
               </button>

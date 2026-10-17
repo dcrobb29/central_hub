@@ -1,7 +1,6 @@
 import { getPool, sql } from "@/app/lib/db";
 import type { ProjectOption } from "@/app/lib/projects";
 import { parseNotes } from "@/app/lib/document-notes";
-import { getActiveOrganizationId } from "@/app/lib/auth";
 import { allocateNextInvoiceNumber } from "@/app/lib/invoice-settings";
 
 export type Invoice = {
@@ -38,26 +37,9 @@ export type Invoice = {
 export type InvoiceProjectOption = ProjectOption & { customerId: number | null };
 
 export async function getInvoices(
-  invoiceIdOrFilter?: number | { invoiceId?: number; organizationId?: number; projectId?: number },
-  explicitOrgId?: number
+  filter: { organizationId: number; invoiceId?: number; projectId?: number }
 ): Promise<Invoice[]> {
-  let invoiceId: number | null = null;
-  let organizationId: number | null = null;
-  const projectId = typeof invoiceIdOrFilter === "object" ? invoiceIdOrFilter.projectId ?? null : null;
-
-  if (typeof invoiceIdOrFilter === "number") {
-    invoiceId = invoiceIdOrFilter;
-    organizationId = explicitOrgId ?? null;
-  } else if (typeof invoiceIdOrFilter === "object" && invoiceIdOrFilter !== null) {
-    invoiceId = invoiceIdOrFilter.invoiceId ?? null;
-    organizationId = invoiceIdOrFilter.organizationId ?? explicitOrgId ?? null;
-  } else if (explicitOrgId !== undefined) {
-    organizationId = explicitOrgId;
-  }
-
-  if (organizationId === null) {
-    organizationId = await getActiveOrganizationId();
-  }
+  const { organizationId, invoiceId = null, projectId = null } = filter;
 
   const pool = await getPool();
   const result = await pool.request()
@@ -71,7 +53,7 @@ export async function getInvoices(
       i.CustomerID AS customerId,
       i.InternalNotes AS internalNotes,
       i.CustomerNotes AS customerNotes,
-      CONVERT(bit, CASE WHEN EXISTS (SELECT 1 FROM dbo.ProjectIssuedInvoices h WHERE h.InvoiceID=i.id) THEN 1 ELSE 0 END) AS billingManaged,
+      CONVERT(bit, CASE WHEN EXISTS (SELECT 1 FROM dbo.ProjectIssuedInvoices h WHERE h.InvoiceID=i.id AND h.OrganizationID=i.OrganizationID) THEN 1 ELSE 0 END) AS billingManaged,
       i.ProjectID AS projectId,
       p.ProjectName AS projectName,
       RTRIM([Invoice No])       AS invoiceNo,
@@ -95,20 +77,19 @@ export async function getInvoices(
       CONVERT(varchar(19), i.LastEmailedAt, 120)   AS lastEmailedAt,
       NULLIF(RTRIM(i.LastEmailedTo), '')           AS lastEmailedTo
     FROM dbo.Invoices i
-    LEFT JOIN dbo.Projects p ON p.ProjectID = i.ProjectID
+    LEFT JOIN dbo.Projects p ON p.ProjectID = i.ProjectID AND p.OrganizationID = i.OrganizationID
     WHERE (@invoiceId IS NULL OR i.id = @invoiceId)
-      AND (@organizationId IS NULL OR i.OrganizationID = @organizationId)
+      AND i.OrganizationID = @organizationId
       AND (@projectId IS NULL OR i.ProjectID = @projectId)
     ORDER BY i.[Invoice Date] DESC
   `);
   return result.recordset;
 }
 
-export async function getInvoiceProjectOptions(organizationId?: number): Promise<InvoiceProjectOption[]> {
-  const orgId = organizationId ?? (await getActiveOrganizationId());
+export async function getInvoiceProjectOptions(organizationId: number): Promise<InvoiceProjectOption[]> {
   const pool = await getPool();
   const result = await pool.request()
-    .input("organizationId", sql.Int, orgId)
+    .input("organizationId", sql.Int, organizationId)
     .query<InvoiceProjectOption>(`
     SELECT ProjectID AS projectId, ProjectName AS projectName, ProjectStatus AS projectStatus, CustomerID AS customerId
     FROM dbo.Projects
@@ -143,14 +124,13 @@ export async function addInvoice(
     shippingAddressState: string | null;
     shippingAddressZip: string | null;
   },
-  organizationId?: number
+  organizationId: number
 ): Promise<number> {
-  const orgId = organizationId ?? (await getActiveOrganizationId());
   const pool = await getPool();
-  const finalInvoiceNo = await allocateNextInvoiceNumber(pool, orgId, input.invoiceNo);
+  const finalInvoiceNo = await allocateNextInvoiceNumber(pool, organizationId, input.invoiceNo);
 
   const result = await pool.request()
-    .input("organizationId", sql.Int, orgId)
+    .input("organizationId", sql.Int, organizationId)
     .input("internalNotes", sql.NVarChar(4000), parseNotes(input.internalNotes, "Internal notes"))
     .input("customerNotes", sql.NVarChar(4000), parseNotes(input.customerNotes, "Customer notes"))
     .input("customerId", sql.Int, input.customerId ?? null)
@@ -174,6 +154,9 @@ export async function addInvoice(
     .input("shippingAddressState", sql.NVarChar(100), input.shippingAddressState)
     .input("shippingAddressZip", sql.NVarChar(20), input.shippingAddressZip)
     .query<{ id: number }>(`
+      IF @projectId IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM dbo.Projects WHERE ProjectID = @projectId AND OrganizationID = @organizationId
+      ) THROW 51044, 'The selected project no longer exists', 1;
       IF @customerId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.Customers WHERE CustomerID = @customerId AND IsActive = 1 AND OrganizationID = @organizationId)
         THROW 51040, 'Choose an active customer. Archived customers cannot be used for new assignments.', 1;
       IF EXISTS (SELECT 1 FROM dbo.Invoices WITH (UPDLOCK,HOLDLOCK) WHERE OrganizationID = @organizationId AND [Invoice No] = @invoiceNo)
@@ -201,12 +184,11 @@ export async function addInvoice(
 
 export type InvoiceInput = Parameters<typeof addInvoice>[0];
 
-export async function updateInvoice(id: number, input: InvoiceInput, organizationId?: number): Promise<void> {
-  const orgId = organizationId ?? (await getActiveOrganizationId());
+export async function updateInvoice(id: number, input: InvoiceInput, organizationId: number): Promise<void> {
   const pool = await getPool();
   await pool.request()
     .input("id", sql.Int, id)
-    .input("organizationId", sql.Int, orgId)
+    .input("organizationId", sql.Int, organizationId)
     .input("internalNotes", sql.NVarChar(4000), parseNotes(input.internalNotes, "Internal notes"))
     .input("customerNotes", sql.NVarChar(4000), parseNotes(input.customerNotes, "Customer notes"))
     .input("internalNotesSpecified", sql.Bit, input.internalNotes !== undefined)
@@ -233,6 +215,9 @@ export async function updateInvoice(id: number, input: InvoiceInput, organizatio
     .input("shippingAddressState", sql.NVarChar(100), input.shippingAddressState)
     .input("shippingAddressZip", sql.NVarChar(20), input.shippingAddressZip)
     .query(`
+      IF @projectId IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM dbo.Projects WHERE ProjectID = @projectId AND OrganizationID = @organizationId
+      ) THROW 51044, 'The selected project no longer exists', 1;
       IF @customerId IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM dbo.Customers WHERE CustomerID = @customerId AND IsActive = 1 AND OrganizationID = @organizationId)
         AND NOT EXISTS (SELECT 1 FROM dbo.Invoices WHERE id = @id AND CustomerID = @customerId AND OrganizationID = @organizationId)
@@ -266,29 +251,29 @@ export async function updateInvoice(id: number, input: InvoiceInput, organizatio
     `);
 }
 
-export async function deleteInvoice(id: number, organizationId?: number): Promise<void> {
-  const orgId = organizationId ?? (await getActiveOrganizationId());
+export async function deleteInvoice(id: number, organizationId: number): Promise<void> {
   const pool = await getPool();
   await pool.request()
     .input("id", sql.Int, id)
-    .input("organizationId", sql.Int, orgId)
+    .input("organizationId", sql.Int, organizationId)
     .query(`
-      IF EXISTS (SELECT 1 FROM dbo.ProjectIssuedInvoices WHERE InvoiceID=@id)
+      IF EXISTS (SELECT 1 FROM dbo.ProjectIssuedInvoices WHERE InvoiceID=@id AND OrganizationID=@organizationId)
         THROW 51041, 'Issued project invoices cannot be deleted. Their allocations are part of billing history.', 1;
       DELETE FROM dbo.Invoices WHERE [id] = @id AND OrganizationID = @organizationId;
     `);
 }
 
-export async function recordInvoiceEmailed(id: number, recipientEmail: string): Promise<void> {
+export async function recordInvoiceEmailed(id: number, recipientEmail: string, organizationId: number): Promise<void> {
   const pool = await getPool();
   await pool.request()
     .input("id", sql.Int, id)
+    .input("organizationId", sql.Int, organizationId)
     .input("recipientEmail", sql.NVarChar(254), recipientEmail.trim())
     .query(`
       UPDATE dbo.Invoices
       SET
         LastEmailedAt = SYSUTCDATETIME(),
         LastEmailedTo = @recipientEmail
-      WHERE [id] = @id;
+      WHERE [id] = @id AND OrganizationID = @organizationId;
     `);
 }

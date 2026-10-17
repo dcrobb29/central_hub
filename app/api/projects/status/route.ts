@@ -13,7 +13,7 @@ export async function PATCH(request: NextRequest) {
   try {
     const session = await requireProjectSession(request, "projects.write");
     await requireProject(body.projectId, session.organization.organizationId);
-    if (!await updateProjectStatus(body.projectId, body.status)) return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    if (!await updateProjectStatus(body.projectId, body.status, session.organization.organizationId)) return NextResponse.json({ error: "Project not found" }, { status: 404 });
     return NextResponse.json({ projectId: body.projectId, status: body.status });
   } catch (error) {
     if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });

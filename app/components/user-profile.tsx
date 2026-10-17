@@ -96,7 +96,7 @@ export default function UserProfile() {
             >
               Profile
             </button>
-            <button
+            {session.permissions.includes("organization.manage") && <button
               type="button"
               role="menuitem"
               className="userAccountMenuItem"
@@ -106,7 +106,7 @@ export default function UserProfile() {
               }}
             >
               Settings
-            </button>
+            </button>}
             <button
               type="button"
               role="menuitem"
@@ -127,7 +127,7 @@ export default function UserProfile() {
         />
       )}
 
-      {activeModal === "settings" && (
+      {activeModal === "settings" && session.permissions.includes("organization.manage") && (
         <SettingsModal
           session={session}
           onClose={() => {

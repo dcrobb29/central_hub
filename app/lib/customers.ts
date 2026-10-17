@@ -1,14 +1,12 @@
 import { getPool, sql } from "@/app/lib/db";
 import { CUSTOMER_FIELD_GROUPS, type Customer, type CustomerDetails } from "@/app/lib/customer-fields";
-import { getActiveOrganizationId } from "@/app/lib/auth";
 
 export class CustomerError extends Error {}
 
-export async function getCustomers(organizationId?: number): Promise<Customer[]> {
-  const orgId = organizationId ?? (await getActiveOrganizationId());
+export async function getCustomers(organizationId: number): Promise<Customer[]> {
   const pool = await getPool();
   const result = await pool.request()
-    .input("orgId", sql.Int, orgId)
+    .input("orgId", sql.Int, organizationId)
     .query<Customer>(`
     SELECT CustomerID AS customerId, FirstName AS firstName, LastName AS lastName, CompanyName AS companyName,
       Email AS email, Phone AS phone, IsActive AS isActive,
@@ -23,19 +21,19 @@ export async function getCustomers(organizationId?: number): Promise<Customer[]>
   return result.recordset;
 }
 
-export async function saveCustomer(input: CustomerDetails, customerId: number | null): Promise<number> {
+export async function saveCustomer(input: CustomerDetails, customerId: number | null, organizationId: number): Promise<number> {
   const pool = await getPool();
-  const request = pool.request().input("customerId", sql.Int, customerId);
+  const request = pool.request().input("customerId", sql.Int, customerId).input("orgId", sql.Int, organizationId);
   for (const { fields } of CUSTOMER_FIELD_GROUPS) {
     for (const field of fields) request.input(field.key, sql.NVarChar(field.maxLength), input[field.key]);
   }
   const result = await request.query<{ customerId: number }>(`
     IF @customerId IS NULL
     BEGIN
-      INSERT INTO dbo.Customers (FirstName, LastName, CompanyName, Email, Phone,
+      INSERT INTO dbo.Customers (FirstName, LastName, CompanyName, Email, Phone, OrganizationID,
         BillingAddressLine1, BillingAddressLine2, BillingAddressCity, BillingAddressState, BillingAddressZip,
         ShippingAddressLine1, ShippingAddressLine2, ShippingAddressCity, ShippingAddressState, ShippingAddressZip)
-      VALUES (@firstName, @lastName, @companyName, @email, @phone,
+      VALUES (@firstName, @lastName, @companyName, @email, @phone, @orgId,
         @billingAddressLine1, @billingAddressLine2, @billingAddressCity, @billingAddressState, @billingAddressZip,
         @shippingAddressLine1, @shippingAddressLine2, @shippingAddressCity, @shippingAddressState, @shippingAddressZip);
       SELECT CONVERT(int, SCOPE_IDENTITY()) AS customerId;
@@ -51,7 +49,7 @@ export async function saveCustomer(input: CustomerDetails, customerId: number | 
         ShippingAddressCity = @shippingAddressCity, ShippingAddressState = @shippingAddressState, ShippingAddressZip = @shippingAddressZip,
         UpdatedAt = SYSUTCDATETIME()
       OUTPUT inserted.CustomerID INTO @updated
-      WHERE CustomerID = @customerId;
+      WHERE CustomerID = @customerId AND OrganizationID = @orgId;
       SELECT customerId FROM @updated;
     END
   `);
@@ -59,9 +57,10 @@ export async function saveCustomer(input: CustomerDetails, customerId: number | 
   return result.recordset[0].customerId;
 }
 
-export async function setCustomerActive(customerId: number, isActive: boolean): Promise<void> {
+export async function setCustomerActive(customerId: number, isActive: boolean, organizationId: number): Promise<void> {
   const pool = await getPool();
   const result = await pool.request().input("customerId", sql.Int, customerId).input("isActive", sql.Bit, isActive)
-    .query("UPDATE dbo.Customers SET IsActive = @isActive, UpdatedAt = SYSUTCDATETIME() WHERE CustomerID = @customerId");
+    .input("orgId", sql.Int, organizationId)
+    .query("UPDATE dbo.Customers SET IsActive = @isActive, UpdatedAt = SYSUTCDATETIME() WHERE CustomerID = @customerId AND OrganizationID = @orgId");
   if (result.rowsAffected[0] !== 1) throw new CustomerError("Customer not found");
 }

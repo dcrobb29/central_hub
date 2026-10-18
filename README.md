@@ -29,12 +29,61 @@ files during packaging, which breaks the CLI's relative imports (for example,
 `../server/require-hook`). The runtime must not rebuild
 this prebuilt artifact: keep App Service `SCM_DO_BUILD_DURING_DEPLOYMENT`
 disabled/unset. Runtime secrets belong in App Service environment variables,
-not the ZIP. Configure durable uploaded-file storage separately.
+not the ZIP. Configure durable uploaded-file storage as described below.
 
 A successful workflow is not a runtime health check. Confirm Next.js reports
 ready in App Service Log stream and test the default hostname after deployment.
 `next: not found` indicates missing runtime dependencies/executable resolution;
 a missing production build indicates missing `.next` output.
+
+### Private Azure Blob Storage
+
+Both the Files explorer and project attachments use a private blob container when
+`AZURE_STORAGE_ACCOUNT_NAME` and `AZURE_STORAGE_CONTAINER_NAME` are set. For the
+current App Service, configure `overheadfilesstorage` and `application-files`.
+Enable Overhead's **system-assigned managed identity** and assign **Storage Blob
+Data Contributor** at that container's scope. Allow time for RBAC propagation.
+Keep anonymous blob access disabled; no account key, connection string, or
+public/SAS download URL is required. The app uses `ManagedIdentityCredential`
+on App Service and proxies content through its existing authorized endpoints.
+The storage firewall must also allow the app's traffic; RBAC does not bypass it.
+
+Files are stored under `files/organizations/<OrganizationID>/`; project content
+uses `project-attachments/organizations/<OrganizationID>/<opaque storage key>`.
+Paths and attachment metadata remain checked against the signed-in organization.
+Empty explorer folders use zero-byte blobs ending in `/`. Uploads use conditional
+creation and cannot overwrite an existing blob. Project video downloads retain
+byte-range support. Archiving an attachment still retains the underlying blob.
+Neither backend adds a Files delete operation.
+
+Without either setting, local development retains its existing filesystem paths.
+Local Blob development can use `az login` with an appropriate container data role
+through `DefaultAzureCredential`; setting both variables opts into Blob Storage.
+Partial/invalid configuration fails explicitly, and App Service refuses local
+fallback when its storage settings are absent. Storage authorization/outage
+errors are surfaced, not treated as empty folders or successful local uploads.
+
+This is a storage-backend switch, **not an automatic migration**: existing local
+files are not copied or served as a fallback. Before enabling Blob Storage on an
+installation containing uploads, back them up and migrate each organization's
+explorer files to its prefix. Project attachment objects must be copied to their
+organization prefix using the unchanged SQL `StorageKey`; retain SQL metadata.
+Do not copy unassigned legacy shared files without first determining ownership.
+Back up SQL and blob data together; soft delete is not a complete backup policy.
+Malware scanning, quotas, and lifecycle/retention policy remain follow-up work.
+
+Run the focused storage regressions:
+
+```powershell
+node --experimental-strip-types --test app\lib\blob-storage.test.mjs app\lib\access-boundaries.test.mjs app\lib\project-attachment-policy.test.mjs
+```
+
+Blob tests mock the Azure SDK; they verify tenant keys, conditional uploads,
+empty folders, previews, permissions, byte ranges, SQL-failure cleanup, and
+explicit storage failures, but do not prove live Azure connectivity or RBAC.
+After deployment, use synthetic files to verify owner upload/download, rejection
+of cross-organization reads, viewer write denial, and persistence after an App
+Service restart. Check both Files and project attachments before real uploads.
 
 ## Initial Azure SQL schema
 
@@ -189,9 +238,8 @@ file. Legacy files directly under `storage/files` remain untouched and are no
 longer served by the explorer. A trusted administrator must determine ownership
 and explicitly move any needed legacy files into the correct organization root
 before users can see them. Do not put links to shared folders in tenant roots.
-This change does not configure durable Azure storage: with run-from-package,
-the app directory is read-only, so uploads still require a separate writable,
-persistent storage solution before production use.
+On Azure, configure the private Blob Storage backend described above; the
+run-from-package application directory is read-only.
 
 For SQL username/password connectivity, the Azure SQL server must permit SQL
 authentication. Configure a dedicated least-privilege application SQL user
@@ -317,16 +365,17 @@ The linked project status/cost/billing and planning mutations validate ownership
 on the server. This does not complete the application's broader SaaS rollout.
 
 Uploads are limited to 100 MB per nonempty file and the listed file types.
-Content is stored under `storage\project-attachments`, outside the legacy
-path-based file explorer, with opaque storage keys. Preview/download requests
+Local content is stored under `storage\project-attachments`; configured Azure
+content uses organization-prefixed blobs, outside the path-based file explorer,
+with opaque storage keys. Preview/download requests
 resolve organization-owned metadata rather than trusting browser paths.
 Removal archives metadata and retains the physical file; it is not a permanent
 storage purge. Completed jobs still accept documents/media for afterlife records.
 Excluding sample data removes attachment metadata linked to sample projects;
 uploaded physical content is retained. Existing Files folders are not
-automatically imported or linked. Back up both SQL metadata and local storage.
-Azure Blob storage, scanning/retention policies, and association of existing
-Files content remain follow-up work before public hosting.
+automatically imported or linked. Back up both SQL metadata and the configured
+content store. Scanning/retention policies and association of existing Files
+content remain follow-up work before public hosting.
 
 Run focused workspace tests with
 `node --test app/lib/project-attachment-policy.test.mjs app/lib/field-capacity.test.mjs`.

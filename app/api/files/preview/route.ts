@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import path from "path";
-import fs from "fs/promises";
+import { Readable } from "node:stream";
 import mammoth from "mammoth";
 import ExcelJS from "exceljs";
 import JSZip from "jszip";
 import { XMLParser } from "fast-xml-parser";
-import { resolveSafePath } from "@/app/lib/file-storage";
+import { readFileBuffer } from "@/app/lib/file-storage";
 import { requireProjectSession } from "@/app/lib/project-access";
 import { fileAccessErrorResponse } from "@/app/lib/file-access";
 
@@ -20,14 +20,14 @@ function escapeHtml(value: string) {
     .replace(/"/g, "&quot;");
 }
 
-async function previewDocx(filePath: string) {
-  const result = await mammoth.convertToHtml({ path: filePath });
+async function previewDocx(buffer: Buffer) {
+  const result = await mammoth.convertToHtml({ buffer });
   return { kind: "html" as const, html: result.value };
 }
 
-async function previewXlsx(filePath: string) {
+async function previewXlsx(buffer: Buffer) {
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(filePath);
+  await workbook.xlsx.read(Readable.from([buffer]));
 
   const sheetsHtml = workbook.worksheets.map((sheet) => {
     const rows: string[] = [];
@@ -51,8 +51,7 @@ async function previewXlsx(filePath: string) {
   return { kind: "html" as const, html: sheetsHtml.join("<hr/>") };
 }
 
-async function previewPptx(filePath: string) {
-  const buffer = await fs.readFile(filePath);
+async function previewPptx(buffer: Buffer) {
   const zip = await JSZip.loadAsync(buffer);
 
   const slideFiles = Object.keys(zip.files)
@@ -103,18 +102,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Missing path" }, { status: 400 });
     }
 
-    const filePath = await resolveSafePath(relativePath, session.organization.organizationId);
-
-    const ext = path.extname(filePath).toLowerCase();
+    const ext = path.extname(relativePath).toLowerCase();
 
     if (ext === ".docx") {
-      return NextResponse.json(await previewDocx(filePath));
+      return NextResponse.json(await previewDocx(await readFileBuffer(relativePath, session.organization.organizationId)));
     }
     if (ext === ".xlsx") {
-      return NextResponse.json(await previewXlsx(filePath));
+      return NextResponse.json(await previewXlsx(await readFileBuffer(relativePath, session.organization.organizationId)));
     }
     if (ext === ".pptx") {
-      return NextResponse.json(await previewPptx(filePath));
+      return NextResponse.json(await previewPptx(await readFileBuffer(relativePath, session.organization.organizationId)));
     }
     return NextResponse.json({ error: "Unsupported file type for preview" }, { status: 415 });
   } catch (error) {

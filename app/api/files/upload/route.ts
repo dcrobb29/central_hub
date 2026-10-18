@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs/promises";
-import path from "path";
-import { resolveSafePath } from "@/app/lib/file-storage";
+import { writeFile } from "@/app/lib/file-storage";
 import { requireProjectSession } from "@/app/lib/project-access";
 import { fileAccessErrorResponse } from "@/app/lib/file-access";
 
@@ -26,14 +24,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid file path" }, { status: 400 });
     }
 
-    await resolveSafePath(targetDir, session.organization.organizationId);
-    const destination = await resolveSafePath(
-      `${targetDir ? targetDir + "/" : ""}${safeSubPath}`, session.organization.organizationId,
-    );
-
-    await fs.mkdir(path.dirname(destination), { recursive: true });
     const buffer = Buffer.from(await file.arrayBuffer());
-    await fs.writeFile(destination, buffer, { flag: "wx" });
+    await writeFile(`${targetDir ? targetDir + "/" : ""}${safeSubPath}`, session.organization.organizationId, buffer);
 
     return NextResponse.json({ name: safeSubPath }, { status: 201 });
   } catch (error) {

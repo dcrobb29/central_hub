@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs/promises";
-import path from "path";
-import { resolveSafePath } from "@/app/lib/file-storage";
+import { createDirectory } from "@/app/lib/file-storage";
 import { requireProjectSession } from "@/app/lib/project-access";
 import { fileAccessErrorResponse } from "@/app/lib/file-access";
 
@@ -19,12 +17,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid folder name" }, { status: 400 });
     }
 
-    await resolveSafePath(targetPath, session.organization.organizationId);
-    const destination = await resolveSafePath(
+    await createDirectory(
       `${targetPath ? targetPath + "/" : ""}${name}`, session.organization.organizationId,
     );
-    await fs.mkdir(path.dirname(destination), { recursive: true });
-    await fs.mkdir(destination, { recursive: false });
     return NextResponse.json({ name }, { status: 201 });
   } catch (error) {
     return fileAccessErrorResponse(error, "Unable to create folder");

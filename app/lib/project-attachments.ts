@@ -4,6 +4,8 @@ import fs from "node:fs/promises";
 import { getPool, sql } from "./db";
 import { requireProject, ProjectAccessError } from "./project-access";
 import { PROJECT_FILE_LIMIT, projectFileType, safeProjectFileName, type AttachmentCategory } from "./project-attachment-policy";
+import { blobContainer, blobSize, uploadBlob } from "./blob-storage";
+import { blobContent, localContent, type ContentRange } from "./stored-content";
 
 // Keep project-owned content outside the legacy path-based file explorer.
 const root = path.join(process.cwd(), "storage", "project-attachments");
@@ -21,6 +23,27 @@ export type ProjectAttachment = {
 export function attachmentPath(storageKey: string): string {
   if (!/^[a-f0-9-]{36}\.[a-z0-9]+$/.test(storageKey)) throw new Error("Invalid attachment storage key.");
   return path.join(root, storageKey);
+}
+
+function attachmentBlobKey(storageKey: string, organizationId: number) {
+  attachmentPath(storageKey);
+  if (!Number.isSafeInteger(organizationId) || organizationId < 1 || organizationId > 2_147_483_647) {
+    throw new ProjectAccessError("Invalid organization.", 400);
+  }
+  return `project-attachments/organizations/${organizationId}/${storageKey}`;
+}
+
+export async function projectAttachmentSize(storageKey: string, organizationId: number) {
+  const container = blobContainer();
+  if (!container) return (await fs.stat(attachmentPath(storageKey))).size;
+  return blobSize(container, attachmentBlobKey(storageKey, organizationId));
+}
+
+export async function projectAttachmentContent(storageKey: string, organizationId: number, range?: ContentRange) {
+  const container = blobContainer();
+  return container
+    ? blobContent(container, attachmentBlobKey(storageKey, organizationId), range)
+    : localContent(attachmentPath(storageKey), range);
 }
 
 export async function getProjectAttachments(projectId: number, organizationId: number, category: AttachmentCategory) {
@@ -45,9 +68,14 @@ export async function saveProjectAttachment(projectId: number, organizationId: n
   if (!contentType) throw new ProjectAccessError("Unsupported file type for this section.", 400);
   if (file.size < 1 || file.size > PROJECT_FILE_LIMIT) throw new ProjectAccessError("Choose a nonempty file up to 100 MB.", 400);
   const storageKey = `${crypto.randomUUID()}.${fileName.split(".").pop()!.toLowerCase()}`;
-  await fs.mkdir(root, { recursive: true });
-  const destination = attachmentPath(storageKey);
-  await fs.writeFile(destination, Buffer.from(await file.arrayBuffer()), { flag: "wx" });
+  const container = blobContainer();
+  const buffer = Buffer.from(await file.arrayBuffer());
+  if (container) {
+    await uploadBlob(container, attachmentBlobKey(storageKey, organizationId), buffer, contentType);
+  } else {
+    await fs.mkdir(root, { recursive: true });
+    await fs.writeFile(attachmentPath(storageKey), buffer, { flag: "wx" });
+  }
   try {
     const pool = await getPool();
     return (await pool.request().input("project", sql.Int, projectId).input("org", sql.Int, organizationId)
@@ -60,7 +88,10 @@ export async function saveProjectAttachment(projectId: number, organizationId: n
         SELECT CONVERT(int, SCOPE_IDENTITY()) AS attachmentId;
       `)).recordset[0].attachmentId;
   } catch (error) {
-    try { await fs.unlink(destination); }
+    try {
+      if (container) await container.getBlobClient(attachmentBlobKey(storageKey, organizationId)).delete();
+      else await fs.unlink(attachmentPath(storageKey));
+    }
     catch (cleanupError) { console.error("Unable to clean up failed project upload", cleanupError); }
     throw error;
   }

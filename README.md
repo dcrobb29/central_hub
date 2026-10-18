@@ -172,6 +172,13 @@ acceptance flow exists.
 Invoice listing and next-number lookup require `finances.read`; creation,
 updates, deletion, and emailing require `finances.write`. Resource lookups use the
 authorized organization, not a caller-supplied tenant ID.
+Invoice updates and deletes return `404` with `Invoice not found` for nonexistent
+IDs and IDs owned by another organization. SQL checks target ownership before
+reference/business checks and uses mutation output rather than trigger row counts
+to detect a target that disappears before the write.
+Run their mocked database/API regressions with
+`node --experimental-strip-types --test app/lib/invoice-mutations.test.mjs`.
+These tests do not execute SQL or replace live two-organization verification.
 
 The file explorer uses existing `projects.read` / `projects.write` permissions
 for reads / writes. Its files are isolated under
@@ -509,6 +516,112 @@ Verification (Windows Authentication; no persistent fixture data):
 It checks Contoso ownership, distinct membership roles, cross-organization
 relationship rejection, and immutable ownership. These relationship checks
 are not claims of row-level access isolation.
+
+## Live manual two-organization security verification
+
+The paired scripts
+[database/live-two-org-security-fixture-setup.sql](database/live-two-org-security-fixture-setup.sql)
+and
+[database/live-two-org-security-fixture-cleanup.sql](database/live-two-org-security-fixture-cleanup.sql)
+prepare and remove a deliberately small, synthetic verification dataset. They
+are **manual SQL only**: neither has been run against the database. They make no
+Azure changes and do not create SQL/Entra principals or store passwords.
+
+Before running setup, review both scripts and confirm the live schema matches
+`azure-sql-baseline.sql`, `azure-sql-initialize.sql`, the deployed organization
+and tenant-foreign-key migrations, customer/personnel/project/billing schemas,
+`sample-data-tracking-schema.sql`, and
+`organization-defaults-removal.sql`. Connect directly to `overhead-testdb`;
+the scripts also enforce that database name. Setup requires the existing
+OrganizationID 1 to remain `overhead-demo` / `Overhead Demo` / `Active` with
+exactly two memberships, all required application permissions to exist, and
+relevant tenant foreign keys to be enabled and trusted. It will stop rather
+than repair or overwrite an unexpected identity, schema, permission, or
+fixture-key collision.
+In SSMS, confirm the database selector says `overhead-testdb`, review the paired
+scripts, and execute the setup file by itself. Do not run it against production.
+
+The shared, exact fixture marker is `SECVERIFY-20261016-7F29D2E6`, with A/B
+suffixes. Each new organization receives two inactive synthetic users
+(`secverify-{a,b}-{owner,viewer}@security-fixture.invalid`), active
+organization memberships, distinct organization-scoped Owner and Viewer
+roles, and explicit grants (Owner: all 17 seeded capabilities; Viewer:
+the 7 `*.read` capabilities). Every inserted tenant-owned row supplies its
+`OrganizationID`; no reliance on removed bootstrap defaults remains. Each
+organization also gets one synthetic customer, active project, vendor bill,
+non-project-billing invoice, employee, personnel job title, and employee
+history row. Values are invented and clearly marked; no Overhead Demo or
+other real organization data is copied. The script reports generated IDs and
+per-organization business-row counts. Expected output is two Active fixture
+organizations; four users with `IsActive = 0` and
+`PasswordState = Not provisioned`; Owner/Viewer permission counts of 17/7 per
+org; exactly one customer, project, bill, invoice, employee, and history row
+per org; and OrganizationID 1 still Active with its two memberships.
+
+**Private password provisioning is a separate operator step.** The fixture
+users intentionally have `IsActive = 0` and `PasswordHash = NULL`; their
+memberships are active but they cannot log in yet. No password, password hash,
+or reset token belongs in either SQL file, source control, a saved SSMS query,
+or chat. This repository has no self-service registration or password-reset
+flow. For each test account, privately generate a fresh hash by calling
+`hashPassword()` in `app/lib/auth.ts` (PBKDF2-SHA256, 600,000 iterations), then
+use a trusted local operator process or a **private, unsaved** SQL session with
+an exact-email/empty-hash guard to set that user's hash and activate only the
+matching reserved account. The guarded update shape is:
+
+```sql
+DECLARE @FixtureEmail nvarchar(254) = N'<one exact fixture email>';
+DECLARE @NewPasswordHash nvarchar(255) = N'<fresh hash from hashPassword(); do not save this value>';
+UPDATE dbo.Users
+SET PasswordHash = @NewPasswordHash, IsActive = 1
+WHERE NormalizedEmail = @FixtureEmail
+  AND IsActive = 0
+  AND PasswordHash IS NULL;
+IF @@ROWCOUNT <> 1
+    THROW 51290, 'Expected one inactive, unprovisioned fixture user.', 1;
+```
+
+Replace placeholders only in that private session; do not save the completed
+query or hash. Confirm each account is active/provisioned before browser tests.
+The `.invalid` email addresses cannot receive mail; use a private password
+handoff for this test only, and do not reuse real credentials.
+
+Use two **separate browser profiles** so the session cookies cannot overwrite
+each other:
+
+1. Provision unique test passwords privately, activate each intended account,
+   and open the deployed test application in two isolated profiles.
+2. Sign in to profile 1 as A Owner and profile 2 as B Viewer. Confirm each sees
+   only its own organization and the matching tagged customer, project,
+   invoice, bill, and employee. Try direct record URLs/API IDs belonging to the
+   other organization; they must be denied or appear absent.
+3. Confirm B Viewer cannot create, update, delete, or administer records, even
+   by direct API requests. A hidden/disabled button alone is not a successful
+   authorization check. If any cross-tenant read/write or unauthorized Viewer
+   mutation succeeds, stop testing and treat it as a security failure.
+4. Sign out and repeat with A Viewer and B Owner. Verify the same isolation in
+   both directions. Keep this verification limited to synthetic records.
+5. Sign out both profiles before cleanup. Run the paired cleanup only after
+   reviewing its preflight conditions and output.
+
+Cleanup is intentionally narrow and transactional. It requires both exact
+fixture organizations and the original ownership-marker inventory (41 tracked
+rows per organization), checks for untracked tenant rows and related foreign
+keys, and deletes in FK order. Any extra records added during browser testing,
+unexpected marker, external membership, linked `UserIdentity`, unknown
+organization-owned table row, or disabled/untrusted related FK makes cleanup
+roll back without broad deletion. Remove manually added app records through the
+application and retry; do not widen the cleanup predicates or disable
+constraints. Uploaded physical files are not SQL rows and are never removed by
+these scripts. Archived attachment metadata or other extra rows may therefore
+cause cleanup to refuse; handle those separately and review every relationship.
+The scripts never delete OrganizationID 1, any existing user, the permission
+catalog, or non-fixture records.
+
+This fixture only provides controlled test data. Passing the browser checks
+does not certify row-level security, pooled-connection isolation, deployment
+configuration, or production readiness; continue with the SaaS rollout items
+above.
 
 ## Customer directory and invoice details
 

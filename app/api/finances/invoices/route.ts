@@ -41,6 +41,9 @@ export function parseInvoiceInput(body: unknown): InvoiceInput {
 
 export function describeInvoiceSqlError(error: unknown): { message: string; status: number } {
   if (error instanceof ProjectAccessError) return { message: error.message, status: error.status };
+  if (typeof error === "object" && error !== null && "number" in error && error.number === 51045) {
+    return { message: "Invoice not found", status: 404 };
+  }
   if (isCompletedProjectError(error)) return { message: COMPLETED_PROJECT_MESSAGE, status: 409 };
   if (typeof error === "object" && error !== null && "number" in error && error.number === 51041 && "message" in error) {
     return { message: String(error.message), status: 409 };

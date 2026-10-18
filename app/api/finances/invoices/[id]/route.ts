@@ -27,8 +27,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ id: invoiceId });
   } catch (error) {
     if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
-    console.error("Invoice update failed", error);
     const { message, status } = describeInvoiceSqlError(error);
+    if (status === 404) return NextResponse.json({ error: message }, { status });
+    console.error("Invoice update failed", error);
     return NextResponse.json({ error: message }, { status });
   }
 }
@@ -46,6 +47,8 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     return NextResponse.json({ id: invoiceId });
   } catch (error) {
     if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
+    const described = describeInvoiceSqlError(error);
+    if (described.status === 404) return NextResponse.json({ error: described.message }, { status: described.status });
     if (isCompletedProjectError(error)) return NextResponse.json({ error: COMPLETED_PROJECT_MESSAGE }, { status: 409 });
     if (typeof error === "object" && error !== null && "number" in error && Number(error.number) === 51041) {
       return NextResponse.json({ error: describeInvoiceSqlError(error).message }, { status: 409 });

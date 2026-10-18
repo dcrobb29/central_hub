@@ -215,6 +215,9 @@ export async function updateInvoice(id: number, input: InvoiceInput, organizatio
     .input("shippingAddressState", sql.NVarChar(100), input.shippingAddressState)
     .input("shippingAddressZip", sql.NVarChar(20), input.shippingAddressZip)
     .query(`
+      IF NOT EXISTS (SELECT 1 FROM dbo.Invoices WHERE [id] = @id AND OrganizationID = @organizationId)
+        THROW 51045, 'Invoice not found', 1;
+      DECLARE @updated TABLE (id int);
       IF @projectId IS NOT NULL AND NOT EXISTS (
         SELECT 1 FROM dbo.Projects WHERE ProjectID = @projectId AND OrganizationID = @organizationId
       ) THROW 51044, 'The selected project no longer exists', 1;
@@ -247,7 +250,10 @@ export async function updateInvoice(id: number, input: InvoiceInput, organizatio
         [Shipping Address City] = @shippingAddressCity,
         [Shipping Address State] = @shippingAddressState,
         [Shipping Address Zip] = @shippingAddressZip
-      WHERE [id] = @id AND OrganizationID = @organizationId
+      OUTPUT inserted.id INTO @updated
+      WHERE [id] = @id AND OrganizationID = @organizationId;
+      IF NOT EXISTS (SELECT 1 FROM @updated)
+        THROW 51045, 'Invoice not found', 1;
     `);
 }
 
@@ -257,9 +263,16 @@ export async function deleteInvoice(id: number, organizationId: number): Promise
     .input("id", sql.Int, id)
     .input("organizationId", sql.Int, organizationId)
     .query(`
+      IF NOT EXISTS (SELECT 1 FROM dbo.Invoices WHERE [id] = @id AND OrganizationID = @organizationId)
+        THROW 51045, 'Invoice not found', 1;
       IF EXISTS (SELECT 1 FROM dbo.ProjectIssuedInvoices WHERE InvoiceID=@id AND OrganizationID=@organizationId)
         THROW 51041, 'Issued project invoices cannot be deleted. Their allocations are part of billing history.', 1;
-      DELETE FROM dbo.Invoices WHERE [id] = @id AND OrganizationID = @organizationId;
+      DECLARE @deleted TABLE (id int);
+      DELETE FROM dbo.Invoices
+      OUTPUT deleted.id INTO @deleted
+      WHERE [id] = @id AND OrganizationID = @organizationId;
+      IF NOT EXISTS (SELECT 1 FROM @deleted)
+        THROW 51045, 'Invoice not found', 1;
     `);
 }
 

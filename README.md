@@ -152,10 +152,9 @@ Expired pending signups and rate-limit rows are pruned in bounded batches
 during requests. Public signup still needs
 operational monitoring and broader abuse controls before unrestricted launch.
 
-The focused security review also identified an unresolved cross-site session
-replacement issue in the verification endpoint: a cross-origin submission with
-an attacker-controlled valid token may set that account's session in the
-visitor's browser. Signup must remain disabled until this is fixed and reviewed.
+The verification endpoint requires the configured application Origin and JSON
+content type, and rejects cross-site Fetch Metadata before token consumption or
+session creation to prevent cross-site session replacement.
 
 Keep `ACCOUNT_SIGNUP_ENABLED=false` during initial deployment. Test one new
 address end-to-end after applying the migration and configuring ACS. Confirm

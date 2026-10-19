@@ -1,9 +1,44 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { completeVerifiedAccount, consumeRateLimit, requestAddress, verificationTokenHash } from "@/app/lib/account-registration";
 import { SESSION_COOKIE_NAME, signSessionToken } from "@/app/lib/auth";
 import { getCurrentSession } from "@/app/lib/account";
 
+function expectedAppOrigin() {
+  const configured = process.env.PUBLIC_APP_URL?.trim();
+  if (!configured) throw new Error("PUBLIC_APP_URL is not configured.");
+  const url = new URL(configured);
+  if (url.username || url.password || url.pathname !== "/" || url.search || url.hash
+    || (process.env.NODE_ENV === "production" && url.protocol !== "https:")) {
+    throw new Error("PUBLIC_APP_URL must be an HTTPS origin.");
+  }
+  return url.origin;
+}
+
 export async function POST(request: NextRequest) {
+  let appOrigin: string;
+  try {
+    appOrigin = expectedAppOrigin();
+  } catch (error) {
+    console.error("Unable to validate verification request origin", error instanceof Error ? error.name : "UnknownError");
+    return NextResponse.json({ error: "Account verification is unavailable." }, { status: 503 });
+  }
+  const origin = request.headers.get("origin");
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (!origin || origin === "null" || fetchSite && fetchSite !== "same-origin") {
+    return NextResponse.json({ error: "Verification requests must come from this application." }, { status: 403 });
+  }
+  try {
+    if (new URL(origin).origin !== origin || origin !== appOrigin) {
+      return NextResponse.json({ error: "Verification requests must come from this application." }, { status: 403 });
+    }
+  } catch {
+    return NextResponse.json({ error: "Verification requests must come from this application." }, { status: 403 });
+  }
+  const contentType = request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
+  if (contentType !== "application/json") {
+    return NextResponse.json({ error: "Verification requests must use JSON." }, { status: 415 });
+  }
+
   const body = await request.json().catch(() => null);
   const token = body && typeof body === "object" && typeof body.token === "string" ? body.token : "";
   const password = body && typeof body === "object" && typeof body.password === "string" ? body.password : "";

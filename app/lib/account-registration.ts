@@ -14,22 +14,20 @@ export type RegistrationInput = {
   email: string;
   displayName: string;
   organizationName: string;
-  password: string;
 };
 
 export function parseRegistrationInput(value: unknown): RegistrationInput | null {
   if (!value || typeof value !== "object") return null;
   const body = value as Record<string, unknown>;
   if (typeof body.email !== "string" || typeof body.displayName !== "string"
-    || typeof body.organizationName !== "string" || typeof body.password !== "string") return null;
+    || typeof body.organizationName !== "string") return null;
   const email = body.email.trim().toLowerCase();
   const displayName = body.displayName.trim();
   const organizationName = body.organizationName.trim();
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
     || displayName.length < 1 || displayName.length > 150
-    || organizationName.length < 1 || organizationName.length > 150
-    || body.password.length < 12 || body.password.length > 128) return null;
-  return { email, displayName, organizationName, password: body.password };
+    || organizationName.length < 1 || organizationName.length > 150) return null;
+  return { email, displayName, organizationName };
 }
 
 function keyedRateHash(scope: string, identifier: string): Buffer {
@@ -73,7 +71,6 @@ export async function consumeRateLimit(scope: string, identifier: string, limit:
 }
 
 export async function requestAccountVerification(input: RegistrationInput, tokenHash: Buffer): Promise<boolean> {
-  const passwordHash = hashPassword(input.password);
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
   await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
@@ -97,12 +94,11 @@ export async function requestAccountVerification(input: RegistrationInput, token
       .input("email", sql.NVarChar(254), input.email)
       .input("displayName", sql.NVarChar(150), input.displayName)
       .input("organizationName", sql.NVarChar(150), input.organizationName)
-      .input("passwordHash", sql.NVarChar(255), passwordHash)
       .input("tokenHash", sql.VarBinary(32), tokenHash)
       .query(`
         INSERT INTO dbo.PendingAccountVerifications
-          (NormalizedEmail, DisplayName, OrganizationName, PasswordHash, TokenHash, ExpiresAt)
-        VALUES (@email, @displayName, @organizationName, @passwordHash, @tokenHash, DATEADD(minute, 30, SYSUTCDATETIME()))
+          (NormalizedEmail, DisplayName, OrganizationName, TokenHash, ExpiresAt)
+        VALUES (@email, @displayName, @organizationName, @tokenHash, DATEADD(minute, 30, SYSUTCDATETIME()))
       `);
     await transaction.commit();
     return true;
@@ -120,7 +116,8 @@ export async function removePendingVerification(tokenHash: Buffer): Promise<void
 
 export type VerifiedAccount = { userId: number; email: string; displayName: string };
 
-export async function completeVerifiedAccount(tokenHash: Buffer): Promise<VerifiedAccount | null> {
+export async function completeVerifiedAccount(tokenHash: Buffer, password: string): Promise<VerifiedAccount | null> {
+  if (password.length < 12 || password.length > 128) throw new Error("Invalid account password length.");
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
   await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
@@ -130,10 +127,9 @@ export async function completeVerifiedAccount(tokenHash: Buffer): Promise<Verifi
         NormalizedEmail: string;
         DisplayName: string;
         OrganizationName: string;
-        PasswordHash: string;
         IsExpired: boolean;
       }>(`
-        SELECT NormalizedEmail, DisplayName, OrganizationName, PasswordHash,
+        SELECT NormalizedEmail, DisplayName, OrganizationName,
           CONVERT(bit, CASE WHEN ExpiresAt <= SYSUTCDATETIME() THEN 1 ELSE 0 END) AS IsExpired
         FROM dbo.PendingAccountVerifications WITH (UPDLOCK, HOLDLOCK)
         WHERE TokenHash = @tokenHash
@@ -179,10 +175,11 @@ export async function completeVerifiedAccount(tokenHash: Buffer): Promise<Verifi
         VALUES (@organizationKey, @organizationName, 'Trial')
       `);
     const organizationId = organization.recordset[0].OrganizationID;
+    const passwordHash = hashPassword(password);
     const user = await transaction.request()
       .input("email", sql.NVarChar(254), record.NormalizedEmail)
       .input("displayName", sql.NVarChar(150), record.DisplayName)
-      .input("passwordHash", sql.NVarChar(255), record.PasswordHash)
+      .input("passwordHash", sql.NVarChar(255), passwordHash)
       .query<{ UserID: number }>(`
         INSERT INTO dbo.Users (Email, DisplayName, IsActive, PasswordHash)
         OUTPUT inserted.UserID

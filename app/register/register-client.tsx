@@ -14,11 +14,6 @@ export default function RegisterClient({ enabled }: { enabled: boolean }) {
     setError(null);
     setSent(false);
     const form = new FormData(formElement);
-    const password = String(form.get("password") ?? "");
-    if (password !== String(form.get("confirmPassword") ?? "")) {
-      setError("Passwords do not match.");
-      return;
-    }
     setBusy(true);
     try {
       const response = await fetch("/api/account/register", {
@@ -28,7 +23,6 @@ export default function RegisterClient({ enabled }: { enabled: boolean }) {
           displayName: form.get("displayName"),
           organizationName: form.get("organizationName"),
           email: form.get("email"),
-          password,
         }),
       });
       const data = await response.json();
@@ -62,13 +56,7 @@ export default function RegisterClient({ enabled }: { enabled: boolean }) {
           <label className="loginField">Email address
             <input name="email" type="email" autoComplete="email" maxLength={254} required disabled={busy} className="loginInput" />
           </label>
-          <label className="loginField">Password (12–128 characters)
-            <input name="password" type="password" autoComplete="new-password" minLength={12} maxLength={128} required disabled={busy} className="loginInput" />
-          </label>
-          <label className="loginField">Confirm password
-            <input name="confirmPassword" type="password" autoComplete="new-password" minLength={12} maxLength={128} required disabled={busy} className="loginInput" />
-          </label>
-          <button type="submit" className="loginButton" disabled={busy}>{busy ? "Sending verification..." : "Create account"}</button>
+          <button type="submit" className="loginButton" disabled={busy}>{busy ? "Sending verification..." : "Verify email"}</button>
         </form>
       </>}
       <p className="loginSubtitle"><Link href="/login">Back to sign in</Link></p>

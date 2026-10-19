@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => null);
   const input = parseRegistrationInput(body);
-  if (!input) return NextResponse.json({ error: "Enter a valid name, company name, email, and password of at least 12 characters." }, { status: 400 });
+  if (!input) return NextResponse.json({ error: "Enter a valid name, company name, and email address." }, { status: 400 });
 
   try {
     const address = requestAddress(request);

@@ -9,6 +9,7 @@ const state = {
   sentUrl: "",
   afterCallback: null,
   removed: 0,
+  registrationInput: null,
   rateChecks: 0,
 };
 globalThis.accountRegistrationRouteTest = state;
@@ -47,9 +48,16 @@ registerHooks({
           export const accountSignupEnabled = () => globalThis.accountRegistrationRouteTest.enabled;
           export async function consumeRateLimit() { globalThis.accountRegistrationRouteTest.rateChecks++; return true; }
           export const createVerificationToken = () => ({ token: "a".repeat(43), hash: Buffer.alloc(32, 1) });
-          export const parseRegistrationInput = value => value;
+          export function parseRegistrationInput(value) {
+            if (!value || typeof value !== "object") return null;
+            const { email, displayName, organizationName } = value;
+            return { email, displayName, organizationName };
+          }
           export async function removePendingVerification() { globalThis.accountRegistrationRouteTest.removed++; }
-          export async function requestAccountVerification() { return globalThis.accountRegistrationRouteTest.created; }
+          export async function requestAccountVerification(input) {
+            globalThis.accountRegistrationRouteTest.registrationInput = input;
+            return globalThis.accountRegistrationRouteTest.created;
+          }
           export const requestAddress = () => "test-ip";`,
       };
     }
@@ -75,7 +83,7 @@ const request = () => ({
     email: "tester@example.com",
     displayName: "Test User",
     organizationName: "Test Company",
-    password: "correct-horse-42",
+    password: "attacker-chosen-password",
   }),
 });
 
@@ -84,7 +92,9 @@ test("registration sends the verification token in the URL fragment", async () =
   state.created = true;
   state.sentUrl = "";
   state.afterCallback = null;
+  state.registrationInput = null;
   const response = await POST(request());
+  assert.equal(Object.hasOwn(state.registrationInput, "password"), false);
   assert.equal(state.sentUrl, "");
   assert.equal(response.status, 202);
   await state.afterCallback();

@@ -87,19 +87,21 @@ state.makeTransaction = () => new Transaction();
 
 const registration = await import("./account-registration.ts");
 
-test("registration input validation normalizes email and enforces password and field bounds", () => {
+test("registration input validation normalizes email and enforces field bounds without accepting a password", () => {
   const valid = registration.parseRegistrationInput({
-    email: "  TEST@Example.com ", displayName: " Test User ", organizationName: " Test Co ", password: "correct-horse-42",
+    email: "  TEST@Example.com ", displayName: " Test User ", organizationName: " Test Co ",
   });
   assert.deepEqual(valid, {
-    email: "test@example.com", displayName: "Test User", organizationName: "Test Co", password: "correct-horse-42",
+    email: "test@example.com", displayName: "Test User", organizationName: "Test Co",
   });
   for (const body of [
-    {}, { email: "invalid", displayName: "x", organizationName: "y", password: "correct-horse-42" },
-    { email: "a@example.com", displayName: "", organizationName: "y", password: "correct-horse-42" },
-    { email: "a@example.com", displayName: "x", organizationName: "y", password: "short" },
-    { email: `a${"x".repeat(254)}@example.com`, displayName: "x", organizationName: "y", password: "correct-horse-42" },
+    {}, { email: "invalid", displayName: "x", organizationName: "y" },
+    { email: "a@example.com", displayName: "", organizationName: "y" },
+    { email: `a${"x".repeat(254)}@example.com`, displayName: "x", organizationName: "y" },
   ]) assert.equal(registration.parseRegistrationInput(body), null);
+  assert.deepEqual(registration.parseRegistrationInput({
+    email: "a@example.com", displayName: "x", organizationName: "y", password: "attacker-chosen-password",
+  }), { email: "a@example.com", displayName: "x", organizationName: "y" });
 });
 
 test("verification tokens are random, canonical, one-time input hashes and signup defaults are explicit", () => {
@@ -135,12 +137,29 @@ test("rate limits persist keyed hashes rather than raw identifiers", async () =>
   state.rateAllowed = true;
 });
 
+test("pending verification stores no password before mailbox ownership is established", async () => {
+  state.queries = [];
+  state.commits = 0;
+  state.rollbacks = 0;
+  const token = registration.createVerificationToken();
+  assert.equal(await registration.requestAccountVerification({
+    email: "new-owner@example.com",
+    displayName: "New Owner",
+    organizationName: "Independent Company",
+  }, token.hash), true);
+  const pendingInsert = state.queries.find(({ query }) => query.includes("INSERT INTO dbo.PendingAccountVerifications"));
+  assert.ok(pendingInsert);
+  assert.doesNotMatch(pendingInsert.query, /PasswordHash/);
+  assert.equal(Object.hasOwn(pendingInsert.inputs, "passwordHash"), false);
+  assert.equal(state.commits, 1);
+  assert.equal(state.rollbacks, 0);
+});
+
 test("account verification only provisions an isolated owner after an unexpired, unused token", async () => {
   state.pending = {
     NormalizedEmail: "new-owner@example.com",
     DisplayName: "New Owner",
     OrganizationName: "Independent Company",
-    PasswordHash: "pbkdf2:600000:0123456789abcdef0123456789abcdef:" + "a".repeat(64),
   };
   state.expired = false;
   state.existingUser = false;
@@ -149,7 +168,7 @@ test("account verification only provisions an isolated owner after an unexpired,
   state.rollbacks = 0;
   state.queries = [];
   const token = registration.createVerificationToken();
-  const created = await registration.completeVerifiedAccount(token.hash);
+  const created = await registration.completeVerifiedAccount(token.hash, "mailbox-owner-password");
   assert.deepEqual(created, { userId: 89, email: "new-owner@example.com", displayName: "New Owner" });
   assert.equal(state.commits, 1);
   assert.equal(state.rollbacks, 0);
@@ -161,6 +180,10 @@ test("account verification only provisions an isolated owner after an unexpired,
   assert.equal(ownerPermissions.inputs.roleId, 11);
   const membershipRole = state.queries.find(({ query }) => query.includes("INSERT INTO dbo.MembershipAccessRoles"));
   assert.deepEqual(membershipRole.inputs, { organizationId: 42, membershipId: 23, roleId: 11 });
+  const userInsert = state.queries.find(({ query }) => query.includes("INSERT INTO dbo.Users"));
+  assert.match(userInsert.inputs.passwordHash, /^pbkdf2:600000:/);
+  assert.notEqual(userInsert.inputs.passwordHash, "attacker-chosen-password");
+  assert.doesNotMatch(userInsert.inputs.passwordHash, /mailbox-owner-password/);
   assert.ok(state.queries.some(({ query }) => query.includes("DELETE FROM dbo.PendingAccountVerifications")));
 });
 
@@ -170,17 +193,16 @@ test("expired, reused and permission-incomplete verifications never commit an ac
   state.rollbacks = 0;
   const token = registration.createVerificationToken();
   state.pending = null;
-  assert.equal(await registration.completeVerifiedAccount(token.hash), null);
+  assert.equal(await registration.completeVerifiedAccount(token.hash, "mailbox-owner-password"), null);
   state.pending = {
     NormalizedEmail: "expired@example.com", DisplayName: "Expired", OrganizationName: "Expired Co",
-    PasswordHash: "pbkdf2:600000:0123456789abcdef0123456789abcdef:" + "a".repeat(64),
   };
   state.expired = true;
-  assert.equal(await registration.completeVerifiedAccount(token.hash), null);
+  assert.equal(await registration.completeVerifiedAccount(token.hash, "mailbox-owner-password"), null);
   assert.equal(state.queries.some(({ query }) => query.includes("INSERT INTO dbo.Organizations")), false);
   state.expired = false;
   state.permissionCount = 16;
-  await assert.rejects(() => registration.completeVerifiedAccount(token.hash), /permission catalog/);
+  await assert.rejects(() => registration.completeVerifiedAccount(token.hash, "mailbox-owner-password"), /permission catalog/);
   assert.equal(state.rollbacks, 1);
   assert.equal(state.commits, 2);
   state.permissionCount = 17;

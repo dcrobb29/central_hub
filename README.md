@@ -108,6 +108,11 @@ principal access. If the application principal differs, stop and review the
 grant target before running the script. The login endpoint also uses the shared
 rate-limit table, so the schema migration must precede deployment.
 
+Before deploying the mailbox-owner password flow, also run
+[database/account-registration-password-after-verification.sql](database/account-registration-password-after-verification.sql)
+in SSMS. It removes the old password column from pending verifications and
+refuses to run outside `overhead-testdb`.
+
 Configure these App Service settings privately before enabling signup:
 
 | Setting | Value |
@@ -127,12 +132,13 @@ sent after the generic response to reduce timing-based account enumeration. The
 API keeps the same generic response for existing addresses and delivery
 failures. Run an Azure Portal **Try Email** test before enabling registration.
 
-Signup collects a name, company name, email, and password. It sends a generic
+Signup collects a name, company name, and email. It sends a generic
 response to avoid disclosing whether an address already has an account. Pending
-records contain only a PBKDF2 password hash and a SHA-256 hash of the random
-verification token. The one-use link expires after 30 minutes; the token is in
-the URL fragment, so browsers do not send it in the initial page request.
-Clicking the page's verification button creates the user, a separate Trial
+records contain signup metadata and a SHA-256 hash of the random verification
+token, but no password. The one-use link expires after 30 minutes; the token is
+in the URL fragment, so browsers do not send it in the initial page request.
+After following the link, the email owner chooses and confirms a password;
+only then does the app create the user, a separate Trial
 organization, an Owner membership and role with the 17 current application
 permissions, and default invoice settings in one SQL transaction. No email
 domain/company matching or auto-joining is performed. There is no password
@@ -146,10 +152,16 @@ Expired pending signups and rate-limit rows are pruned in bounded batches
 during requests. Public signup still needs
 operational monitoring and broader abuse controls before unrestricted launch.
 
+The focused security review also identified an unresolved cross-site session
+replacement issue in the verification endpoint: a cross-origin submission with
+an attacker-controlled valid token may set that account's session in the
+visitor's browser. Signup must remain disabled until this is fixed and reviewed.
+
 Keep `ACCOUNT_SIGNUP_ENABLED=false` during initial deployment. Test one new
 address end-to-end after applying the migration and configuring ACS. Confirm
 that no account or organization exists before verification, the email link
-creates exactly one isolated organization, replay/expiry fail, and login works.
+lets the mailbox owner set the password and creates exactly one isolated
+organization, replay/expiry fail, and login works.
 Then test a second signup and cross-company reads/writes. Conduct the planned
 focused security review before changing the setting to `true`. Account recovery,
 upload quotas, and malware scanning are remaining launch work.
@@ -157,7 +169,7 @@ upload quotas, and malware scanning are remaining launch work.
 Run registration regressions with:
 
 ```powershell
-node --experimental-strip-types --test app\lib\account-registration.test.mjs
+node --experimental-strip-types --test app\lib\account-registration.test.mjs app\lib\account-registration-route.test.mjs app\lib\verification-email.test.mjs
 ```
 
 ## Initial Azure SQL schema

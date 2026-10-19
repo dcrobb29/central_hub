@@ -15,7 +15,6 @@ BEGIN TRY
             NormalizedEmail nvarchar(254) NOT NULL,
             DisplayName nvarchar(150) NOT NULL,
             OrganizationName nvarchar(150) NOT NULL,
-            PasswordHash nvarchar(255) NOT NULL,
             TokenHash varbinary(32) NOT NULL,
             CreatedAt datetime2(0) NOT NULL CONSTRAINT DF_PendingAccountVerifications_CreatedAt DEFAULT SYSUTCDATETIME(),
             ExpiresAt datetime2(0) NOT NULL,

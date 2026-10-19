@@ -71,7 +71,7 @@ export default function ProjectAttachmentsPanel({ projectId, category, canEdit }
   }
 
   async function archive(attachment: ProjectAttachment) {
-    if (!window.confirm(`Remove "${attachment.fileName}" from this project? The stored file is retained locally, but will no longer be accessible here.`)) return;
+    if (!window.confirm(`Remove "${attachment.fileName}" from this project? The stored file is retained, but will no longer be accessible here.`)) return;
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -87,7 +87,7 @@ export default function ProjectAttachmentsPanel({ projectId, category, canEdit }
 
   return <section className="projectHubSection" aria-busy={busy || loading}>
     <h2>{media ? "Jobsite media" : "Project documents"}</h2>
-    <p>{media ? "Keep jobsite photos and videos with the project." : "Keep signed contracts, drawings, specifications, and handover documents with the project."} Files are stored locally for now.</p>
+    <p>{media ? "Keep jobsite photos and videos with the project." : "Keep signed contracts, drawings, specifications, and handover documents with the project."}</p>
     {canEdit && <form className="projectUploadForm" onSubmit={(event) => void upload(event)}>
       <label>{media ? "Photos or videos" : "Documents"} (100 MB maximum per file)
         <input ref={fileInput} type="file" multiple disabled={busy || loading}

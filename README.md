@@ -36,6 +36,17 @@ ready in App Service Log stream and test the default hostname after deployment.
 `next: not found` indicates missing runtime dependencies/executable resolution;
 a missing production build indicates missing `.next` output.
 
+Image optimization remains enabled, but `images.maximumDiskCacheSize: 0` in
+`next.config.ts` disables its filesystem cache because run-from-package mounts
+the deployment read-only. This avoids image-cache directory initialization and
+write failures under `.next/cache`; it does not change uploaded-file storage.
+Without a disk cache, optimized images may need reprocessing after cache misses.
+Do not enable disk caching without providing a supported writable cache backend.
+Run `node --experimental-strip-types --test app\lib\image-cache.test.mjs` to check
+the installed Next.js image cache against this configuration. After deployment,
+refresh the home page and verify its tile images render without new image-cache
+errors in App Service Log stream.
+
 ### Private Azure Blob Storage
 
 Both the Files explorer and project attachments use a private blob container when

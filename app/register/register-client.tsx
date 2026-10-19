@@ -1,12 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type SubmitEvent } from "react";
+import { useCallback, useState, type SubmitEvent } from "react";
+import TurnstileWidget from "./turnstile-widget";
 
-export default function RegisterClient({ enabled }: { enabled: boolean }) {
+export default function RegisterClient({ enabled, turnstileSiteKey }: { enabled: boolean; turnstileSiteKey: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [captchaResetSignal, setCaptchaResetSignal] = useState(0);
+  const updateTurnstileToken = useCallback((token: string) => setTurnstileToken(token), []);
 
   async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -23,14 +27,19 @@ export default function RegisterClient({ enabled }: { enabled: boolean }) {
           displayName: form.get("displayName"),
           organizationName: form.get("organizationName"),
           email: form.get("email"),
+          turnstileToken,
         }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Registration failed.");
       setSent(true);
       formElement.reset();
+      setTurnstileToken("");
+      setCaptchaResetSignal((value) => value + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed.");
+      setTurnstileToken("");
+      setCaptchaResetSignal((value) => value + 1);
     } finally {
       setBusy(false);
     }
@@ -43,7 +52,7 @@ export default function RegisterClient({ enabled }: { enabled: boolean }) {
         <h1 className="loginTitle">Create your account</h1>
         <p className="loginSubtitle">Your verified account starts a separate company workspace.</p>
       </div>
-      {!enabled ? <p role="status">Account registration is not available yet.</p> : <>
+      {!enabled || !turnstileSiteKey ? <p role="status">Account registration is not available yet.</p> : <>
         {error && <div className="financeImportError" role="alert">{error}</div>}
         {sent && <p role="status">If registration is available for that address, verification instructions will be sent. If nothing arrives, check your spam folder or try again later.</p>}
         <form onSubmit={(event) => void submit(event)} className="loginForm">
@@ -56,7 +65,8 @@ export default function RegisterClient({ enabled }: { enabled: boolean }) {
           <label className="loginField">Email address
             <input name="email" type="email" autoComplete="email" maxLength={254} required disabled={busy} className="loginInput" />
           </label>
-          <button type="submit" className="loginButton" disabled={busy}>{busy ? "Sending verification..." : "Verify email"}</button>
+          <TurnstileWidget siteKey={turnstileSiteKey} resetSignal={captchaResetSignal} onToken={updateTurnstileToken} />
+          <button type="submit" className="loginButton" disabled={busy || !turnstileToken}>{busy ? "Sending verification..." : "Verify email"}</button>
         </form>
       </>}
       <p className="loginSubtitle"><Link href="/login">Back to sign in</Link></p>

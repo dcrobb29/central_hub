@@ -120,7 +120,18 @@ Configure these App Service settings privately before enabling signup:
 | `AZURE_COMMUNICATION_EMAIL_ENDPOINT` | `https://overhead-communication.unitedstates.communication.azure.com` |
 | `AZURE_COMMUNICATION_EMAIL_SENDER` | `DoNotReply@3363b393-db15-447a-af00-6d46e399db58.azurecomm.net` |
 | `PUBLIC_APP_URL` | `https://overhead-ercgfdckdme4d8bv.westus3-01.azurewebsites.net` |
+| `TURNSTILE_SITE_KEY` | Public site key from the Turnstile widget |
+| `TURNSTILE_SECRET_KEY` | Secret key from that widget; keep private in App Service settings |
 | `ACCOUNT_SIGNUP_ENABLED` | Keep `false` until migration, email, and staged verification pass |
+
+Create a [Cloudflare Turnstile widget](https://developers.cloudflare.com/turnstile/get-started/)
+and allow-list the exact App Service hostname
+`overhead-ercgfdckdme4d8bv.westus3-01.azurewebsites.net`. Set its site key and
+secret as the two settings above; only the site key is sent to the browser.
+The registration API calls Cloudflare Siteverify server-side, fails closed on
+configuration/provider errors, and verifies the returned hostname against
+`PUBLIC_APP_URL`. A missing site key keeps the registration form unavailable.
+Turnstile protects signup only and does not change sign-in.
 
 The App Service system-assigned identity needs the Communication Services
 email-send role on `overhead-communication`. The app uses `ManagedIdentityCredential`
@@ -144,7 +155,8 @@ permissions, and default invoice settings in one SQL transaction. No email
 domain/company matching or auto-joining is performed. There is no password
 recovery or verification-resend flow yet.
 
-Shared SQL-backed limits apply to login (10/IP/15 minutes), registration
+Turnstile challenge verification supplements the shared SQL-backed limits on
+login (10/IP/15 minutes), registration
 (5/IP/hour and 3/address/hour), and verification (20/IP/15 minutes and
 5/token/15 minutes). Rate-limit identifiers are HMACed with `SESSION_SECRET`
 before storage; raw IPs and verification tokens are not stored in that table.
@@ -168,7 +180,7 @@ upload quotas, and malware scanning are remaining launch work.
 Run registration regressions with:
 
 ```powershell
-node --experimental-strip-types --test app\lib\account-registration.test.mjs app\lib\account-registration-route.test.mjs app\lib\verification-email.test.mjs
+node --experimental-strip-types --test app\lib\account-registration.test.mjs app\lib\account-registration-route.test.mjs app\lib\account-verification-route.test.mjs app\lib\turnstile.test.mjs app\lib\verification-email.test.mjs
 ```
 
 ## Initial Azure SQL schema

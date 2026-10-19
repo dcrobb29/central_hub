@@ -1,6 +1,7 @@
 import { after, NextResponse, type NextRequest } from "next/server";
 import { accountSignupEnabled, consumeRateLimit, createVerificationToken, parseRegistrationInput, removePendingVerification, requestAccountVerification, requestAddress } from "@/app/lib/account-registration";
 import { sendVerificationEmail } from "@/app/lib/verification-email";
+import { verifyTurnstileToken } from "@/app/lib/turnstile";
 
 const GENERIC_RESPONSE = { message: "If registration is available for this address, verification instructions will be sent." };
 
@@ -21,12 +22,20 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const input = parseRegistrationInput(body);
   if (!input) return NextResponse.json({ error: "Enter a valid name, company name, and email address." }, { status: 400 });
+  const turnstileToken = body && typeof body === "object" && "turnstileToken" in body
+    && typeof body.turnstileToken === "string" ? body.turnstileToken : "";
+  if (!turnstileToken || turnstileToken.length > 2048) {
+    return NextResponse.json({ error: "Complete the security check and try again." }, { status: 400 });
+  }
 
   try {
     const address = requestAddress(request);
     const ipAllowed = await consumeRateLimit("signup-ip", address, 5, 3600);
     const emailAllowed = await consumeRateLimit("signup-email", input.email, 3, 3600);
     if (!ipAllowed || !emailAllowed) return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
+    if (!await verifyTurnstileToken(turnstileToken)) {
+      return NextResponse.json({ error: "The security check could not be verified. Please try again." }, { status: 400 });
+    }
 
     const baseUrl = publicBaseUrl();
     const { token, hash } = createVerificationToken();

@@ -11,6 +11,9 @@ const state = {
   removed: 0,
   registrationInput: null,
   rateChecks: 0,
+  captchaChecks: 0,
+  captchaPassed: true,
+  verifiedCaptchaToken: "",
 };
 globalThis.accountRegistrationRouteTest = state;
 process.env.PUBLIC_APP_URL = "https://overhead.example";
@@ -25,6 +28,9 @@ registerHooks({
     }
     if (specifier === "@/app/lib/verification-email") {
       return { url: new URL("./verification-email-route-stub.mjs", import.meta.url).href, shortCircuit: true };
+    }
+    if (specifier === "@/app/lib/turnstile") {
+      return { url: new URL("./turnstile-route-stub.mjs", import.meta.url).href, shortCircuit: true };
     }
     return nextResolve(specifier, context);
   },
@@ -72,6 +78,18 @@ registerHooks({
           }`,
       };
     }
+    if (url === new URL("./turnstile-route-stub.mjs", import.meta.url).href) {
+      return {
+        format: "module",
+        shortCircuit: true,
+        source: `
+          export async function verifyTurnstileToken(token) {
+            globalThis.accountRegistrationRouteTest.captchaChecks++;
+            globalThis.accountRegistrationRouteTest.verifiedCaptchaToken = token;
+            return globalThis.accountRegistrationRouteTest.captchaPassed;
+          }`,
+      };
+    }
     return nextLoad(url, context);
   },
 });
@@ -84,6 +102,7 @@ const request = () => ({
     displayName: "Test User",
     organizationName: "Test Company",
     password: "attacker-chosen-password",
+    turnstileToken: "valid-turnstile-token",
   }),
 });
 
@@ -93,8 +112,12 @@ test("registration sends the verification token in the URL fragment", async () =
   state.sentUrl = "";
   state.afterCallback = null;
   state.registrationInput = null;
+  state.captchaChecks = 0;
+  state.captchaPassed = true;
   const response = await POST(request());
   assert.equal(Object.hasOwn(state.registrationInput, "password"), false);
+  assert.equal(state.captchaChecks, 1);
+  assert.equal(state.verifiedCaptchaToken, "valid-turnstile-token");
   assert.equal(state.sentUrl, "");
   assert.equal(response.status, 202);
   await state.afterCallback();
@@ -131,4 +154,30 @@ test("existing addresses and delivery failures receive the same generic response
   assert.equal(state.removed, 1);
   state.created = true;
   state.emailDelivered = true;
+});
+
+test("registration rejects missing or invalid Turnstile proof before creating a pending account", async () => {
+  state.enabled = true;
+  state.created = true;
+  state.captchaChecks = 0;
+  state.registrationInput = null;
+  const missing = await POST({
+    ...request(),
+    json: async () => {
+      const body = await request().json();
+      delete body.turnstileToken;
+      return body;
+    },
+  });
+  assert.equal(missing.status, 400);
+  assert.equal(state.captchaChecks, 0);
+  assert.equal(state.registrationInput, null);
+
+  state.captchaPassed = false;
+  state.registrationInput = null;
+  const invalid = await POST(request());
+  assert.equal(invalid.status, 400);
+  assert.equal(state.captchaChecks, 1);
+  assert.equal(state.registrationInput, null);
+  state.captchaPassed = true;
 });

@@ -8,6 +8,10 @@ export async function middleware(request: NextRequest) {
   if (
     pathname === "/api/account/login" ||
     pathname === "/api/account/logout" ||
+    pathname === "/api/account/register" ||
+    pathname === "/api/account/verify" ||
+    pathname === "/register" ||
+    pathname === "/verify-email" ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico" ||
     /\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js)$/.test(pathname)
@@ -37,6 +41,10 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL(redirectUrl, request.url));
     }
     return NextResponse.next();
+  }
+
+  if ((pathname === "/register" || pathname === "/verify-email") && hasSession) {
+    return NextResponse.redirect(new URL("/", request.url));
   }
 
   // If visiting protected page without session, redirect to /login

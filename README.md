@@ -96,6 +96,70 @@ After deployment, use synthetic files to verify owner upload/download, rejection
 of cross-organization reads, viewer write denial, and persistence after an App
 Service restart. Check both Files and project attachments before real uploads.
 
+### Persistent account signup and email verification
+
+Public persistent signup is disabled unless the App Service setting
+`ACCOUNT_SIGNUP_ENABLED` is exactly `true`. Before deploying a version that
+uses this flow, apply
+[database/account-registration-schema.sql](database/account-registration-schema.sql)
+in SSMS to `overhead-testdb`. The migration creates pending-verification and
+shared SQL rate-limit tables and grants the existing `overhead_app` database
+principal access. If the application principal differs, stop and review the
+grant target before running the script. The login endpoint also uses the shared
+rate-limit table, so the schema migration must precede deployment.
+
+Configure these App Service settings privately before enabling signup:
+
+| Setting | Value |
+|---|---|
+| `AZURE_COMMUNICATION_EMAIL_ENDPOINT` | `https://overhead-communication.unitedstates.communication.azure.com` |
+| `AZURE_COMMUNICATION_EMAIL_SENDER` | `DoNotReply@3363b393-db15-447a-af00-6d46e399db58.azurecomm.net` |
+| `PUBLIC_APP_URL` | `https://overhead-ercgfdckdme4d8bv.westus3-01.azurewebsites.net` |
+| `ACCOUNT_SIGNUP_ENABLED` | Keep `false` until migration, email, and staged verification pass |
+
+The App Service system-assigned identity needs the Communication Services
+email-send role on `overhead-communication`. The app uses `ManagedIdentityCredential`
+there and `DefaultAzureCredential` for local development. No connection string
+or ACS access key is used. Verification mail is sent only through the real ACS
+Email SDK; incomplete configuration or delivery failure is logged and removal
+of the pending token is attempted, never treated as a successful send. Email is
+sent after the generic response to reduce timing-based account enumeration. The
+API keeps the same generic response for existing addresses and delivery
+failures. Run an Azure Portal **Try Email** test before enabling registration.
+
+Signup collects a name, company name, email, and password. It sends a generic
+response to avoid disclosing whether an address already has an account. Pending
+records contain only a PBKDF2 password hash and a SHA-256 hash of the random
+verification token. The one-use link expires after 30 minutes; the token is in
+the URL fragment, so browsers do not send it in the initial page request.
+Clicking the page's verification button creates the user, a separate Trial
+organization, an Owner membership and role with the 17 current application
+permissions, and default invoice settings in one SQL transaction. No email
+domain/company matching or auto-joining is performed. There is no password
+recovery or verification-resend flow yet.
+
+Shared SQL-backed limits apply to login (10/IP/15 minutes), registration
+(5/IP/hour and 3/address/hour), and verification (20/IP/15 minutes and
+5/token/15 minutes). Rate-limit identifiers are HMACed with `SESSION_SECRET`
+before storage; raw IPs and verification tokens are not stored in that table.
+Expired pending signups and rate-limit rows are pruned in bounded batches
+during requests. Public signup still needs
+operational monitoring and broader abuse controls before unrestricted launch.
+
+Keep `ACCOUNT_SIGNUP_ENABLED=false` during initial deployment. Test one new
+address end-to-end after applying the migration and configuring ACS. Confirm
+that no account or organization exists before verification, the email link
+creates exactly one isolated organization, replay/expiry fail, and login works.
+Then test a second signup and cross-company reads/writes. Conduct the planned
+focused security review before changing the setting to `true`. Account recovery,
+upload quotas, and malware scanning are remaining launch work.
+
+Run registration regressions with:
+
+```powershell
+node --experimental-strip-types --test app\lib\account-registration.test.mjs
+```
+
 ## Initial Azure SQL schema
 
 [database/azure-sql-baseline.sql](database/azure-sql-baseline.sql) is a schema-only

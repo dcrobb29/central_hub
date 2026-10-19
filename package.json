@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@azure/communication-email": "^1.1.0",
     "@azure/identity": "^4.14.0",
     "@azure/storage-blob": "^12.34.0",
     "@xyflow/react": "^12.12.0",

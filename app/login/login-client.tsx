@@ -2,8 +2,9 @@
 
 import { useState, type SubmitEvent } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 
-export default function LoginClient() {
+export default function LoginClient({ signupEnabled }: { signupEnabled: boolean }) {
   const searchParams = useSearchParams();
   const requestedTarget = searchParams.get("redirect") || "/";
   const redirectTarget = requestedTarget.startsWith("/") && !requestedTarget.startsWith("//")
@@ -97,6 +98,7 @@ export default function LoginClient() {
             {busy ? "Signing in..." : "Sign in"}
           </button>
         </form>
+        {signupEnabled && <p className="loginSubtitle"><Link href="/register">Create an account</Link></p>}
 
       </div>
     </main>

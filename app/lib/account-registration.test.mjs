@@ -1,0 +1,188 @@
+import assert from "node:assert/strict";
+import { registerHooks } from "node:module";
+import { test } from "node:test";
+
+process.env.SESSION_SECRET = "registration-test-secret-with-more-than-32-bytes";
+process.env.ACCOUNT_SIGNUP_ENABLED = "true";
+
+const state = {
+  pending: null,
+  existingUser: false,
+  expired: false,
+  permissionCount: 17,
+  rateAllowed: true,
+  queries: [],
+  commits: 0,
+  rollbacks: 0,
+  nextIds: { OrganizationID: 42, UserID: 89, MembershipID: 23, AccessRoleID: 11 },
+};
+globalThis.accountRegistrationTest = state;
+
+class Request {
+  constructor() { this.inputs = {}; }
+  input(name, type, value) { this.inputs[name] = value; return this; }
+  async query(query) {
+    state.queries.push({ query, inputs: { ...this.inputs } });
+    if (query.includes("FROM dbo.AuthenticationRateLimits")) return { recordset: [{ Allowed: state.rateAllowed }] };
+    if (query.includes("FROM dbo.PendingAccountVerifications WITH")) {
+      return { recordset: state.pending ? [{ ...state.pending, IsExpired: state.expired }] : [] };
+    }
+    if (query.includes("FROM dbo.Users WITH") && query.includes("NormalizedEmail")) {
+      return { recordset: state.existingUser ? [{ UserID: 7 }] : [] };
+    }
+    if (query.includes("FROM dbo.Permissions")) return { recordset: [{ PermissionCount: state.permissionCount }] };
+    for (const [table, idColumn] of Object.entries({
+      Organizations: "OrganizationID", Users: "UserID", OrganizationMemberships: "MembershipID", AccessRoles: "AccessRoleID",
+    })) {
+      if (query.includes(`INSERT INTO dbo.${table}`)) {
+        const id = state.nextIds[idColumn];
+        return { recordset: [{ [idColumn]: id }] };
+      }
+    }
+    return { recordset: [] };
+  }
+}
+
+class Transaction {
+  constructor() { this.requests = []; }
+  async begin(level) { this.level = level; }
+  request() { const request = new Request(); this.requests.push(request); return request; }
+  async commit() { state.commits++; }
+  async rollback() { state.rollbacks++; }
+}
+
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier === "mssql") return { url: new URL("./mssql-registration-stub.mjs", import.meta.url).href, shortCircuit: true };
+    if (specifier === "next/server") return nextResolve("next/server.js", context);
+    if (specifier.startsWith("@/app/lib/")) return nextResolve(new URL(`./${specifier.slice(10)}.ts`, import.meta.url).href, context);
+    if (specifier.startsWith(".") && !/\.[a-z]+$/.test(specifier) && context.parentURL?.includes("/app/")) return nextResolve(`${specifier}.ts`, context);
+    return nextResolve(specifier, context);
+  },
+  load(url, context, nextLoad) {
+    if (url === new URL("./mssql-registration-stub.mjs", import.meta.url).href) {
+      return { format: "module", shortCircuit: true, source: `
+        class Transaction { constructor() { return globalThis.accountRegistrationTest.makeTransaction(); } }
+        export default {
+          Transaction,
+          ISOLATION_LEVEL: { SERIALIZABLE: "SERIALIZABLE" },
+          NVarChar: size => ({ type: "nvarchar", size }),
+          VarBinary: size => ({ type: "varbinary", size }),
+          VarChar: size => ({ type: "varchar", size }),
+          Int: { type: "int" }
+        };` };
+    }
+    if (url === new URL("./db.ts", import.meta.url).href) {
+      return { format: "module", shortCircuit: true, source: `
+        export const sql = {};
+        export async function getPool() {
+          return { request() { return new globalThis.accountRegistrationTest.Request(); } };
+        }` };
+    }
+    return nextLoad(url, context);
+  },
+});
+state.Request = Request;
+state.makeTransaction = () => new Transaction();
+
+const registration = await import("./account-registration.ts");
+
+test("registration input validation normalizes email and enforces password and field bounds", () => {
+  const valid = registration.parseRegistrationInput({
+    email: "  TEST@Example.com ", displayName: " Test User ", organizationName: " Test Co ", password: "correct-horse-42",
+  });
+  assert.deepEqual(valid, {
+    email: "test@example.com", displayName: "Test User", organizationName: "Test Co", password: "correct-horse-42",
+  });
+  for (const body of [
+    {}, { email: "invalid", displayName: "x", organizationName: "y", password: "correct-horse-42" },
+    { email: "a@example.com", displayName: "", organizationName: "y", password: "correct-horse-42" },
+    { email: "a@example.com", displayName: "x", organizationName: "y", password: "short" },
+    { email: `a${"x".repeat(254)}@example.com`, displayName: "x", organizationName: "y", password: "correct-horse-42" },
+  ]) assert.equal(registration.parseRegistrationInput(body), null);
+});
+
+test("verification tokens are random, canonical, one-time input hashes and signup defaults are explicit", () => {
+  const first = registration.createVerificationToken();
+  const second = registration.createVerificationToken();
+  assert.notEqual(first.token, second.token);
+  assert.equal(first.hash.length, 32);
+  assert.deepEqual(registration.verificationTokenHash(first.token), first.hash);
+  assert.equal(registration.verificationTokenHash("invalid"), null);
+  assert.equal(registration.accountSignupEnabled(), true);
+  process.env.ACCOUNT_SIGNUP_ENABLED = "false";
+  assert.equal(registration.accountSignupEnabled(), false);
+  process.env.ACCOUNT_SIGNUP_ENABLED = "true";
+  assert.equal(registration.requestAddress(new RequestWithHeaders("198.51.100.1, 203.0.113.7")), "203.0.113.7");
+});
+
+class RequestWithHeaders {
+  constructor(forwarded) { this.headers = new Headers({ "x-forwarded-for": forwarded }); }
+}
+
+test("rate limits persist keyed hashes rather than raw identifiers", async () => {
+  state.queries = [];
+  state.rateAllowed = false;
+  assert.equal(await registration.consumeRateLimit("signup-email", "private@example.com", 3, 3600), false);
+  const entry = state.queries.at(-1);
+  assert.match(entry.query, /UPDLOCK, SERIALIZABLE/);
+  assert.equal(entry.inputs.scope, "signup-email");
+  assert.equal(entry.inputs.keyHash.length, 32);
+  assert.notEqual(entry.inputs.keyHash.toString(), "private@example.com");
+  assert.match(entry.query, /DATEDIFF\(minute/);
+  assert.doesNotMatch(entry.query, /DATEDIFF_BIG\(second/);
+  await assert.rejects(() => registration.consumeRateLimit("signup-ip", "ip", 5, 61), /Invalid authentication rate-limit configuration/);
+  state.rateAllowed = true;
+});
+
+test("account verification only provisions an isolated owner after an unexpired, unused token", async () => {
+  state.pending = {
+    NormalizedEmail: "new-owner@example.com",
+    DisplayName: "New Owner",
+    OrganizationName: "Independent Company",
+    PasswordHash: "pbkdf2:600000:0123456789abcdef0123456789abcdef:" + "a".repeat(64),
+  };
+  state.expired = false;
+  state.existingUser = false;
+  state.permissionCount = 17;
+  state.commits = 0;
+  state.rollbacks = 0;
+  state.queries = [];
+  const token = registration.createVerificationToken();
+  const created = await registration.completeVerifiedAccount(token.hash);
+  assert.deepEqual(created, { userId: 89, email: "new-owner@example.com", displayName: "New Owner" });
+  assert.equal(state.commits, 1);
+  assert.equal(state.rollbacks, 0);
+  const organizationInsert = state.queries.find(({ query }) => query.includes("INSERT INTO dbo.Organizations"));
+  assert.equal(organizationInsert.inputs.organizationName, "Independent Company");
+  assert.match(organizationInsert.inputs.organizationKey, /^[a-f0-9]{32}$/);
+  const ownerPermissions = state.queries.find(({ query }) => query.includes("INSERT INTO dbo.AccessRolePermissions"));
+  assert.equal(ownerPermissions.inputs.organizationId, 42);
+  assert.equal(ownerPermissions.inputs.roleId, 11);
+  const membershipRole = state.queries.find(({ query }) => query.includes("INSERT INTO dbo.MembershipAccessRoles"));
+  assert.deepEqual(membershipRole.inputs, { organizationId: 42, membershipId: 23, roleId: 11 });
+  assert.ok(state.queries.some(({ query }) => query.includes("DELETE FROM dbo.PendingAccountVerifications")));
+});
+
+test("expired, reused and permission-incomplete verifications never commit an account", async () => {
+  state.queries = [];
+  state.commits = 0;
+  state.rollbacks = 0;
+  const token = registration.createVerificationToken();
+  state.pending = null;
+  assert.equal(await registration.completeVerifiedAccount(token.hash), null);
+  state.pending = {
+    NormalizedEmail: "expired@example.com", DisplayName: "Expired", OrganizationName: "Expired Co",
+    PasswordHash: "pbkdf2:600000:0123456789abcdef0123456789abcdef:" + "a".repeat(64),
+  };
+  state.expired = true;
+  assert.equal(await registration.completeVerifiedAccount(token.hash), null);
+  assert.equal(state.queries.some(({ query }) => query.includes("INSERT INTO dbo.Organizations")), false);
+  state.expired = false;
+  state.permissionCount = 16;
+  await assert.rejects(() => registration.completeVerifiedAccount(token.hash), /permission catalog/);
+  assert.equal(state.rollbacks, 1);
+  assert.equal(state.commits, 2);
+  state.permissionCount = 17;
+  state.pending = null;
+});

@@ -5,9 +5,12 @@ import {
   SESSION_COOKIE_NAME,
 } from "@/app/lib/auth";
 import { getCurrentSession } from "@/app/lib/account";
+import { consumeRateLimit, requestAddress } from "@/app/lib/account-registration";
 
 export async function POST(request: NextRequest) {
   try {
+    const allowed = await consumeRateLimit("login-ip", requestAddress(request), 10, 900);
+    if (!allowed) return NextResponse.json({ error: "Too many sign-in attempts. Please try again later." }, { status: 429 });
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== "object") {
       return NextResponse.json({ error: "Invalid request payload" }, { status: 400 });
@@ -42,10 +45,10 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error("Unable to sign in", error);
+    console.error("Unable to sign in", error instanceof Error ? error.name : "UnknownError");
     return NextResponse.json(
       { error: "Sign-in is unavailable. Please try again later." },
-      { status: 500 },
+      { status: 503 },
     );
   }
 }

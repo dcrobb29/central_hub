@@ -36,6 +36,40 @@ ready in App Service Log stream and test the default hostname after deployment.
 `next: not found` indicates missing runtime dependencies/executable resolution;
 a missing production build indicates missing `.next` output.
 
+### SQL connection reliability
+
+`app/lib/db.ts` shares one SQL connection pool per module instance. Concurrent
+initialization/recovery requests share one connection attempt. Failed initial
+connections are not cached; a disconnected or unhealthy cached pool is closed
+and replaced on the next `getPool()` call. The driver retains its default
+connection validation and replacement of broken individual connections.
+Connection, pool acquisition, and query waits each have a 15-second timeout
+(not a single end-to-end request deadline). The pool allows up to 10
+connections and retires idle connections after 30 seconds.
+
+Recovery never replays a business query or transaction: an interrupted write
+may have committed, so automatic replay could duplicate changes. A failing
+request can still return an error; later requests can reconnect without an app
+restart. Pool error listeners record only error name, code, and numeric error
+number, never error messages, connection strings, SQL text, or credentials.
+Connection success logs include duration and whether the pool was replaced.
+These logs do not constitute configured alerts or a proven Azure outage fix.
+
+Run the mocked pool lifecycle tests:
+
+```powershell
+node --experimental-strip-types --test app\lib\db.test.mjs
+```
+
+After deployment, verify normal login, then login after an idle period. Test
+database unavailability and restoration only in a separate nonproduction slot
+and database: confirm an error during the outage, then successful requests
+without restarting the app after connectivity returns. Also test simultaneous
+requests and inspect pool recovery/error codes. Do not stop the live database,
+change production firewall rules, or invalidate credentials to induce a test.
+Azure SQL Resource Health, serverless auto-pause/resume (if configured), network
+access, and resource saturation still require operational investigation.
+
 Image optimization remains enabled, but `images.maximumDiskCacheSize: 0` in
 `next.config.ts` disables its filesystem cache because run-from-package mounts
 the deployment read-only. This avoids image-cache directory initialization and

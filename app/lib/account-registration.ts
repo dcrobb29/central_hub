@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { isIP } from "node:net";
 import sql from "mssql";
 import { getPool } from "./db";
 import { hashPassword } from "./auth";
@@ -256,5 +257,25 @@ export function accountSignupEnabled() {
 
 export function requestAddress(request: Request) {
   const forwarded = request.headers.get("x-forwarded-for")?.split(",").map(value => value.trim()).filter(Boolean);
-  return forwarded?.at(-1) ?? "unknown";
+  const address = forwarded?.at(-1);
+  if (!address) {
+    console.warn("Client address is missing; using a shared authentication rate-limit bucket");
+    return "unknown";
+  }
+
+  let ip = address;
+  if (!isIP(ip)) {
+    const endpoint = /^(?:\[([^\]]+)\]|([^:]+)):(\d{1,5})$/.exec(address);
+    const bracketed = /^\[([^\]]+)\]$/.exec(address);
+    if (endpoint && Number(endpoint[3]) <= 65535) {
+      const host = endpoint[1] ?? endpoint[2];
+      if (isIP(host) !== (endpoint[1] ? 6 : 4)) throw new Error("Invalid forwarded client address.");
+      ip = host;
+    } else if (bracketed && isIP(bracketed[1]) === 6) {
+      ip = bracketed[1];
+    } else {
+      throw new Error("Invalid forwarded client address.");
+    }
+  }
+  return isIP(ip) === 6 ? new URL(`http://[${ip}]/`).hostname.slice(1, -1) : ip;
 }

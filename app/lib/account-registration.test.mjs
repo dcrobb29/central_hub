@@ -122,6 +122,25 @@ class RequestWithHeaders {
   constructor(forwarded) { this.headers = new Headers({ "x-forwarded-for": forwarded }); }
 }
 
+test("client IP rate-limit identifiers ignore source ports and normalize IPv6", () => {
+  for (const address of [
+    "198.51.100.3", "198.51.100.3:12345", "198.51.100.3:54321",
+    "192.0.2.1, 198.51.100.3:443",
+  ]) {
+    assert.equal(registration.requestAddress(new RequestWithHeaders(address)), "198.51.100.3");
+  }
+  for (const address of [
+    "2001:db8::1", "2001:0DB8:0:0:0:0:0:1",
+    "[2001:db8::1]", "[2001:db8::1]:12345", "[2001:db8::1]:54321",
+  ]) {
+    assert.equal(registration.requestAddress(new RequestWithHeaders(address)), "2001:db8::1");
+  }
+  assert.equal(registration.requestAddress(new RequestWithHeaders("2001:db8::1234")), "2001:db8::1234");
+  for (const address of ["not-an-ip", "198.51.100.3:65536", "[invalid]:443", "198.51.100.3:abc"]) {
+    assert.throws(() => registration.requestAddress(new RequestWithHeaders(address)), /Invalid forwarded client address/);
+  }
+});
+
 test("rate limits persist keyed hashes rather than raw identifiers", async () => {
   state.queries = [];
   state.rateAllowed = false;

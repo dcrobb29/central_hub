@@ -160,6 +160,12 @@ login (10/IP/15 minutes), registration
 (5/IP/hour and 3/address/hour), and verification (20/IP/15 minutes and
 5/token/15 minutes). Rate-limit identifiers are HMACed with `SESSION_SECRET`
 before storage; raw IPs and verification tokens are not stored in that table.
+The client address uses the rightmost `X-Forwarded-For` entry under the current
+Azure App Service proxy topology. Source ports are removed and IPv6 addresses
+are canonicalized before hashing so new connections do not reset IP counters.
+Changing the proxy topology requires revalidating which entry is trusted.
+Missing addresses share a logged fallback bucket; malformed addresses fail
+the request. App restarts do not clear SQL rate-limit counters.
 Expired pending signups and rate-limit rows are pruned in bounded batches
 during requests. Public signup still needs
 operational monitoring and broader abuse controls before unrestricted launch.

@@ -697,7 +697,7 @@ export default function SettingsModal({
                 className="estimateTextAction"
                 disabled={busy || isPreviewingPdf}
                 onClick={() => void handlePreviewPdf()}
-                style={{ padding: "6px 12px", border: "1px solid #c5d1ca", borderRadius: "4px" }}
+                style={{ padding: "6px 12px", border: "1px solid var(--ui-color-border)", borderRadius: "4px" }}
               >
                 {isPreviewingPdf ? "Generating PDF..." : "Preview Sample PDF"}
               </button>
@@ -753,7 +753,7 @@ export default function SettingsModal({
                         <span className="accountYouBadge" style={{ background: accentColor }}>Active</span>
                       )}
                     </div>
-                    <p style={{ margin: "6px 0 0 0", fontSize: "12px", color: "#64748b", lineHeight: 1.4 }}>
+                    <p style={{ margin: "6px 0 0 0", fontSize: "12px", color: "var(--ui-color-muted)", lineHeight: 1.4 }}>
                       {s.desc}
                     </p>
                   </label>
@@ -776,7 +776,7 @@ export default function SettingsModal({
                       value={accentColor}
                       disabled={busy}
                       onChange={(e) => setAccentColor(e.target.value)}
-                      style={{ width: "42px", height: "36px", padding: "2px", border: "1px solid #ccc", borderRadius: "4px", cursor: "pointer" }}
+                      style={{ width: "42px", height: "36px", padding: "2px", border: "1px solid var(--ui-color-border)", borderRadius: "4px", cursor: "pointer" }}
                     />
                     <input
                       type="text"
@@ -977,7 +977,7 @@ export default function SettingsModal({
                     disabled={busy}
                     onChange={(e) => setPaymentInstructions(e.target.value)}
                     placeholder="e.g. Please send checks payable to Acme Corp. For ACH / Wire transfers: Bank of America, Routing #123456789, Acct #987654321."
-                    style={{ width: "100%", padding: "8px", fontSize: "13px", borderRadius: "4px", border: "1px solid #c5d1ca" }}
+                    style={{ width: "100%", padding: "8px", fontSize: "13px", borderRadius: "4px", border: "1px solid var(--ui-color-border)" }}
                   />
                 </label>
               </div>
@@ -991,7 +991,7 @@ export default function SettingsModal({
                     disabled={busy}
                     onChange={(e) => setDefaultNotes(e.target.value)}
                     placeholder="e.g. Thank you for your business! Please direct questions to our billing department."
-                    style={{ width: "100%", padding: "8px", fontSize: "13px", borderRadius: "4px", border: "1px solid #c5d1ca" }}
+                    style={{ width: "100%", padding: "8px", fontSize: "13px", borderRadius: "4px", border: "1px solid var(--ui-color-border)" }}
                   />
                 </label>
               </div>
@@ -1059,7 +1059,7 @@ export default function SettingsModal({
                     disabled={busy}
                     onChange={(e) => setEmailBodyTemplate(e.target.value)}
                     placeholder="Hello {customerName},&#10;&#10;Please find attached Invoice {invoiceNo} for {amount}.&#10;Project: {projectName}&#10;Due date: {dueDate}&#10;&#10;Thank you for your business!&#10;&#10;Sincerely,&#10;{companyName}"
-                    style={{ width: "100%", padding: "8px", fontSize: "13px", fontFamily: "monospace", borderRadius: "4px", border: "1px solid #c5d1ca" }}
+                    style={{ width: "100%", padding: "8px", fontSize: "13px", fontFamily: "monospace", borderRadius: "4px", border: "1px solid var(--ui-color-border)" }}
                   />
                 </label>
               </div>

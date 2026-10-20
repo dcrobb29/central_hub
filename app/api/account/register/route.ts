@@ -1,4 +1,5 @@
 import { after, NextResponse, type NextRequest } from "next/server";
+import { randomUUID } from "node:crypto";
 import { accountSignupEnabled, consumeRateLimit, createVerificationToken, parseRegistrationInput, registrationEmailAllowed, removePendingVerification, requestAccountVerification, requestAddress } from "@/app/lib/account-registration";
 import { sendVerificationEmail } from "@/app/lib/verification-email";
 import { verifyTurnstileToken } from "@/app/lib/turnstile";
@@ -17,6 +18,9 @@ function publicBaseUrl() {
 }
 
 export async function POST(request: NextRequest) {
+  const requestId = randomUUID();
+  const logStage = (stage: string) => console.info("Account registration", { requestId, stage });
+  logStage("received");
   if (!accountSignupEnabled()) return NextResponse.json({ error: "Account registration is not available." }, { status: 404 });
 
   const body = await request.json().catch(() => null);
@@ -32,30 +36,50 @@ export async function POST(request: NextRequest) {
     const address = requestAddress(request);
     const ipAllowed = await consumeRateLimit("signup-ip", address, 5, 3600);
     const emailAllowed = await consumeRateLimit("signup-email", input.email, 3, 3600);
-    if (!ipAllowed || !emailAllowed) return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
+    if (!ipAllowed || !emailAllowed) {
+      logStage("rate_limited");
+      return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
+    }
     if (!await verifyTurnstileToken(turnstileToken)) {
+      logStage("security_check_rejected");
       return NextResponse.json({ error: "The security check could not be verified. Please try again." }, { status: 400 });
     }
 
-    if (!registrationEmailAllowed(input.email)) return NextResponse.json(GENERIC_RESPONSE, { status: 202 });
+    if (!registrationEmailAllowed(input.email)) {
+      logStage("allowlist_rejected");
+      return NextResponse.json(GENERIC_RESPONSE, { status: 202 });
+    }
+    logStage("allowlist_accepted");
 
     const baseUrl = publicBaseUrl();
     const { token, hash } = createVerificationToken();
     const created = await requestAccountVerification(input, hash);
-    if (!created) return NextResponse.json(GENERIC_RESPONSE, { status: 202 });
+    if (!created) {
+      logStage("existing_account");
+      return NextResponse.json(GENERIC_RESPONSE, { status: 202 });
+    }
+    logStage("pending_created");
 
     const verificationUrl = new URL("/verify-email", baseUrl);
     verificationUrl.hash = new URLSearchParams({ token }).toString();
     after(async () => {
       let delivered = false;
+      logStage("email_send_started");
       try {
         delivered = await sendVerificationEmail(input.email, verificationUrl.toString());
       } catch (error) {
-        console.error("Verification email request failed", error instanceof Error ? error.name : "UnknownError");
+        const code: unknown = error && typeof error === "object" ? Reflect.get(error, "code") : undefined;
+        console.error("Verification email request failed", {
+          requestId,
+          name: error instanceof Error ? error.name : "UnknownError",
+          code: typeof code === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(code) ? code : undefined,
+        });
       }
+      logStage(delivered ? "email_send_succeeded" : "email_send_failed");
       if (!delivered) {
         try {
           await removePendingVerification(hash);
+          logStage("undelivered_pending_removed");
         } catch (error) {
           console.error("Unable to remove undelivered account verification", error instanceof Error ? error.name : "UnknownError");
         }
@@ -63,7 +87,7 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json(GENERIC_RESPONSE, { status: 202 });
   } catch (error) {
-    console.error("Unable to process account registration", error instanceof Error ? error.name : "UnknownError");
+    console.error("Unable to process account registration", { requestId, name: error instanceof Error ? error.name : "UnknownError" });
     return NextResponse.json({ error: "Registration is unavailable. Please try again later." }, { status: 503 });
   }
 }

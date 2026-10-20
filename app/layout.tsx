@@ -5,6 +5,10 @@ import "./design-system.css";
 import "./styles.css";
 import Header from "./header";
 import Footer from "./footer";
+import { AccountSessionProvider } from "./components/account-session-context";
+import { AppearanceProvider } from "./components/appearance-provider";
+import { APPEARANCE_BOOTSTRAP } from "./lib/appearance";
+import "./appearance.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -25,12 +29,16 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head><script dangerouslySetInnerHTML={{ __html: APPEARANCE_BOOTSTRAP }} /></head>
       <body className="appShell">
+        <AccountSessionProvider><AppearanceProvider>
         <Header />
         <div className="appContent">{children}</div>
         <Footer />
+        </AppearanceProvider></AccountSessionProvider>
       </body>
     </html>
   );

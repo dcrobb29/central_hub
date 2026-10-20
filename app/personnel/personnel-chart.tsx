@@ -164,7 +164,7 @@ export default function PersonnelChart({
         minZoom={0.2}
         maxZoom={1.5}
       >
-        <Background color="#d3d9d5" gap={24} />
+        <Background color="var(--ui-color-border)" gap={24} />
         <Controls />
       </ReactFlow>
     </div>

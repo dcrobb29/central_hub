@@ -428,7 +428,7 @@ export default function InvoiceTable({ className, invoices, projectOptions, cust
                           ✓ Sent {new Date(invoice.lastEmailedAt).toLocaleDateString()}
                         </span>
                       ) : (
-                        <span style={{ color: "var(--muted, #6c757d)", fontSize: "0.82rem" }}>Not sent</span>
+                        <span style={{ color: "var(--ui-color-muted)", fontSize: "0.82rem" }}>Not sent</span>
                       )
                     ) : (
                       formatValue(column.key, invoice[column.key])
@@ -573,7 +573,7 @@ export default function InvoiceTable({ className, invoices, projectOptions, cust
           <p className="financeImportHint">
             Send Invoice <strong>{emailingInvoice.invoiceNo}</strong> as a PDF attachment to the customer.
             {emailingInvoice.lastEmailedAt && (
-              <span style={{ display: "block", marginTop: "4px", color: "var(--color-success, #28a745)" }}>
+              <span style={{ display: "block", marginTop: "4px", color: "var(--ui-color-success)" }}>
                 Previously sent on {new Date(emailingInvoice.lastEmailedAt).toLocaleDateString()} to {emailingInvoice.lastEmailedTo || "customer"}.
               </span>
             )}

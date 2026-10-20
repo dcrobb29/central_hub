@@ -14,21 +14,21 @@
 
 .heading h1 {
   margin: 4px 0 8px;
-  color: #20362d;
+  color: var(--ui-color-text);
   font-size: 24px;
   line-height: 1.2;
 }
 
 .heading > p {
   margin: 0;
-  color: #53675d;
+  color: var(--ui-color-muted);
   font-size: 13px;
   line-height: 1.5;
 }
 
 .intro {
   margin: 0;
-  color: #53675d;
+  color: var(--ui-color-muted);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -37,7 +37,7 @@
 .dates {
   display: block;
   margin-top: 5px;
-  color: #53675d;
+  color: var(--ui-color-muted);
   font-size: 11px;
   overflow-wrap: anywhere;
 }
@@ -96,8 +96,8 @@
 }
 
 .card[data-highlighted] {
-  border-color: #32745f;
-  box-shadow: inset 3px 0 #32745f;
+  border-color: var(--ui-color-primary);
+  box-shadow: inset 3px 0 var(--ui-color-shadow);
 }
 
 .identity {
@@ -112,13 +112,13 @@
 }
 
 .identity h2 a {
-  color: #20362d;
-  text-decoration-color: #729787;
+  color: var(--ui-color-text);
+  text-decoration-color: var(--ui-color-border);
 }
 
 .identity p {
   margin: 5px 0 0;
-  color: #53675d;
+  color: var(--ui-color-muted);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -129,7 +129,7 @@
 }
 
 .identity .recurrence {
-  color: #53675d;
+  color: var(--ui-color-muted);
   font-size: 11px;
 }
 
@@ -142,7 +142,7 @@
 }
 
 .label {
-  color: #53675d;
+  color: var(--ui-color-muted);
   font-size: 11px;
 }
 
@@ -153,7 +153,7 @@
 
 .value strong {
   padding: 10px 0;
-  color: #183e35;
+  color: var(--ui-color-primary);
   font-size: 15px;
   line-height: 20px;
   overflow-wrap: anywhere;
@@ -182,7 +182,7 @@
   border: 1px solid var(--ui-color-record-action);
   border-radius: 4px;
   background: var(--ui-color-record-action);
-  color: var(--ui-color-surface);
+  color: var(--ui-color-on-primary);
   font-size: 13px;
   font-weight: 600;
   text-decoration: none;
@@ -207,7 +207,7 @@
 @media (min-width: 768px) {
   .card { grid-template-columns: minmax(0, 1fr) 140px 150px; }
   .identity { grid-column: auto; }
-  .actions { padding-top: 12px; border-top: 1px solid #edf1ee; }
+  .actions { padding-top: 12px; border-top: 1px solid var(--ui-color-border); }
 }
 
 /* lg: show the complete job summary on one row. */

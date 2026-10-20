@@ -28,7 +28,7 @@
 .workspace :global(.fieldOperationsHeader p) {
   max-width: 780px;
   margin: 4px 0;
-  color: #53675d;
+  color: var(--ui-color-muted);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -67,7 +67,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #53675d;
+  color: var(--ui-color-muted);
   font-size: 12px;
 }
 
@@ -76,24 +76,24 @@
   max-width: 100%;
   min-height: 40px;
   padding: 8px;
-  border: 1px solid #bdcbc3;
+  border: 1px solid var(--ui-color-border);
   border-radius: 4px;
-  background: #fff;
-  color: #294b3f;
+  background: var(--ui-color-surface);
+  color: var(--ui-color-text);
 }
 
 .saveNotice,
 .crewSummary,
 .dayHint {
   margin: 0;
-  color: #53675d;
+  color: var(--ui-color-muted);
   font-size: 12px;
   line-height: 1.5;
 }
 
 .warning {
   margin: 0;
-  color: #9b3025;
+  color: var(--ui-color-danger);
   font-size: 12px;
   font-weight: 600;
   line-height: 1.5;
@@ -132,18 +132,18 @@
   min-width: 0;
   min-height: 40px;
   padding: 8px 4px;
-  border: 1px solid #bdcbc3;
+  border: 1px solid var(--ui-color-border);
   border-radius: 4px;
-  background: #fff;
-  color: #294b3f;
+  background: var(--ui-color-surface);
+  color: var(--ui-color-text);
   font-size: 12px;
   cursor: pointer;
 }
 
 .dayNavigation button[aria-pressed="true"] {
-  border-color: #176347;
-  background: #176347;
-  color: #fff;
+  border-color: var(--ui-color-primary);
+  background: var(--ui-color-primary);
+  color: var(--ui-color-on-primary);
 }
 
 .dayNavigation span,
@@ -183,7 +183,7 @@
 
 .workspace :global(.fieldScheduledJobHeader strong[draggable="true"]) {
   padding-left: 8px;
-  border-left: 3px dotted #729f85;
+  border-left: 3px dotted var(--ui-color-border);
 }
 
 .workspace :global(.fieldScheduledJobHeader strong[draggable="false"]) {
@@ -214,10 +214,10 @@
   gap: 8px;
   min-height: 40px;
   padding: 8px 10px;
-  border: 1px solid #cbd6cf;
+  border: 1px solid var(--ui-color-border);
   border-radius: 4px;
-  background: #f4f8f5;
-  color: #294b3f;
+  background: var(--ui-color-surface-alt);
+  color: var(--ui-color-text);
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
@@ -246,17 +246,17 @@
 .removeVisit {
   min-height: 40px;
   padding: 8px 10px;
-  border: 1px solid #d4b5b0;
+  border: 1px solid var(--ui-color-border);
   border-radius: 4px;
-  background: #fff5f3;
-  color: #9b3025;
+  background: var(--ui-color-surface-alt);
+  color: var(--ui-color-danger);
   font-size: 12px;
   cursor: pointer;
 }
 
 .help p {
   margin: 12px;
-  color: #53675d;
+  color: var(--ui-color-muted);
   font-size: 12px;
   line-height: 1.6;
 }

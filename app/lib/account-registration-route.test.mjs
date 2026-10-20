@@ -7,6 +7,7 @@ const state = {
   allowed: true,
   created: true,
   emailDelivered: true,
+  sendError: null,
   sentUrl: "",
   afterCallback: null,
   removed: 0,
@@ -76,6 +77,7 @@ registerHooks({
         source: `
           export async function sendVerificationEmail(email, url) {
             globalThis.accountRegistrationRouteTest.sentUrl = url;
+            if (globalThis.accountRegistrationRouteTest.sendError) throw globalThis.accountRegistrationRouteTest.sendError;
             return globalThis.accountRegistrationRouteTest.emailDelivered;
           }`,
       };
@@ -204,5 +206,49 @@ test("unapproved addresses get the generic response without storing a token or s
     assert.equal(state.sentUrl, "");
   } finally {
     state.allowed = true;
+  }
+});
+
+test("stage logs distinguish allowlist rejection and ACS outcomes without logging private inputs", async () => {
+  const logs = [];
+  const originalInfo = console.info;
+  const originalError = console.error;
+  console.info = (...args) => logs.push(args);
+  console.error = (...args) => logs.push(args);
+  const stages = () => logs.filter(([event]) => event === "Account registration").map(([, fields]) => fields.stage);
+  try {
+    state.allowed = false;
+    await POST(request());
+    assert.deepEqual(stages(), ["received", "allowlist_rejected"]);
+    logs.length = 0;
+    state.allowed = true;
+    state.created = true;
+    state.emailDelivered = true;
+    await POST(request());
+    await state.afterCallback();
+    assert.deepEqual(stages(), [
+      "received", "allowlist_accepted", "pending_created", "email_send_started", "email_send_succeeded",
+    ]);
+    const ids = logs.map(([, fields]) => fields.requestId);
+    assert.equal(new Set(ids).size, 1);
+    assert.match(ids[0], /^[a-f0-9-]{36}$/);
+    logs.length = 0;
+    state.sendError = Object.assign(new Error("private SDK message tester@example.com"), { code: "Denied" });
+    await POST(request());
+    await state.afterCallback();
+    assert.ok(stages().includes("email_send_failed"));
+    assert.ok(stages().includes("undelivered_pending_removed"));
+    assert.equal(logs.find(([event]) => event === "Verification email request failed")[1].code, "Denied");
+    const serialized = JSON.stringify(logs);
+    for (const privateValue of [
+      "tester@example.com", "Test User", "Test Company", "attacker-chosen-password",
+      "valid-turnstile-token", state.sentUrl, "private SDK message",
+    ]) assert.equal(serialized.includes(privateValue), false);
+  } finally {
+    console.info = originalInfo;
+    console.error = originalError;
+    state.allowed = true;
+    state.sendError = null;
+    state.emailDelivered = true;
   }
 });

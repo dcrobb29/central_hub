@@ -1,18 +1,6 @@
 /* Shared foundations. Legacy aliases preserve their existing geometry during migration. */
 /* Tokens: palette, sizing, spacing and typography. */
 :root {
-  --ui-color-page: #eaf0ed;
-  --ui-color-surface: #fff;
-  --ui-color-text: #20362d;
-  --ui-color-muted: #53675d;
-  --ui-color-border: #d0dad4;
-  --ui-color-primary: #1f604e;
-  --ui-color-primary-hover: #164b3b;
-  --ui-color-record-action: #176347;
-  --ui-color-people-action: #183e35;
-  --ui-color-danger: #8a2f29;
-  --ui-color-eyebrow: #80502f;
-  --ui-color-people-eyebrow: #58716a;
   --ui-control-height: 40px;
   --ui-radius-control: 3px;
   --ui-radius-panel: 6px;
@@ -48,7 +36,7 @@
 .financeImportButton,
 .financeImportSubmit {
   background: var(--ui-color-primary);
-  color: var(--ui-color-surface);
+  color: var(--ui-color-on-primary);
 }
 
 .financeImportButton {
@@ -74,7 +62,7 @@
 .financeImportDanger {
   border-color: var(--ui-color-danger);
   background: var(--ui-color-danger);
-  color: var(--ui-color-surface);
+  color: var(--ui-color-on-semantic);
 }
 
 /* Buttons: underlined utility and destructive text actions. */

@@ -1,0 +1,119 @@
+:root {
+  --theme-page: #eaf0ed;
+  --theme-surface: #ffffff;
+  --theme-accent: #1f604e;
+  --theme-text: #20362d;
+  --theme-on-accent: #ffffff;
+  --ui-color-page: var(--theme-page);
+  --ui-color-surface: var(--theme-surface);
+  --ui-color-text: var(--theme-text);
+  --ui-color-primary: var(--theme-accent);
+  --ui-color-primary-hover: color-mix(in srgb, var(--theme-accent) 85%, var(--theme-text));
+  --ui-color-on-primary: var(--theme-on-accent);
+  --ui-color-muted: color-mix(in srgb, var(--theme-text) 78%, var(--theme-surface));
+  --ui-color-border: color-mix(in srgb, var(--theme-text) 30%, var(--theme-surface));
+  --ui-color-surface-alt: color-mix(in srgb, var(--theme-accent) 7%, var(--theme-surface));
+  --ui-color-selected: color-mix(in srgb, var(--theme-accent) 15%, var(--theme-surface));
+  --ui-color-record-action: var(--theme-accent);
+  --ui-color-people-action: var(--theme-accent);
+  --ui-color-eyebrow: var(--ui-color-muted);
+  --ui-color-people-eyebrow: var(--ui-color-muted);
+  --ui-color-danger: #a12828;
+  --ui-color-warning: #805000;
+  --ui-color-success: #215b38;
+  --ui-color-info: #005a8d;
+  --ui-color-on-semantic: #ffffff;
+  --ui-color-danger-bg: color-mix(in srgb, var(--ui-color-danger) 9%, var(--theme-surface));
+  --ui-color-warning-bg: color-mix(in srgb, var(--ui-color-warning) 9%, var(--theme-surface));
+  --ui-color-success-bg: color-mix(in srgb, var(--ui-color-success) 9%, var(--theme-surface));
+  --ui-color-info-bg: color-mix(in srgb, var(--ui-color-info) 9%, var(--theme-surface));
+  --ui-color-shadow: rgb(0 0 0 / 18%);
+  --ui-color-overlay: rgb(0 0 0 / 55%);
+  --background: var(--theme-page);
+  --foreground: var(--theme-text);
+  color-scheme: light;
+  accent-color: var(--theme-accent);
+}
+
+:root[data-tone="dark"] {
+  color-scheme: dark;
+  --ui-color-danger: #ffb4ac;
+  --ui-color-warning: #ffda89;
+  --ui-color-success: #a0ddba;
+  --ui-color-info: #8fceff;
+  --ui-color-on-semantic: #000000;
+}
+
+:root[data-theme="contrast-light"],
+:root[data-theme="contrast-dark"] {
+  --ui-color-muted: var(--theme-text);
+  --ui-color-border: var(--theme-text);
+}
+
+:root[data-theme="vision"] {
+  --ui-color-danger: #9f3400;
+  --ui-color-warning: #765600;
+  --ui-color-success: #005a8d;
+}
+
+body { background: var(--theme-page); color: var(--theme-text); }
+input, select, textarea { color: var(--theme-text); }
+input::placeholder, textarea::placeholder { color: var(--ui-color-muted); opacity: 1; }
+
+.uiButtonPrimary, .financeImportButton, .financeImportSubmit {
+  color: var(--theme-on-accent);
+}
+.uiButtonDanger, .financeImportDanger { color: var(--ui-color-on-semantic); }
+
+.appearanceQuick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.appearanceToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--ui-color-surface);
+  color: var(--ui-color-text);
+  border: 1px solid var(--ui-color-border);
+  min-height: 36px;
+}
+.appearanceSwitch { display: inline-flex; align-items: center; width: 32px; height: 18px; padding: 2px; border: 1px solid currentColor; border-radius: 12px; }
+.appearanceSwitch > span { width: 12px; height: 12px; background: currentColor; border-radius: 50%; }
+.appearanceSwitch[data-slot="B"] { justify-content: flex-end; }
+.appearanceSwitch[data-slot="system"] { justify-content: center; }
+.appearanceError { color: var(--ui-color-danger); font-size: 12px; max-width: 260px; }
+.appearanceModal { width: min(720px, 95vw); }
+.appearanceGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+.appearanceCheck { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; }
+.appearanceColor { display: flex; align-items: center; gap: 8px; }
+.appearanceColor input[type="color"] { width: 48px; height: 40px; flex: 0 0 auto; padding: 2px; }
+.appearanceWarning { padding: 12px; border: 1px solid var(--ui-color-warning); background: var(--ui-color-warning-bg); }
+.appearanceWarning ul { padding-left: 20px; }
+.appearanceModal p { font-size: 13px; line-height: 1.5; }
+/* Keep recovery controls readable even when a custom palette has no contrast. */
+.appearanceModal .financeImportCancel {
+  color: #000000;
+  background: #ffffff;
+  border-color: #000000;
+}
+.react-flow {
+  --xy-background-color-default: var(--theme-page);
+  --xy-edge-stroke-default: var(--ui-color-muted);
+  --xy-edge-stroke-selected-default: var(--theme-accent);
+  --xy-controls-button-background-color-default: var(--theme-surface);
+  --xy-controls-button-background-color-hover-default: var(--ui-color-selected);
+  --xy-controls-button-color-default: var(--theme-text);
+  --xy-controls-button-border-color-default: var(--ui-color-border);
+  --xy-minimap-background-color-default: var(--theme-surface);
+  --xy-minimap-node-background-color-default: var(--theme-accent);
+  --xy-minimap-mask-background-color-default: var(--ui-color-shadow);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tone]) {
+    --theme-page: #101916;
+    --theme-surface: #1b2923;
+    --theme-accent: #80cfb0;
+    --theme-text: #edf5f0;
+    --theme-on-accent: #000000;
+    color-scheme: dark;
+  }
+}

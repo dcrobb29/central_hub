@@ -26,19 +26,19 @@
   align-items: center;
   min-height: 40px;
   padding: 8px 14px;
-  border: 1px solid #cbd8d0;
+  border: 1px solid var(--ui-color-border);
   border-radius: 4px;
-  background: #fff;
-  color: #294f3e;
+  background: var(--ui-color-surface);
+  color: var(--ui-color-text);
   font-size: 13px;
   font-weight: 600;
   text-decoration: none;
 }
 
 .navigation a[aria-current="page"] {
-  border-color: #176347;
-  background: #176347;
-  color: #fff;
+  border-color: var(--ui-color-primary);
+  background: var(--ui-color-primary);
+  color: var(--ui-color-on-primary);
 }
 
 .toolbar,
@@ -74,7 +74,7 @@
   padding: 0;
   border: 0;
   background: none;
-  color: #20362d;
+  color: var(--ui-color-text);
   font: inherit;
   text-align: left;
   text-decoration: underline;
@@ -98,11 +98,11 @@
 }
 
 .workspace :global(.projectProfitNegative) {
-  color: #a12828;
+  color: var(--ui-color-danger);
 }
 
 .workspace :global(.projectProfitPositive) {
-  color: #176347;
+  color: var(--ui-color-primary);
 }
 
 .facts {
@@ -118,13 +118,13 @@
 
 .facts dt {
   margin-bottom: 6px;
-  color: #53675d;
+  color: var(--ui-color-muted);
   font-size: 12px;
 }
 
 .facts dd {
   margin: 0;
-  color: #20362d;
+  color: var(--ui-color-text);
   font-size: 14px;
   white-space: pre-wrap;
 }
@@ -132,9 +132,9 @@
 .section {
   min-width: 0;
   padding: 20px;
-  border: 1px solid #d0dad4;
+  border: 1px solid var(--ui-color-border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--ui-color-surface);
 }
 
 .section h2 {
@@ -148,18 +148,18 @@
 
 .record :global(.projectHubTabs button) {
   padding: 10px 16px;
-  border: 1px solid #cbd8d0;
+  border: 1px solid var(--ui-color-border);
   border-bottom-width: 3px;
   border-radius: 4px 4px 0 0;
-  background: #fff;
-  color: #294f3e;
+  background: var(--ui-color-surface);
+  color: var(--ui-color-text);
   font-size: 13px;
   cursor: pointer;
 }
 
 .record :global(.projectHubTabs button[aria-pressed="true"]) {
-  border-bottom-color: #176347;
-  background: #edf5ef;
+  border-bottom-color: var(--ui-color-primary);
+  background: var(--ui-color-surface-alt);
 }
 
 .filters {
@@ -170,7 +170,7 @@
 
 .hint {
   margin: 0;
-  color: #53675d;
+  color: var(--ui-color-muted);
   font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;

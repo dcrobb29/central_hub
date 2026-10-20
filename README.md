@@ -14,6 +14,46 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 ## Azure App Service deployment
 
+### User appearance preferences
+
+Appearance changes are local until deployed. Apply
+`database/user-appearance-preferences.sql` to the intended local database before
+testing, and separately to Azure only when releasing. The migration creates a
+user-keyed JSON preference table and grants the existing `overhead_app` principal
+read/insert/update access; review that grant if your local principal differs.
+No organization settings, existing users, or signup configuration are changed.
+
+Open the profile menu → **Profile → Visualizations** to choose slots A/B from Light, Dark,
+Custom, High-contrast Light/Dark, or Color-vision-friendly. The header toggle
+switches between those slots and persists the active slot. Initially the OS
+chooses Light/Dark; the Follow system checkbox opts back into that behavior.
+One custom palette has four validated hexadecimal inputs (page, panel, accent,
+text); shared CSS tokens derive borders, muted text, selected and hover states.
+Save persists to the authenticated user's ID; Cancel restores the saved theme.
+Reset previews defaults until Save. Existing users without a preference row
+receive defaults; database errors are visible, not silently saved locally.
+
+Signed-out pages use the last browser-cached appearance or the OS default.
+Only appearance values are cached; no identity or credentials are included.
+Signing into a different account loads that account's own preferences rather
+than adopting the previous account's cache. A pre-hydration script applies the
+cache before first paint. This is an inline script; a future strict CSP must
+authorize it with a nonce/hash rather than enabling arbitrary inline scripts.
+
+Low contrast is warned about, not blocked. Reset/Cancel remain readable even
+with an unusable palette. Accessibility presets are starting points, not a
+claim of universal accessibility; status labels and chart relationships remain
+non-color cues. Semantic danger/warning/success colors remain independent.
+PDFs, invoice email templates, invoice accent settings, logos, and uploaded
+images retain their own colors. Preferences load across devices on sign-in or
+page reload; simultaneous edits use last successful save, not live syncing.
+
+Validation:
+`node --experimental-strip-types --test app\lib\appearance.test.mjs app\lib\appearance-route.test.mjs`.
+Use two accounts to verify independent saves and reloads. Also check OS changes,
+both slots, Custom preview/Cancel/Save/Reset, signed-out reload, low-contrast
+warnings, chart controls, and narrow screens.
+
 [The Overhead workflow](.github/workflows/master_overhead.yml) builds on Ubuntu
 with Node 24 using `npm ci` and `npm run build`. It packages the production
 `.next` directory, dependencies (including the Next.js executable), public
@@ -160,6 +200,13 @@ Configure these App Service settings privately before enabling signup:
 | `ACCOUNT_SIGNUP_ALLOWED_EMAILS` | Comma-separated exact email addresses approved for pilot registration; required for new accounts |
 
 Pilot registration is server-restricted to `ACCOUNT_SIGNUP_ALLOWED_EMAILS`.
+Registration emits `Account registration` runtime logs with a random request ID
+and processing stage, without email addresses, names, tokens, or passwords.
+Use `allowlist_rejected`, `pending_created`, `email_send_started`, and the final
+`email_send_succeeded`/`email_send_failed` stages to diagnose generic responses.
+A successful send operation is ACS acceptance, not proof of inbox delivery;
+use ACS delivery diagnostics for recipient delivery status. Thrown email errors
+record a sanitized SDK code, never the SDK message or verification link.
 Configure the list privately in App Service settings, not source code or
 `NEXT_PUBLIC_` variables. Add later testers by appending their exact email
 addresses with commas, then apply the setting. Matching ignores case and

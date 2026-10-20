@@ -4,12 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import ProfileModal from "./profile-modal";
 import SettingsModal from "./settings-modal";
+import AppearanceModal from "./appearance-modal";
 import { useAccountSession } from "./account-session-context";
 
 export default function UserProfile() {
   const { session, loading, refreshSession, updateSessionLocally } = useAccountSession();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [activeModal, setActiveModal] = useState<"profile" | "settings" | null>(null);
+  const [activeModal, setActiveModal] = useState<"profile" | "settings" | "appearance" | null>(null);
 
   const menuRoot = useRef<HTMLDivElement>(null);
 
@@ -119,11 +120,13 @@ export default function UserProfile() {
         )}
       </div>
 
+      {activeModal === "appearance" && <AppearanceModal onClose={() => setActiveModal(null)} />}
       {activeModal === "profile" && (
         <ProfileModal
           session={session}
           onClose={() => setActiveModal(null)}
           onSessionUpdated={(updated) => updateSessionLocally(() => updated)}
+          onVisualizations={() => setActiveModal("appearance")}
         />
       )}
 

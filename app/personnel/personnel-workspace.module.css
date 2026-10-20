@@ -1,6 +1,6 @@
 .page {
   overflow: auto;
-  background: #eaf0ed;
+  background: var(--ui-color-page);
 }
 
 .workspace {
@@ -65,15 +65,15 @@
 }
 
 .record :global(.projectHubTabs a) {
-  border: 1px solid #cbd8d0;
+  border: 1px solid var(--ui-color-border);
   border-bottom-width: 3px;
   border-radius: 4px 4px 0 0;
-  background: #f4f8f5;
+  background: var(--ui-color-surface-alt);
 }
 
 .record :global(.projectHubTabs a[aria-current="page"]) {
-  border-bottom-color: #176347;
-  background: #edf5ef;
+  border-bottom-color: var(--ui-color-primary);
+  background: var(--ui-color-surface-alt);
 }
 
 .reports {
@@ -124,7 +124,7 @@
 
 .chart :global(.orgPersonCard) {
   cursor: pointer;
-  border-color: #729f85;
+  border-color: var(--ui-color-border);
 }
 
 .chart :global(.orgPersonCard strong) {

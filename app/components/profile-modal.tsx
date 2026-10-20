@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type SubmitEvent } from "react";
 import Modal from "@/app/components/modal";
 import type { AccountSession } from "@/app/lib/account";
 
@@ -8,10 +8,12 @@ export default function ProfileModal({
   session,
   onClose,
   onSessionUpdated,
+  onVisualizations,
 }: {
   session: AccountSession;
   onClose: () => void;
   onSessionUpdated: (updated: AccountSession) => void;
+  onVisualizations: () => void;
 }) {
   const [displayName, setDisplayName] = useState(session.user.displayName);
   const [phone, setPhone] = useState(session.user.phone ?? "");
@@ -19,7 +21,7 @@ export default function ProfileModal({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  async function handleSubmit(event: React.FormEvent) {
+  async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -76,6 +78,14 @@ export default function ProfileModal({
             </div>
           </div>
         </div>
+
+        <fieldset className="financeImportGroup">
+          <legend>Visualizations</legend>
+          <p>Choose Light, Dark, accessibility presets, or your own colors. Configure the two themes used by the header switch.</p>
+          <button type="button" className="financeImportCancel" disabled={busy} onClick={onVisualizations}>
+            Customize visualizations
+          </button>
+        </fieldset>
 
         <fieldset className="financeImportGroup">
           <legend>Organization &amp; Roles</legend>

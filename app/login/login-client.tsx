@@ -51,7 +51,7 @@ export default function LoginClient({ signupEnabled }: { signupEnabled: boolean 
         </div>
 
         {error && (
-          <div className="financeImportError" role="alert" style={{ marginBottom: "16px", padding: "10px", background: "#fdf3f2", borderRadius: "4px" }}>
+          <div className="financeImportError" role="alert" style={{ marginBottom: "16px", padding: "10px", background: "var(--ui-color-danger-bg)", borderRadius: "4px" }}>
             {error}
           </div>
         )}

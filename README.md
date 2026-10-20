@@ -157,6 +157,24 @@ Configure these App Service settings privately before enabling signup:
 | `TURNSTILE_SITE_KEY` | Public site key from the Turnstile widget |
 | `TURNSTILE_SECRET_KEY` | Secret key from that widget; keep private in App Service settings |
 | `ACCOUNT_SIGNUP_ENABLED` | Keep `false` until migration, email, and staged verification pass |
+| `ACCOUNT_SIGNUP_ALLOWED_EMAILS` | Comma-separated exact email addresses approved for pilot registration; required for new accounts |
+
+Pilot registration is server-restricted to `ACCOUNT_SIGNUP_ALLOWED_EMAILS`.
+Configure the list privately in App Service settings, not source code or
+`NEXT_PUBLIC_` variables. Add later testers by appending their exact email
+addresses with commas, then apply the setting. Matching ignores case and
+surrounding whitespace, but does not expand domains, wildcards, Gmail dots,
+or plus aliases. Missing/empty lists allow no new registrations; malformed
+lists fail the request with a server error. Unapproved addresses receive the
+same generic 202 response, after throttling and Turnstile, without creating a
+pending token or sending email.
+
+Verification checks the current list again before provisioning. Removing an
+address invalidates its outstanding link on submission, but does not revoke
+an already-created account or change existing logins. The signup enable flag
+still controls new requests; turning it off alone does not invalidate issued
+links for approved addresses. This pilot restriction remains in force until
+explicitly changed in code; an empty list never means unrestricted signup.
 
 Create a [Cloudflare Turnstile widget](https://developers.cloudflare.com/turnstile/get-started/)
 and allow-list the exact App Service hostname

@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 const state = {
   enabled: true,
+  allowed: true,
   created: true,
   emailDelivered: true,
   sentUrl: "",
@@ -52,6 +53,7 @@ registerHooks({
         shortCircuit: true,
         source: `
           export const accountSignupEnabled = () => globalThis.accountRegistrationRouteTest.enabled;
+          export const registrationEmailAllowed = () => globalThis.accountRegistrationRouteTest.allowed;
           export async function consumeRateLimit() { globalThis.accountRegistrationRouteTest.rateChecks++; return true; }
           export const createVerificationToken = () => ({ token: "a".repeat(43), hash: Buffer.alloc(32, 1) });
           export function parseRegistrationInput(value) {
@@ -180,4 +182,27 @@ test("registration rejects missing or invalid Turnstile proof before creating a 
   assert.equal(state.captchaChecks, 1);
   assert.equal(state.registrationInput, null);
   state.captchaPassed = true;
+});
+
+test("unapproved addresses get the generic response without storing a token or scheduling email", async () => {
+  state.allowed = false;
+  state.registrationInput = null;
+  state.afterCallback = null;
+  state.sentUrl = "";
+  state.rateChecks = 0;
+  state.captchaChecks = 0;
+  try {
+    const response = await POST(request());
+    assert.equal(response.status, 202);
+    assert.deepEqual(await response.json(), {
+      message: "If registration is available for this address, verification instructions will be sent.",
+    });
+    assert.equal(state.rateChecks, 2);
+    assert.equal(state.captchaChecks, 1);
+    assert.equal(state.registrationInput, null);
+    assert.equal(state.afterCallback, null);
+    assert.equal(state.sentUrl, "");
+  } finally {
+    state.allowed = true;
+  }
 });

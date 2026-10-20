@@ -1,5 +1,5 @@
 import { after, NextResponse, type NextRequest } from "next/server";
-import { accountSignupEnabled, consumeRateLimit, createVerificationToken, parseRegistrationInput, removePendingVerification, requestAccountVerification, requestAddress } from "@/app/lib/account-registration";
+import { accountSignupEnabled, consumeRateLimit, createVerificationToken, parseRegistrationInput, registrationEmailAllowed, removePendingVerification, requestAccountVerification, requestAddress } from "@/app/lib/account-registration";
 import { sendVerificationEmail } from "@/app/lib/verification-email";
 import { verifyTurnstileToken } from "@/app/lib/turnstile";
 
@@ -36,6 +36,8 @@ export async function POST(request: NextRequest) {
     if (!await verifyTurnstileToken(turnstileToken)) {
       return NextResponse.json({ error: "The security check could not be verified. Please try again." }, { status: 400 });
     }
+
+    if (!registrationEmailAllowed(input.email)) return NextResponse.json(GENERIC_RESPONSE, { status: 202 });
 
     const baseUrl = publicBaseUrl();
     const { token, hash } = createVerificationToken();

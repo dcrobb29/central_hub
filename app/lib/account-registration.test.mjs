@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 process.env.SESSION_SECRET = "registration-test-secret-with-more-than-32-bytes";
 process.env.ACCOUNT_SIGNUP_ENABLED = "true";
+process.env.ACCOUNT_SIGNUP_ALLOWED_EMAILS = "new-owner@example.com,expired@example.com";
 
 const state = {
   pending: null,
@@ -86,6 +87,28 @@ state.Request = Request;
 state.makeTransaction = () => new Transaction();
 
 const registration = await import("./account-registration.ts");
+
+test("signup allowlist fails closed and matches only normalized exact email addresses", () => {
+  const original = process.env.ACCOUNT_SIGNUP_ALLOWED_EMAILS;
+  try {
+    delete process.env.ACCOUNT_SIGNUP_ALLOWED_EMAILS;
+    assert.equal(registration.registrationEmailAllowed("tester@example.com"), false);
+    process.env.ACCOUNT_SIGNUP_ALLOWED_EMAILS = "  ";
+    assert.equal(registration.registrationEmailAllowed("tester@example.com"), false);
+    process.env.ACCOUNT_SIGNUP_ALLOWED_EMAILS = " Tester@Example.com , second@example.com ";
+    assert.equal(registration.registrationEmailAllowed(" TESTER@example.com "), true);
+    assert.equal(registration.registrationEmailAllowed("second@example.com"), true);
+    for (const email of ["tester+alias@example.com", "other@example.com", "tester@example.com.attacker.test"]) {
+      assert.equal(registration.registrationEmailAllowed(email), false);
+    }
+    for (const configuration of ["*", "@example.com", "tester@example.com,", "invalid"]) {
+      process.env.ACCOUNT_SIGNUP_ALLOWED_EMAILS = configuration;
+      assert.throws(() => registration.registrationEmailAllowed("tester@example.com"), /ACCOUNT_SIGNUP_ALLOWED_EMAILS/);
+    }
+  } finally {
+    process.env.ACCOUNT_SIGNUP_ALLOWED_EMAILS = original;
+  }
+});
 
 test("registration input validation normalizes email and enforces field bounds without accepting a password", () => {
   const valid = registration.parseRegistrationInput({
@@ -226,4 +249,23 @@ test("expired, reused and permission-incomplete verifications never commit an ac
   assert.equal(state.commits, 2);
   state.permissionCount = 17;
   state.pending = null;
+});
+
+test("removing an address from the allowlist prevents an outstanding link from provisioning", async () => {
+  state.pending = {
+    NormalizedEmail: "removed@example.com", DisplayName: "Removed", OrganizationName: "Test",
+  };
+  state.expired = false;
+  state.existingUser = false;
+  state.queries = [];
+  state.commits = 0;
+  try {
+    const token = registration.createVerificationToken();
+    assert.equal(await registration.completeVerifiedAccount(token.hash, "mailbox-owner-password"), null);
+    assert.equal(state.commits, 1);
+    assert.ok(state.queries.some(({ query }) => query.includes("DELETE FROM dbo.PendingAccountVerifications")));
+    assert.equal(state.queries.some(({ query }) => query.includes("INSERT INTO")), false);
+  } finally {
+    state.pending = null;
+  }
 });

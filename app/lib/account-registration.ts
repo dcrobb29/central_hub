@@ -31,6 +31,16 @@ export function parseRegistrationInput(value: unknown): RegistrationInput | null
   return { email, displayName, organizationName };
 }
 
+export function registrationEmailAllowed(email: string): boolean {
+  const configured = process.env.ACCOUNT_SIGNUP_ALLOWED_EMAILS?.trim();
+  if (!configured) return false;
+  const emails = configured.split(",").map(value => value.trim().toLowerCase());
+  if (emails.some(value => value.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))) {
+    throw new Error("ACCOUNT_SIGNUP_ALLOWED_EMAILS must contain comma-separated email addresses.");
+  }
+  return emails.includes(email.trim().toLowerCase());
+}
+
 function keyedRateHash(scope: string, identifier: string): Buffer {
   const secret = process.env.SESSION_SECRET;
   if (!secret || Buffer.byteLength(secret, "utf8") < 32) throw new Error("SESSION_SECRET is not configured.");
@@ -140,7 +150,7 @@ export async function completeVerifiedAccount(tokenHash: Buffer, password: strin
       await transaction.commit();
       return null;
     }
-    if (record.IsExpired) {
+    if (record.IsExpired || !registrationEmailAllowed(record.NormalizedEmail)) {
       await transaction.request().input("tokenHash", sql.VarBinary(32), tokenHash)
         .query("DELETE FROM dbo.PendingAccountVerifications WHERE TokenHash = @tokenHash");
       await transaction.commit();

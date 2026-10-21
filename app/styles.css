@@ -397,7 +397,6 @@
 }
 
 .estimateStatusWon { background: var(--ui-color-surface-alt); color: var(--ui-color-primary); }
-.estimateStatusSent { background: var(--ui-color-surface-alt); color: var(--ui-color-info); }
 .estimateStatusLost { background: var(--ui-color-surface-alt); color: var(--ui-color-danger); }
 
 .estimateActionsInner {

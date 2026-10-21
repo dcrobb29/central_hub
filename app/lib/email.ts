@@ -83,8 +83,8 @@ function getSmtpTransporter(): Transporter | null {
  */
 export async function sendEmail(options: SendEmailOptions): Promise<SendEmailResult> {
   const defaultFrom = process.env.GMAIL_USER
-    ? `Resolution <${process.env.GMAIL_USER}>`
-    : "Resolution Invoicing <billing@resolution.local>";
+    ? `Overhead <${process.env.GMAIL_USER}>`
+    : "Overhead <billing@resolution.local>";
   const fromAddress = options.from || process.env.EMAIL_FROM || defaultFrom;
 
   // 1. Azure Communication Services check (future Azure deployment)

@@ -9,7 +9,7 @@ export default function Header() {
   return (
       <div className="header">
         <Link href="/" aria-label="Go to home page">
-          <img className="logo" src="/logo.png" alt="Logo" />
+          <img className="logo" src="/logo2.png" alt="Logo" />
         </Link>
         <HeaderCompanyName />
         <div className="headerRight">

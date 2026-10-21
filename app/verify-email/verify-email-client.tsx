@@ -45,7 +45,7 @@ export default function VerifyEmailClient() {
   return <main className="loginShell">
     <div className="loginCard">
       <div className="loginHeader">
-        <img src="/logo.png" alt="Resolution" className="loginLogo" />
+        <img src="/logo2.png" alt="Overhead" className="loginLogo" />
         <h1 className="loginTitle">Verify your email</h1>
         <p className="loginSubtitle">{token ? "Set your password to verify this email address and finish creating your account." : "This verification link is missing or invalid."}</p>
       </div>

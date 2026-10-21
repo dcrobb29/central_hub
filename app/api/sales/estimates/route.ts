@@ -246,7 +246,7 @@ export async function PATCH(request: NextRequest) {
 
   if (body?.action === "set-status") {
     if (!isEditableEstimateStatus(body.status)) {
-      return NextResponse.json({ error: "Choose Draft, Sent, or Lost. Use the approval dialog to mark an estimate won." }, { status: 400 });
+      return NextResponse.json({ error: "Choose Draft or Lost. Use the approval dialog to mark an estimate won." }, { status: 400 });
     }
     try {
       const session = await requireProjectSession(request, "sales.write");
@@ -314,7 +314,7 @@ export async function PATCH(request: NextRequest) {
       if (isCompletedProjectError(error)) return NextResponse.json({ error: COMPLETED_PROJECT_MESSAGE }, { status: 409 });
       const reason = error instanceof Error ? error.message : "";
       if (reason === "not-found") return NextResponse.json({ error: "Estimate not found" }, { status: 404 });
-      if (reason === "not-draft") return NextResponse.json({ error: "Only Draft or Sent estimates can be marked as won. Reopen a Lost estimate first." }, { status: 409 });
+      if (reason === "not-draft") return NextResponse.json({ error: "Only Draft estimates can be marked as won. Reopen a Lost estimate as Draft first." }, { status: 409 });
       if (reason === "no-revision") return NextResponse.json({ error: "Estimate has no saved revision" }, { status: 400 });
       if (reason === "invalid-recurring-schedule") return NextResponse.json({ error: "Edit this recurring estimate to supply a valid start date, expected end date, and frequency before accepting it" }, { status: 400 });
       if (typeof error === "object" && error !== null && "number" in error && [2601, 2627].includes(Number(error.number))) {

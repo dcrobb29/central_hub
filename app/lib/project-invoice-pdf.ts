@@ -52,7 +52,7 @@ export function renderProjectInvoicePdf(
 
     // Left Column: Organization / Company Info
     doc.fillColor("#0f172a");
-    const companyDisplayName = config.companyName || "Resolution";
+    const companyDisplayName = config.companyName || "Overhead";
     doc.font("Helvetica-Bold").fontSize(style === "compact" ? 14 : 16).text(companyDisplayName, margin, startY, {
       width: colWidth,
     });

@@ -533,7 +533,7 @@ export async function deleteEstimate(estimateId: number): Promise<void> {
 
 export type InitialAlternateApproval = { selections: { changeId: number; version: number }[]; userId: number; approvedAt: string; reference: string };
 export async function setEstimateStatus(estimateId: number, organizationId: number, status: EditableEstimateStatus): Promise<void> {
-  if (!isEditableEstimateStatus(status)) throw new ProjectAccessError("Choose Draft, Sent, or Lost.", 400);
+  if (!isEditableEstimateStatus(status)) throw new ProjectAccessError("Choose Draft or Lost.", 400);
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
   await transaction.begin();

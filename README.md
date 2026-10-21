@@ -309,8 +309,8 @@ batch fails, stop and investigate rather than rerunning over partial objects.
 
 After the baseline, apply
 [database/estimate-status-schema.sql](database/estimate-status-schema.sql):
-the local snapshot still has the old Draft/Won/Lost constraint and does not
-include the newer Sent status.
+this idempotently enforces Draft/Won/Lost and converts any legacy Sent
+estimates to Draft.
 
 Do not replay all older migration files or run the organization foundation
 bootstrap: their existing schema changes are already reflected in this snapshot,
@@ -520,20 +520,27 @@ breadcrumb and section-tab conventions as project workspaces:
   internal freight/tax, per-line markup, and collapsible scope/type groups.
 - **Alternates**: the existing separate alternate management and approval tools.
 
-Apply `database\estimate-status-schema.sql` with an admin SQL connection before
-using the estimate status selector. It adds **Sent** to the allowed database
-statuses without changing existing records. The matching rollback refuses to
-run while Sent records remain, avoiding silent loss of sent tracking.
+Apply [database/estimate-status-schema.sql](database/estimate-status-schema.sql)
+with an admin SQL connection to **centralHubTest** locally, then separately to
+**overhead-testdb** when deploying. Back up the target database first. The
+transactional, rerunnable migration converts legacy **Sent** estimates to
+**Draft** and enforces **Draft / Won / Lost** with a trusted check constraint.
+It reports the number converted, aborts on unexpected statuses, and does not
+create projects or change existing Won/Lost records. Approved/Not approved
+were list filters, not stored estimate statuses; no data conversion is needed
+for those labels. The matching
+[rollback](database/estimate-status-rollback.sql) restores permission to store
+Sent but cannot identify or restore which Draft records were previously Sent.
 
 Both cards and the workspace have an estimate-specific status selector:
-**Draft**, **Sent** (manually recorded; this does not send an email), **Won**, and
-**Lost**. Draft, Sent, and Lost can be changed to each other. Selecting Won from
-Draft or Sent opens the existing approval/alternate selection dialog and creates
-the project only after confirmation. Reopen a Lost estimate as Draft or Sent
-before winning it. Won estimates remain locked. Sent estimates still support
-editing and bid alternates. Status filters include Sent and Lost so estimators
-can identify sent bids and candidates for archival; Lost does not automatically
-archive or delete a record.
+**Draft**, **Won**, and **Lost**. Draft and Lost can be changed to each other.
+Selecting Won from Draft opens the existing confirmation/alternate selection
+dialog. Confirmation marks the estimate Won and creates its Upcoming project
+in one transaction; canceling changes neither. Reopen a Lost estimate as Draft
+before winning it. Won estimates remain locked and cannot be won again.
+Draft estimates support editing and bid alternates. Lost does not automatically
+archive or delete a record. Individual alternates and change orders retain their
+separate Draft / Proposed / Approved / Rejected workflow and approval evidence.
 
 PDF is available from both cards and the workspace. Edit is in the workspace
 action bar; Delete is under **More actions** and still requires confirmation.
@@ -1222,8 +1229,8 @@ one-time approval. All fixture data is rolled back at the end.
 ### Project and estimate list controls
 
 Status toggles sit beside the Projects / Recurring tabs. Projects support All,
-Upcoming, Active, and Completed; estimates support All, Not approved, and
-Approved. Approved means Won; Not approved includes Draft and Lost estimates.
+Upcoming, Active, and Completed; estimates support All, Draft, Won, and Lost.
+Each estimate filter matches that exact status.
 Counts reflect the selected engagement type before search/column filters.
 Filters & sort opens a shared modal for status and quoted-total/name ordering;
 changes apply immediately. Estimate modal sorting and table-header sorting use

@@ -45,7 +45,7 @@ export default function LoginClient({ signupEnabled }: { signupEnabled: boolean 
     <main className="loginShell">
       <div className="loginCard">
         <div className="loginHeader">
-          <img src="/logo.png" alt="Resolution" className="loginLogo" />
+          <img src="/logo2.png" alt="Overhead" className="loginLogo" />
           <h1 className="loginTitle">Sign in to your account</h1>
           <p className="loginSubtitle">Enter your email address and password.</p>
         </div>

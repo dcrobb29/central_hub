@@ -48,7 +48,7 @@ export default function RegisterClient({ enabled, turnstileSiteKey }: { enabled:
   return <main className="loginShell">
     <div className="loginCard">
       <div className="loginHeader">
-        <img src="/logo.png" alt="Resolution" className="loginLogo" />
+        <img src="/logo2.png" alt="Overhead" className="loginLogo" />
         <h1 className="loginTitle">Create your account</h1>
         <p className="loginSubtitle">Your verified account starts a separate company workspace.</p>
       </div>

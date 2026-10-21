@@ -1,3 +1,5 @@
+///Up One Folder and Files buttons seemed redundant. Renamed files button to "Home"
+
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -196,12 +198,12 @@ export default function FileExplorer({ canWrite }: { canWrite: boolean }) {
       <p className={recordStyles.intro}>Files at a glance. Open folders to browse, or preview a file before downloading.</p>
       <div className={styles.toolbar}>
         <nav className={styles.breadcrumb} aria-label="Folder location">
-          <button type="button" className="projectWorkspaceLink" disabled={busy} onClick={() => navigate("")} aria-current={!currentPath ? "location" : undefined}>Files</button>
+          <button type="button" className="projectWorkspaceLink" disabled={busy} onClick={() => navigate("")} aria-current={!currentPath ? "location" : undefined}>Home</button>
           {segments.map((segment, index) => <span key={segments.slice(0, index + 1).join("/")}> / <button type="button" className="projectWorkspaceLink" disabled={busy}
             aria-current={index === segments.length - 1 ? "location" : undefined} onClick={() => navigate(segments.slice(0, index + 1).join("/"))}>{segment}</button></span>)}
         </nav>
         <div className={styles.actions}>
-          {currentPath && <button type="button" className="projectWorkspaceLink" disabled={busy} onClick={() => navigate(segments.slice(0, -1).join("/"))}>Up one folder</button>}
+          {/* {currentPath && <button type="button" className="projectWorkspaceLink" disabled={busy} onClick={() => navigate(segments.slice(0, -1).join("/"))}>Up one folder</button>} */}
           <FilterButton active={filtersActive} onClick={() => setShowFilters(true)} />
         </div>
       </div>

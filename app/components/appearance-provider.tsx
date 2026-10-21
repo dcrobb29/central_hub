@@ -1,3 +1,5 @@
+//Name of palette preferences commented out. Uncomment if it starts to confuse users
+
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
@@ -154,9 +156,9 @@ export function ThemeToggle() {
       title={preferences.followSystem ? "Following system; switch to your saved themes" : `Current theme: ${THEME_NAMES[preferences.activeSlot === "A" ? preferences.slotA : preferences.slotB]}`}
       onClick={() => void save(toggledAppearance(preferences, window.matchMedia("(prefers-color-scheme: dark)").matches))}>
       <Sun size={16} aria-hidden="true" />
-      <span>{THEME_NAMES[preferences.slotA]}</span>
+      {/* <span>{THEME_NAMES[preferences.slotA]}</span> */}
       <span className="appearanceSwitch" aria-hidden="true" data-slot={preferences.followSystem ? "system" : preferences.activeSlot}><span /></span>
-      <span>{THEME_NAMES[preferences.slotB]}</span>
+      {/* <span>{THEME_NAMES[preferences.slotB]}</span> */}
       <Moon size={16} aria-hidden="true" />
     </button>
     {error && <span className="appearanceError" role="alert">{error}{session ? " Reopen the page to retry." : ""}</span>}

@@ -34,7 +34,7 @@ export async function POST(
     }
 
     const orgSettings = await getOrganizationInvoiceSettings(invoice.organizationId).catch(() => null);
-    const companyDisplayName = orgSettings?.companyName || "Resolution";
+    const companyDisplayName = orgSettings?.companyName || "Overhead";
     const accentColor = orgSettings?.accentColor || "#0284c7";
 
     // Determine recipient email

@@ -1,12 +1,24 @@
 SET XACT_ABORT ON;
-BEGIN TRANSACTION;
 
-IF EXISTS (SELECT 1 FROM dbo.Estimates WHERE EstimateStatus = 'Sent')
-    THROW 51033, 'Change Sent estimates to Draft or Lost before rolling back estimate statuses.', 1;
+IF DB_NAME() NOT IN (N'centralHubTest', N'overhead-testdb')
+    THROW 51033, 'Select centralHubTest or overhead-testdb before rolling back estimate statuses.', 1;
 
-ALTER TABLE dbo.Estimates DROP CONSTRAINT CK_Estimates_Status;
-ALTER TABLE dbo.Estimates WITH CHECK ADD CONSTRAINT CK_Estimates_Status
-    CHECK (EstimateStatus IN ('Draft', 'Won', 'Lost'));
+-- Restores the old allowed values, not the identities of former Sent estimates.
+BEGIN TRY
+    BEGIN TRANSACTION;
 
-COMMIT TRANSACTION;
+    IF EXISTS (
+        SELECT 1 FROM sys.check_constraints
+        WHERE parent_object_id = OBJECT_ID(N'dbo.Estimates') AND name = N'CK_Estimates_Status')
+        ALTER TABLE dbo.Estimates DROP CONSTRAINT CK_Estimates_Status;
+
+    ALTER TABLE dbo.Estimates WITH CHECK ADD CONSTRAINT CK_Estimates_Status
+        CHECK (EstimateStatus IN ('Draft', 'Sent', 'Won', 'Lost'));
+
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
 GO

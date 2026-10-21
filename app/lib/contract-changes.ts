@@ -214,7 +214,7 @@ export async function saveContractChangeInTransaction(tx: sql.Transaction, conte
     const parent = await lockParent(tx, context, org);
     if (parent.engagementType !== "Project") fail("Alternates and change orders are not enabled for recurring agreements.");
     if (parent.projectStatus === "Complete") fail("Reopen this project before changing its contract.");
-    if (!context.projectId && !canWinEstimate(parent.status)) fail("Alternates require a Draft or Sent estimate.");
+    if (!context.projectId && !canWinEstimate(parent.status)) fail("Alternates require a Draft estimate.");
     const kind = context.projectId ? "ChangeOrder" : "Alternate";
     let existing: ContractChange | undefined;
     if (changeId) {
@@ -350,7 +350,7 @@ export async function transitionContractChange(context: ChangeContext, org: numb
   try {
     const parent = await lockParent(tx, context, org);
     if (parent.engagementType !== "Project" || parent.projectStatus === "Complete") fail("An open one-time job is required.");
-    if (!context.projectId && !canWinEstimate(parent.status)) fail("Alternates require a Draft or Sent estimate. Accepted bids use linked change orders.");
+    if (!context.projectId && !canWinEstimate(parent.status)) fail("Alternates require a Draft estimate. Accepted bids use linked change orders.");
     if (action === "approve") {
       await approveChangeInTransaction(tx, parent, id, version, userId, approvedAt, reference);
     } else if(action==="remove") {

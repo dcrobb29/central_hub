@@ -31,7 +31,7 @@ import ListViewControls from "@/app/components/list-view-controls";
 import { DocumentNotesFields } from "@/app/components/document-notes";
 import EstimateRecord from "./estimate-record";
 import EstimateStatusSelector from "./estimate-status-selector";
-import { ESTIMATE_STATUSES } from "@/app/lib/estimate-status";
+import { ESTIMATE_STATUSES, matchesEstimateStatus } from "@/app/lib/estimate-status";
 import recordStyles from "@/app/components/record-workspace.module.css";
 import styles from "./estimate-workspace.module.css";
 import {
@@ -208,15 +208,13 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
   const [scopeTemplateQuantity, setScopeTemplateQuantity] = useState(1);
   const [scopeTemplateError, setScopeTemplateError] = useState<string | null>(null);
 
-  const [approvalFilter, setApprovalFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
   const projectEstimates = estimates.filter((estimate) => estimate.engagementType === "Project");
   const recurringEstimates = estimates.filter((estimate) => estimate.engagementType === "Service");
-  const matchesApproval = (estimate: EstimateSummary) => approvalFilter === "All"
-    || (approvalFilter === "Approved" ? estimate.status === "Won"
-      : approvalFilter === "Not approved" ? estimate.status !== "Won" : estimate.status === approvalFilter);
+  const matchesStatus = (estimate: EstimateSummary) => matchesEstimateStatus(estimate.status, statusFilter);
 
-  const projectTable = useFilterableTable(projectEstimates.filter(matchesApproval), PROJECT_COLUMNS, { searchableValue, compare: compareEstimates });
-  const recurringTable = useFilterableTable(recurringEstimates.filter(matchesApproval), RECURRING_COLUMNS, { searchableValue, compare: compareEstimates });
+  const projectTable = useFilterableTable(projectEstimates.filter(matchesStatus), PROJECT_COLUMNS, { searchableValue, compare: compareEstimates });
+  const recurringTable = useFilterableTable(recurringEstimates.filter(matchesStatus), RECURRING_COLUMNS, { searchableValue, compare: compareEstimates });
 
   const activeColumns = activeEngagementTab === "Project" ? PROJECT_COLUMNS : RECURRING_COLUMNS;
   const {
@@ -234,7 +232,7 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
   const tabEstimates = activeEngagementTab === "Project" ? projectEstimates : recurringEstimates;
   const modalSort = sort ? `${String(sort.key)}-${sort.direction}` : "";
   function resetListFilters() {
-    setApprovalFilter("All");
+    setStatusFilter("All");
     clearFilters();
   }
 
@@ -767,11 +765,9 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
             Recurring ({recurringEstimates.length})
           </button>
         </div>
-        <ListViewControls id="estimates" label="Estimates" status={approvalFilter} onStatusChange={setApprovalFilter}
-          statuses={["All", "Not approved", "Approved", ...ESTIMATE_STATUSES].map((value) => ({
-            value, label: value, count: tabEstimates.filter((estimate) => value === "All"
-              || (value === "Approved" ? estimate.status === "Won"
-                : value === "Not approved" ? estimate.status !== "Won" : estimate.status === value)).length,
+        <ListViewControls id="estimates" label="Estimates" status={statusFilter} onStatusChange={setStatusFilter}
+          statuses={["All", ...ESTIMATE_STATUSES].map((value) => ({
+            value, label: value, count: tabEstimates.filter((estimate) => matchesEstimateStatus(estimate.status, value)).length,
           }))}
           sort={modalSort} onSortChange={(value) => {
             if (!value) setSort(null);
@@ -784,7 +780,7 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
             { value: `${String(column.key)}-asc`, label: `${column.label}: ascending` },
             { value: `${String(column.key)}-desc`, label: `${column.label}: descending` },
           ])}
-          active={approvalFilter !== "All" || hasActiveFilters} onReset={resetListFilters}>
+          active={statusFilter !== "All" || hasActiveFilters} onReset={resetListFilters}>
           <fieldset className={styles.fieldFilters}>
             <legend>Filter individual fields</legend>
             {activeColumns.map((column) => <label key={column.key} className="listViewControlLabel">
@@ -811,7 +807,7 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
         <span className="invoiceResultCount" aria-live="polite">
           {visibleEstimates.length} of {activeEngagementTab === "Project" ? projectEstimates.length : recurringEstimates.length} estimates
         </span>
-        {(hasActiveFilters || approvalFilter !== "All") && (
+        {(hasActiveFilters || statusFilter !== "All") && (
           <button type="button" className="invoiceClearButton" onClick={resetListFilters}>Clear</button>
         )}
       </div>
@@ -1093,6 +1089,7 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
         <Modal titleId="winEstimateTitle" title={<>Send &quot;{winningEstimate.estimateName}&quot; to Projects &amp; Jobs</>} eyebrow="SALES & ESTIMATES" onClose={() => { if (!isWinning&&!winLoading) setWinningEstimate(null); }} closeDisabled={isWinning||winLoading} className="financeProjectDialog">
             <form onSubmit={confirmWin}>
               <p className="estimateInternalNote">
+                Confirming marks this estimate Won and creates its project. Cancel leaves the estimate unchanged.{" "}
                 {winningEstimate.engagementType === "Service"
                   ? <>This recurring estimate will become a project with {FREQUENCY_LABELS[String(winningEstimate.recurrenceFrequency)] ?? winningEstimate.recurrenceFrequency} recurrence{winningEstimate.expectedStartDate ? <> starting {formatDate(winningEstimate.expectedStartDate)}</> : null}{winningEstimate.expectedEndDate ? <> through {formatDate(winningEstimate.expectedEndDate)}</> : null}.</>
                   : <>This one-time project estimate will become a project in Projects &amp; Jobs.</>}
@@ -1113,7 +1110,7 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
               {winError && <p className="financeImportError" role="alert">{winError}</p>}
               <div className="financeImportActions">
                 <button type="button" className="financeImportCancel" onClick={() => setWinningEstimate(null)} disabled={isWinning||winLoading}>Cancel</button>
-                <button type="submit" className="financeImportSubmit" disabled={isWinning||winLoading||winLoadFailed}>{isWinning ? "Converting..." : "Confirm"}</button>
+                <button type="submit" className="financeImportSubmit" disabled={isWinning||winLoading||winLoadFailed}>{isWinning ? "Converting..." : "Mark Won & create project"}</button>
               </div>
             </form>
         </Modal>

@@ -4,7 +4,7 @@ This tracker records the October 20, 2026 browser review. The review used synthe
 
 ## Current change set
 
-The following changes are prepared for review and have not been committed or pushed:
+The redirect/header changes below were committed and deployed to the shared Azure test instance. The additional sales API authorization fix described later in this tracker is currently local and has not been committed or deployed.
 
 - `app/lib/safe-redirect.ts`: shared canonical same-origin redirect validator.
 - `app/login/login-client.tsx`: validates the destination immediately before post-login navigation.
@@ -20,20 +20,30 @@ The CSP is intentionally limited to `base-uri 'self'`, `object-src 'none'`, and 
 - Redirect regression tests: 4 passed.
 - Targeted ESLint: no errors; one pre-existing `<img>` optimization warning in `app/login/login-client.tsx`.
 - `npm run build`: passed.
+- After the sales API authorization change, targeted ESLint and `npm run build` both passed.
 - Local production-server smoke check: login page returned the configured headers; an anonymous PDF API request was not given the page framing policy.
 
-These checks do not confirm headers at Azure's public edge or prove authenticated user workflows work in the Azure environment.
+These local checks alone do not confirm the Azure deployment or authenticated user workflows.
+
+## Azure test-instance verification
+
+The application owner reported the following checks passing on the shared Azure test instance after deployment:
+
+- The `/login` response had the expected CSP directives, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and `Strict-Transport-Security: max-age=31536000`; `X-Powered-By` was absent.
+- Signing in with an internal `/files` return path stayed within the app and opened Files.
+- Signing in with the encoded tab payload `/login?redirect=%2F%09%2Fexample.invalid%2Fqa` stayed within the app and opened Home.
+- The estimate PDF preview and synthetic PDF and text file previews in Files displayed inside the app.
+- The owner reports the session cookie showed `HttpOnly`, `Secure`, `SameSite=Lax`, and an expiry about seven days after sign-in.
+- After normal sign-out, opening `/projects` redirected to sign-in without showing project details.
+- The owner reports the configured Read-only role had read/view permissions, including project read access. Signed in with that role, a known synthetic project was viewable and project edit/save controls were hidden or disabled.
+
+These are owner-reported browser checks on the test instance. They do not establish tenant isolation, lower-role authorization, session or CSRF protections, upload safety, or production deployment behavior.
+
+Before this deployment, the owner reports running a separate Company A/Company B test and concluding that the two companies' data was isolated. The exact routes, actions, roles, and test method were not recorded here. The current deployment did not change tenant-scoping logic.
 
 ## Test deployment and rollback
 
-Before deploying to the shared Azure test instance:
-
-1. Confirm the instance is test-only, tell both testers about the planned change, and avoid real customer/payment data.
-2. Commit the source and this tracker in a clearly identifiable commit. Record its commit ID before pushing.
-3. Push only to the branch that updates the test instance, then confirm Azure reports a successful build/deployment before testing.
-4. Perform the deployment checks in the “Security actions started” and “Security items requiring authorized verification” sections. Do not share credentials, cookies, or tokens.
-
-If the change causes a regression after it is committed, use a **new revert commit** for the change commit and push that revert to the same test deployment branch. A revert preserves shared Git history and is safer than resetting or force-pushing. Wait for Azure to complete the revert deployment, then verify the app is back to its prior behavior. If Azure's deployment fails before publishing, do not assume the live instance rolled back; check its deployment status and currently running version.
+The redirect/header changes have been pushed to the branch that updates the shared test instance. The additional sales API authorization fix has not. If a committed change causes a regression, use a **new revert commit** for that change commit and push the revert to the same deployment branch. A revert preserves shared Git history and is safer than resetting or force-pushing. Wait for Azure to complete the revert deployment, then verify the app is back to its prior behavior. If Azure's deployment fails before publishing, do not assume the live instance rolled back; check its deployment status and currently running version.
 
 If the tracker and source are committed together, reverting that commit also removes this tracker from the current checkout, although its contents remain available in Git history. Keep the commit ID and this file available until the deployment has been accepted or rolled back. The exact Azure rollback mechanism cannot be specified from this repository because no Azure deployment configuration is checked in.
 
@@ -41,18 +51,21 @@ If the tracker and source are committed together, reverting that commit also rem
 
 | Item | Report finding | Status and verification limit |
 | --- | --- | --- |
-| F12 | Login return-address validation can accept a control-character value that normalizes to an external URL. | Fixed in the login client and middleware with canonical same-origin URL validation. Automated regression cases cover the reported encoded-tab payload, protocol-relative/external URLs, backslashes, and valid internal paths. Verify the deployed login flow with a disposable account before relying on the fix. |
-| F05 | Sampled login responses lacked browser security headers. | Page responses receive CSP `base-uri`, `object-src`, and `frame-ancestors` directives plus framing denial. API responses are excluded from framing denial so same-origin PDF/file previews can continue working. MIME sniffing protection and an explicit referrer policy are configured globally. HSTS is enabled in production configuration without `includeSubDomains`; technology disclosure is disabled. Verify the actual deployed response headers and application compatibility. This intentionally scoped CSP does not provide a `script-src` policy or by itself prevent XSS. |
+| F12 | Login return-address validation can accept a control-character value that normalizes to an external URL. | Fixed in the login client and middleware with canonical same-origin URL validation. Automated regression cases pass for the reported encoded-tab payload, protocol-relative/external URLs, backslashes, and valid internal paths. The owner reports that internal `/files` redirect and the encoded-tab payload both behaved safely on the Azure test instance. |
+| F05 | Sampled login responses lacked browser security headers. | Page responses receive CSP `base-uri`, `object-src`, and `frame-ancestors` directives plus framing denial. API responses are excluded from framing denial so same-origin file/PDF previews can continue working. MIME sniffing protection and an explicit referrer policy are configured globally. HSTS is enabled in production configuration without `includeSubDomains`; technology disclosure is disabled. The owner reports the expected headers on the Azure test login response and successful estimate PDF and Files PDF/text previews. This intentionally scoped CSP does not provide a `script-src` policy or by itself prevent XSS. |
+| SR-01 | Sales material, price-history, and scope-template APIs did not enforce role permissions. | Fixed locally: reads require `sales.read`; creates/updates/deletes require `sales.write`. Catalog data remains global as currently modeled; this change does not add tenant-specific catalog storage. Targeted ESLint and production build pass. A safe denied-request check with the Read-only test account is still required after this fix is committed and deployed. |
 
 ## Security items requiring authorized verification
 
 The report did not establish these as vulnerabilities; they remain unverified and should be tested before using real multi-organization or sensitive records:
 
-- **Tenant isolation and role authorization:** Test reads, writes, and exports using two expressly authorized organizations and owner, finance, read-only, and field roles. Verify authorization on the server for every relevant route and API.
-- **Sessions and CSRF:** Review cookie `Secure`, `HttpOnly`, and `SameSite` attributes; token expiry and rotation; server-side logout invalidation; and CSRF protection for state-changing requests. The normal sign-out check did not verify these deeper controls.
+- **Tenant isolation and role authorization:** The owner reports a prior Company A/Company B check found their data isolated. That check predates this deployment and its routes, actions, and method are not documented here. The owner also reports the Read-only UI hid or disabled project edits. These are useful limited observations, but do not establish endpoint-by-endpoint authorization or prove that the server rejects unauthorized writes. The new SR-01 API permission fix also needs a non-mutating denied-request check on the test instance before relying on it.
+- **SR-01 post-deployment check:** With the Read-only account that lacks `sales.write`, send invalid requests to `POST /api/sales/materials` with body `{}`, `POST /api/sales/materials/0/prices` with body `{}`, `POST /api/sales/scope-templates` with body `{}`, `PUT /api/sales/scope-templates/0` with body `{}`, and `DELETE /api/sales/scope-templates/0`. Each should return `403` before payload or ID validation. These invalid bodies/IDs cannot change or delete records. Stop if any request is not denied; do not retry with valid data.
+- **CSRF:** Verify protections for state-changing requests. Cookie `SameSite=Lax` is a useful browser control but does not replace reviewing the app's request-origin validation and state-changing endpoints.
+- **Session token revocation:** Source review shows the session is a signed, stateless token with a seven-day expiration. Logout expires the browser cookie, and requests check that the user and organization membership remain active, but there is no per-token server-side revocation shown. The browser sign-out test passed; it does not invalidate a separately copied token. If a token were exposed, it could remain usable until expiration unless the user/membership is disabled or the signing secret is changed. Decide whether this exposure window is acceptable; a server-side session record, token version, or other revocation mechanism would require an intentional design and migration.
 - **File handling:** In a disposable environment, verify upload extension, MIME and signature validation; size limits; tenant-bound storage authorization; safe download headers; and malware scanning. No upload-abuse testing was performed.
 - **Application and deployment controls:** Review dependency updates, secrets handling, parameterized database operations, authorization middleware, and security-relevant server logging. The browser review did not include source, database, dependency, or Azure configuration review.
-- **Production headers and CSP compatibility:** Confirm headers at the public deployment edge, then exercise sign-in, navigation, exports, and file workflows in a browser. A response configured by the application can still be changed or removed by a proxy/CDN.
+- **Production deployment, if separate from this test instance:** Confirm headers at the public edge and exercise sign-in, navigation, exports, and file workflows in a browser. The test-instance checks do not establish production deployment behavior; a proxy/CDN can change or remove application response headers.
 
 Do not perform cross-organization or destructive checks against live customer data. Use authorized test accounts and an isolated environment.
 

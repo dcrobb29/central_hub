@@ -5,13 +5,17 @@ import {
   updateScopeTemplate,
 } from "@/app/lib/scope-templates";
 import { isRecord, parseScopeTemplate } from "../route";
+import { requireSalesApiPermission } from "../../authorization";
 
 function parseScopeTemplateId(raw: string): number | null {
   const scopeTemplateId = Number(raw);
   return Number.isInteger(scopeTemplateId) && scopeTemplateId >= 1 ? scopeTemplateId : null;
 }
 
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ scopeTemplateId: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ scopeTemplateId: string }> }) {
+  const denied = await requireSalesApiPermission(request, "sales.read");
+  if (denied) return denied;
+
   const scopeTemplateId = parseScopeTemplateId((await params).scopeTemplateId);
   if (scopeTemplateId == null) return NextResponse.json({ error: "Invalid scope template ID" }, { status: 400 });
 
@@ -25,6 +29,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 }
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ scopeTemplateId: string }> }) {
+  const denied = await requireSalesApiPermission(request, "sales.write");
+  if (denied) return denied;
+
   const scopeTemplateId = parseScopeTemplateId((await params).scopeTemplateId);
   if (scopeTemplateId == null) return NextResponse.json({ error: "Invalid scope template ID" }, { status: 400 });
 
@@ -46,7 +53,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ scopeTemplateId: string }> }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ scopeTemplateId: string }> }) {
+  const denied = await requireSalesApiPermission(request, "sales.write");
+  if (denied) return denied;
+
   const scopeTemplateId = parseScopeTemplateId((await params).scopeTemplateId);
   if (scopeTemplateId == null) return NextResponse.json({ error: "Invalid scope template ID" }, { status: 400 });
 

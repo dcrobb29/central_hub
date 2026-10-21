@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { addMaterialPrice, getMaterialPriceHistory } from "@/app/lib/materials";
 import { isoDateString, ValidationError } from "@/app/lib/validation";
+import { requireSalesApiPermission } from "../../../authorization";
 
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ materialId: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ materialId: string }> }) {
+  const denied = await requireSalesApiPermission(request, "sales.read");
+  if (denied) return denied;
+
   const materialId = Number((await params).materialId);
   if (!Number.isInteger(materialId) || materialId < 1) {
     return NextResponse.json({ error: "Invalid material ID" }, { status: 400 });
@@ -15,6 +19,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ materialId: string }> }) {
+  const denied = await requireSalesApiPermission(request, "sales.write");
+  if (denied) return denied;
+
   const materialId = Number((await params).materialId);
   if (!Number.isInteger(materialId) || materialId < 1) {
     return NextResponse.json({ error: "Invalid material ID" }, { status: 400 });

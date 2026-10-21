@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createMaterial, getMaterialsWithLatestPrice } from "@/app/lib/materials";
 import { isoDateString, nonNegativeNumberValue, ValidationError } from "@/app/lib/validation";
+import { requireSalesApiPermission } from "../authorization";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await requireSalesApiPermission(request, "sales.read");
+  if (denied) return denied;
+
   try {
     return NextResponse.json({ materials: await getMaterialsWithLatestPrice() });
   } catch {
@@ -11,6 +15,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await requireSalesApiPermission(request, "sales.write");
+  if (denied) return denied;
+
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "Invalid material data" }, { status: 400 });

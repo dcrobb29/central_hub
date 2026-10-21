@@ -7,6 +7,7 @@ import {
 } from "@/app/lib/scope-templates";
 import { nonNegativeNumberValue, textValue, ValidationError } from "@/app/lib/validation";
 import type { LineType } from "@/app/lib/estimates";
+import { requireSalesApiPermission } from "../authorization";
 
 const LINE_TYPES: LineType[] = ["Material", "Labor", "Equipment"];
 
@@ -51,7 +52,10 @@ export function parseScopeTemplate(body: Record<string, unknown>): ScopeTemplate
   return { templateName, unitName, components };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await requireSalesApiPermission(request, "sales.read");
+  if (denied) return denied;
+
   try {
     return NextResponse.json({ scopeTemplates: await getScopeTemplates() });
   } catch {
@@ -60,6 +64,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await requireSalesApiPermission(request, "sales.write");
+  if (denied) return denied;
+
   const body: unknown = await request.json().catch(() => null);
   if (!isRecord(body)) return NextResponse.json({ error: "Invalid scope template data" }, { status: 400 });
 

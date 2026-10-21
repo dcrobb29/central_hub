@@ -3,12 +3,11 @@
 import { useState, type SubmitEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { getSafeRedirectTarget } from "@/app/lib/safe-redirect";
 
 export default function LoginClient({ signupEnabled }: { signupEnabled: boolean }) {
   const searchParams = useSearchParams();
-  const requestedTarget = searchParams.get("redirect") || "/";
-  const redirectTarget = requestedTarget.startsWith("/") && !requestedTarget.startsWith("//")
-    && !requestedTarget.includes("\\") ? requestedTarget : "/";
+  const requestedTarget = searchParams.get("redirect");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -34,7 +33,7 @@ export default function LoginClient({ signupEnabled }: { signupEnabled: boolean 
       }
 
       // Hard redirect to refresh root layout and session
-      window.location.href = redirectTarget;
+      window.location.href = getSafeRedirectTarget(requestedTarget, window.location.origin);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed");
       setBusy(false);

@@ -6,6 +6,7 @@ import { isRecord, parseEstimate,requireBaseEstimate } from "../route";
 import {ProjectAccessError,requireProjectSession} from "@/app/lib/project-access";
 
 function describeEstimateMutationError(error: unknown): { message: string; status: number } {
+  if (error instanceof ProjectAccessError) return { message: error.message, status: error.status };
   if (isCompletedProjectError(error)) return { message: COMPLETED_PROJECT_MESSAGE, status: 409 };
   const reason = error instanceof Error ? error.message : "";
   if (reason === "not-found") return { message: "Estimate not found", status: 404 };

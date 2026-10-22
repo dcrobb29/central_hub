@@ -5,12 +5,14 @@ import { canWinEstimate } from "./estimate-status";
 import { billingCents } from "./project-billing-pricing";
 import { ensureProjectBillingSnapshot } from "./project-billing";
 import { insertScopesAndLines, type CreateEstimateInput, type EstimateLineInput } from "./estimates";
+import { resolveEstimateCustomer } from "./customers";
 import { getUnitsOfMeasurement } from "./units-of-measurement";
 import { requireUnitAbbreviation } from "./unit-presets";
 import { allocateEstimateLineValues, calculateChange, type ChangeLineOperation } from "./contract-change-pricing";
 
 export type ChangeContext = { estimateId?: number; projectId?: number };
 export type ChangeInput = Omit<CreateEstimateInput,"lines"> & {
+  customerAddress?: string | null;
   lines: (EstimateLineInput & { operation: ChangeLineOperation; deductLineId: number | null })[];
 };
 export type ChangeDetails = Omit<ChangeInput, "lines"> & {
@@ -23,7 +25,7 @@ export type ContractChange = {
   changeId: number; documentEstimateId: number; parentEstimateId: number; projectId: number | null;
   kind: "Alternate" | "ChangeOrder"; status: "Draft" | "Proposed" | "Approved" | "Rejected"; version: number;
   title: string; quotedTotal: number; approvedAt: string | null; approvalReference: string | null;
-  sourceAlternateId: number | null;
+  sourceAlternateId: number | null; customerId: number | null; customerName: string | null;
   contractBefore:number|null;contractAfter:number|null;
 };
 export type ChangeSourceLine = EstimateLineInput & {
@@ -32,7 +34,8 @@ export type ChangeSourceLine = EstimateLineInput & {
   scopeId: number | null; taxPercent: number;
 };
 type Parent = { isSample?:boolean;estimateId: number; revisionId: number; organizationId: number; projectId: number | null;
-  status: string; engagementType: string; projectStatus: string | null; title: string; quotedTotal: number };
+  status: string; engagementType: string; projectStatus: string | null; title: string; quotedTotal: number;
+  customerId?: number | null; customerName?: string | null; customerAddress?: string | null };
 function fail(message: string, status = 409): never { throw new ProjectAccessError(message, status); }
 
 async function parentFor(request: sql.Request, context: ChangeContext, org: number): Promise<Parent> {
@@ -41,6 +44,7 @@ async function parentFor(request: sql.Request, context: ChangeContext, org: numb
     SELECT e.EstimateID AS estimateId,r.EstimateRevisionID AS revisionId,e.OrganizationID AS organizationId,
       p.ProjectID AS projectId,e.EstimateStatus AS status,e.EngagementType AS engagementType,
       p.ProjectStatus AS projectStatus,e.EstimateName AS title,r.QuotedTotal AS quotedTotal,
+      e.CustomerID AS customerId,e.CustomerName AS customerName,e.CustomerAddressSnapshot AS customerAddress,
       CONVERT(bit,CASE WHEN EXISTS(SELECT 1 FROM dbo.SampleDataRecords s WHERE s.OrganizationID=e.OrganizationID
         AND s.TableName='Estimates' AND s.RecordKey=CONVERT(nvarchar(100),e.EstimateID)) THEN 1 ELSE 0 END) AS isSample
     FROM dbo.Estimates e WITH(UPDLOCK,HOLDLOCK)
@@ -116,7 +120,8 @@ export async function getContractChanges(context: ChangeContext, organizationId:
         c.ProjectID AS projectId,c.Kind AS kind,c.Status AS status,c.Version AS version,
         e.EstimateName AS title,r.QuotedTotal AS quotedTotal,CONVERT(char(10),c.ApprovedAt,23) AS approvedAt,
         c.ApprovalReference AS approvalReference,c.SourceAlternateID AS sourceAlternateId,
-        c.ContractBeforeAmount AS contractBefore,c.ContractAfterAmount AS contractAfter
+        c.ContractBeforeAmount AS contractBefore,c.ContractAfterAmount AS contractAfter,
+        e.CustomerID AS customerId,e.CustomerName AS customerName
       FROM dbo.ContractChanges c JOIN dbo.Estimates e ON e.EstimateID=c.DocumentEstimateID
       JOIN dbo.EstimateRevisions r ON r.EstimateID=e.EstimateID
       WHERE c.ParentEstimateID=@parent AND c.OrganizationID=@org ORDER BY c.ChangeID
@@ -132,7 +137,8 @@ export async function getChangeInput(changeId: number, org: number): Promise<Cha
   const pool = await getPool();
   const result = await pool.request().input("id", sql.Int, changeId).input("org", sql.Int, org)
     .query<CreateEstimateInput & { revisionId: number }>(`
-      SELECT e.EstimateName AS estimateName,e.CustomerName AS customerName,e.InternalNotes AS internalNotes,
+      SELECT e.EstimateName AS estimateName,e.CustomerName AS customerName,e.CustomerID AS customerId,
+        e.CustomerAddressSnapshot AS customerAddress,e.InternalNotes AS internalNotes,
         e.CustomerNotes AS customerNotes,r.MarkupMode AS markupMode,r.EstimateMarkupPercent AS estimateMarkupPercent,
         r.TaxPercent AS taxPercent,r.RoundingIncrement AS roundingIncrement,r.GroupingMode AS groupingMode,
         r.EstimateRevisionID AS revisionId
@@ -169,7 +175,23 @@ async function normalize(input: ChangeInput, sources: ChangeSourceLine[]) {
   }) };
 }
 
-async function writeDocument(tx: sql.Transaction, org: number, kind: string, input: ChangeInput, existingId?: number) {
+type DocumentCustomer = { customerId: number | null; customerName: string | null; customerAddress: string | null };
+
+// Alternates always use the contract's customer. A change order defaults to it but may name another
+// customer in the same organization (e.g. an owner who directly requests a change from the subcontractor).
+async function documentCustomer(tx: sql.Transaction, org: number, kind: string, parent: Parent, input: ChangeInput,
+  existingDocumentId?: number): Promise<DocumentCustomer> {
+  const inherited = { customerId: parent.customerId ?? null, customerName: parent.customerName ?? null, customerAddress: parent.customerAddress ?? null };
+  if (kind === "Alternate" || input.customerId == null || input.customerId === inherited.customerId) return inherited;
+  const current = existingDocumentId ? (await tx.request().input("id", sql.Int, existingDocumentId)
+    .query<{ customerId: number | null; customerName: string | null; customerAddress: string | null }>(
+      "SELECT CustomerID AS customerId,CustomerName AS customerName,CustomerAddressSnapshot AS customerAddress FROM dbo.Estimates WHERE EstimateID=@id")).recordset[0] : undefined;
+  if (current?.customerId === input.customerId) return current;
+  const customer = await resolveEstimateCustomer(tx, org, input.customerId, current?.customerId ?? null);
+  return { customerId: customer.customerId, customerName: customer.customerName, customerAddress: customer.customerAddress };
+}
+
+async function writeDocument(tx: sql.Transaction, org: number, kind: string, input: ChangeInput, customer: DocumentCustomer, existingId?: number) {
   const totals = calculateChange(input);
   const estimateId = existingId ?? (await tx.request().input("org", sql.Int, org).input("kind", sql.VarChar(16), kind)
     .input("name", sql.NVarChar(150), input.estimateName).query<{ id: number }>(`
@@ -178,7 +200,10 @@ async function writeDocument(tx: sql.Transaction, org: number, kind: string, inp
     `)).recordset[0].id;
   await tx.request().input("id", sql.Int, estimateId).input("name", sql.NVarChar(150), input.estimateName)
     .input("internal", sql.NVarChar(4000), input.internalNotes).input("customer", sql.NVarChar(4000), input.customerNotes)
-    .query("UPDATE dbo.Estimates SET EstimateName=@name,InternalNotes=@internal,CustomerNotes=@customer WHERE EstimateID=@id");
+    .input("customerId", sql.Int, customer.customerId).input("customerName", sql.NVarChar(150), customer.customerName)
+    .input("customerAddress", sql.NVarChar(600), customer.customerAddress)
+    .query(`UPDATE dbo.Estimates SET EstimateName=@name,InternalNotes=@internal,CustomerNotes=@customer,
+      CustomerID=@customerId,CustomerName=@customerName,CustomerAddressSnapshot=@customerAddress WHERE EstimateID=@id`);
   const revision = await tx.request().input("id", sql.Int, estimateId).query<{ id: number }>(
     "SELECT EstimateRevisionID AS id FROM dbo.EstimateRevisions WHERE EstimateID=@id");
   const revisionId = revision.recordset[0]?.id ?? (await tx.request().input("id", sql.Int, estimateId).input("org", sql.Int, org)
@@ -232,7 +257,8 @@ export async function saveContractChangeInTransaction(tx: sql.Transaction, conte
     }
     const sources = await sourceLines(tx.request(), parent);
     input = await normalize(input, sources);
-    const document = await writeDocument(tx, org, kind, input, existing?.documentEstimateId);
+    const customer = await documentCustomer(tx, org, kind, parent, input, existing?.documentEstimateId);
+    const document = await writeDocument(tx, org, kind, input, customer, existing?.documentEstimateId);
     // Freeze deductible prices to their original allocated contract sell value.
     for (const [index, line] of input.lines.entries()) if (line.operation === "Deduct") {
       const source = sources.find((s) => s.lineId === line.deductLineId)!;

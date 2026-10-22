@@ -33,7 +33,8 @@ export async function GET(request: NextRequest) {
     }
     return NextResponse.json({...data,unitPresets:await getUnitsOfMeasurement(),
       canEdit:session.permissions.includes(ctx.projectId ? "projects.write" : "sales.write"),
-      canApprove:session.permissions.includes("projects.write") && session.permissions.includes("finances.write")});
+      canApprove:session.permissions.includes("projects.write") && session.permissions.includes("finances.write"),
+      canCreateCustomer:session.permissions.includes("sales.write") && session.permissions.includes("finances.write")});
   } catch(error) {return failure(error);}
 }
 export async function POST(request: NextRequest) {

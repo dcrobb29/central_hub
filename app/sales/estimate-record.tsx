@@ -49,7 +49,7 @@ export default function EstimateRecord({ estimate, selectedTab, canEdit, loading
     {tab === "overview" ? <section className="projectHubSection">
       <h2>Estimate overview</h2>
       <dl className="projectHubFacts">
-        <div><dt>Customer</dt><dd>{estimate.customerName || "Unassigned"}</dd></div>
+        <div><dt>Customer</dt><dd>{estimate.customerName || "Unassigned"}{estimate.customerAddress && <span style={{ display: "block", whiteSpace: "pre-line" }}>{estimate.customerAddress}</span>}</dd></div>
         <div><dt>{estimate.engagementType === "Service" ? "Quoted value per occurrence" : "Base estimate total"}</dt><dd>{money(estimate.quotedTotal)}</dd></div>
         <div><dt>Work type</dt><dd>{estimate.engagementType === "Service" ? "Recurring service" : "One-time project"}</dd></div>
         <div><dt>Line items</dt><dd>{estimate.lineCount}</dd></div>

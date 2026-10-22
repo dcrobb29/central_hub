@@ -59,6 +59,21 @@ export function customerLabel(customer: Pick<CustomerDetails, "firstName" | "las
   return customer.companyName ? `${customer.companyName} - ${contact}` : contact;
 }
 
+type CustomerNameParts = Pick<CustomerDetails, "firstName" | "lastName" | "companyName">;
+
+// Estimates address the company when there is one; otherwise the individual.
+export function customerEstimateName(customer: CustomerNameParts): string {
+  return customer.companyName?.trim() || [customer.firstName, customer.lastName].filter(Boolean).join(" ").trim();
+}
+
+export function customerBillingAddressText(customer: Pick<CustomerDetails,
+  "billingAddressLine1" | "billingAddressLine2" | "billingAddressCity" | "billingAddressState" | "billingAddressZip">): string | null {
+  const cityLine = [[customer.billingAddressCity, customer.billingAddressState].filter(Boolean).join(", "), customer.billingAddressZip]
+    .filter(Boolean).join(" ");
+  const text = [customer.billingAddressLine1, customer.billingAddressLine2, cityLine].filter(Boolean).join("\n");
+  return text || null;
+}
+
 export function optionalCustomerId(value: unknown): number | null {
   if (value == null || value === "") return null;
   if (typeof value !== "number" && typeof value !== "string") throw new ValidationError("customer");

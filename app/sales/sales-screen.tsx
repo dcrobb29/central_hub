@@ -24,7 +24,9 @@ export default async function SalesScreen({ estimateId, tab }: { estimateId?: nu
   return (
     <main className={`body salesBody ${styles.page}`}>
       <EstimateWorkspace estimates={estimates} unitPresets={unitPresets}
-        canEdit={session.permissions.includes("sales.write")} selectedEstimate={selectedEstimate} selectedTab={tab} />
+        canEdit={session.permissions.includes("sales.write")}
+        canCreateCustomer={session.permissions.includes("sales.write") && session.permissions.includes("finances.write")}
+        selectedEstimate={selectedEstimate} selectedTab={tab} />
     </main>
   );
 }

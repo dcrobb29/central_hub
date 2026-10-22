@@ -1,7 +1,97 @@
 import { getPool, sql } from "@/app/lib/db";
-import { CUSTOMER_FIELD_GROUPS, type Customer, type CustomerDetails } from "@/app/lib/customer-fields";
+import {
+  CUSTOMER_FIELD_GROUPS, customerBillingAddressText, customerEstimateName,
+  type Customer, type CustomerDetails,
+} from "@/app/lib/customer-fields";
+import { ProjectAccessError } from "@/app/lib/project-access-error";
 
 export class CustomerError extends Error {}
+
+export type CustomerSearchResult = {
+  customerId: number;
+  displayName: string;
+  contactName: string;
+  email: string | null;
+  address: string | null;
+};
+
+const DISPLAY_NAME_SQL = "COALESCE(NULLIF(LTRIM(RTRIM(CompanyName)), N''), LTRIM(RTRIM(CONCAT(FirstName, N' ', LastName))))";
+const CONTACT_NAME_SQL = "LTRIM(RTRIM(CONCAT(FirstName, N' ', LastName)))";
+const SEARCH_COLUMNS = `CustomerID AS customerId, ${DISPLAY_NAME_SQL} AS displayName, ${CONTACT_NAME_SQL} AS contactName, Email AS email,
+  BillingAddressLine1 AS billingAddressLine1, BillingAddressLine2 AS billingAddressLine2,
+  BillingAddressCity AS billingAddressCity, BillingAddressState AS billingAddressState, BillingAddressZip AS billingAddressZip`;
+
+type SearchRow = Omit<CustomerSearchResult, "address"> & Pick<CustomerDetails,
+  "billingAddressLine1" | "billingAddressLine2" | "billingAddressCity" | "billingAddressState" | "billingAddressZip">;
+
+function toSearchResult(row: SearchRow): CustomerSearchResult {
+  return {
+    customerId: row.customerId, displayName: row.displayName, contactName: row.contactName,
+    email: row.email, address: customerBillingAddressText(row),
+  };
+}
+
+// Active customers of one organization whose company or contact name contains the typed text.
+export async function searchCustomers(organizationId: number, query: string, limit = 15): Promise<CustomerSearchResult[]> {
+  const text = query.trim().slice(0, 100);
+  const escape = (value: string) => value.replace(/[\\%_[]/g, (character) => `\\${character}`);
+  const pool = await getPool();
+  const result = await pool.request()
+    .input("orgId", sql.Int, organizationId)
+    .input("limit", sql.Int, Math.min(Math.max(limit, 1), 25))
+    .input("contains", sql.NVarChar(210), `%${escape(text)}%`)
+    .input("prefix", sql.NVarChar(210), `${escape(text)}%`)
+    .query<SearchRow>(`
+      SELECT TOP (@limit) ${SEARCH_COLUMNS}
+      FROM dbo.Customers
+      WHERE OrganizationID = @orgId AND IsActive = 1
+        AND (CompanyName LIKE @contains ESCAPE '\\' OR ${CONTACT_NAME_SQL} LIKE @contains ESCAPE '\\')
+      ORDER BY CASE WHEN ${DISPLAY_NAME_SQL} LIKE @prefix ESCAPE '\\' THEN 0 ELSE 1 END, ${DISPLAY_NAME_SQL}, CustomerID
+    `);
+  return result.recordset.map(toSearchResult);
+}
+
+// Existing customers in the organization that a new customer might duplicate.
+export async function findSimilarCustomers(organizationId: number, details: CustomerDetails): Promise<CustomerSearchResult[]> {
+  const pool = await getPool();
+  const result = await pool.request()
+    .input("orgId", sql.Int, organizationId)
+    .input("name", sql.NVarChar(260), customerEstimateName(details).toLowerCase())
+    .input("email", sql.NVarChar(254), details.email?.toLowerCase() ?? null)
+    .query<SearchRow>(`
+      SELECT TOP (5) ${SEARCH_COLUMNS}
+      FROM dbo.Customers
+      WHERE OrganizationID = @orgId
+        AND (LOWER(${DISPLAY_NAME_SQL}) = @name OR (@email IS NOT NULL AND LOWER(Email) = @email))
+      ORDER BY ${DISPLAY_NAME_SQL}, CustomerID
+    `);
+  return result.recordset.map(toSearchResult);
+}
+
+export type EstimateCustomerSnapshot = { customerId: number; customerName: string; customerAddress: string | null };
+
+// Confirms the customer belongs to the organization (and is active unless already linked) and returns the values to snapshot.
+export async function resolveEstimateCustomer(
+  runner: { request(): sql.Request },
+  organizationId: number,
+  customerId: number,
+  currentCustomerId: number | null = null,
+): Promise<EstimateCustomerSnapshot> {
+  const result = await runner.request()
+    .input("orgId", sql.Int, organizationId)
+    .input("customerId", sql.Int, customerId)
+    .query<CustomerDetails & { isActive: boolean }>(`
+      SELECT FirstName AS firstName, LastName AS lastName, CompanyName AS companyName, IsActive AS isActive,
+        BillingAddressLine1 AS billingAddressLine1, BillingAddressLine2 AS billingAddressLine2,
+        BillingAddressCity AS billingAddressCity, BillingAddressState AS billingAddressState, BillingAddressZip AS billingAddressZip
+      FROM dbo.Customers WHERE CustomerID = @customerId AND OrganizationID = @orgId
+    `);
+  const customer = result.recordset[0];
+  if (!customer || (!customer.isActive && customerId !== currentCustomerId)) {
+    throw new ProjectAccessError("Choose an existing customer from your customer list.", 400);
+  }
+  return { customerId, customerName: customerEstimateName(customer), customerAddress: customerBillingAddressText(customer) };
+}
 
 export async function getCustomers(organizationId: number): Promise<Customer[]> {
   const pool = await getPool();

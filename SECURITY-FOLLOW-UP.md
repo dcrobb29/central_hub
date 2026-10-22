@@ -98,3 +98,13 @@ Do not perform cross-organization or destructive checks against live customer da
 - The scheduling-availability observation was not reproduced in later checks and was not counted as a confirmed defect.
 - The report also suggested unsaved-work warnings and load testing. These are product/resilience follow-ups, not demonstrated security vulnerabilities; load testing needs separate owner approval and agreed limits.
 - Synthetic records and evidence from the original review were left in the application for developer review. Confirm cleanup needs before deleting them.
+
+## Estimate customer search (new endpoint)
+
+- `GET /api/sales/customers?q=` requires `sales.read`; results are scoped to the caller's organization and active customers only (max 25).
+- `POST /api/sales/customers` requires both `sales.write` and `finances.write`; warns on similar name/email before creating.
+- Estimate saves resolve `customerId` server-side within the organization; client-supplied names are never trusted. A composite FK (`OrganizationID`, `CustomerID`) enforces this in the database.
+- Requires running `database/estimate-customer-link-schema.sql` before deploying (rollback: `database/estimate-customer-link-rollback.sql`).
+- Needs manual verification: cross-organization isolation and permission-denied behavior on both methods.
+
+- Alternates and change orders also carry a customer. Alternates always inherit the contract's customer; a change order defaults to it but may name another customer, which is re-validated against the caller's organization on the server (`resolveEstimateCustomer`). Winning an estimate copies `CustomerID` to the project. Note: `POST /api/contract-changes` checks organization membership of the chosen customer but not `sales.read`/`finances.read`; an authenticated `projects.write` user can reference any customer ID in their own organization.

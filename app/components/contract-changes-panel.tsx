@@ -9,9 +9,10 @@ import { DocumentNotes } from "./document-notes";
 import ContractChangeFields, { blankContractChange, contractChangePreview } from "./contract-change-fields";
 
 type Data={
-  parent:{title:string;engagementType:string;status:string;projectStatus:string|null;isSample?:boolean};
+  parent:{title:string;engagementType:string;status:string;projectStatus:string|null;isSample?:boolean;
+    customerId?:number|null;customerName?:string|null;customerAddress?:string|null};
   changes:ContractChange[];sourceLines:ChangeSourceLine[];baseValue:number;initialContract:number;currentContract:number;
-  unitPresets:UnitPreset[];canEdit:boolean;canApprove:boolean;
+  unitPresets:UnitPreset[];canEdit:boolean;canApprove:boolean;canCreateCustomer:boolean;
 };
 const money=(n:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(n);
 const code=(c:ContractChange)=>`${c.kind==="Alternate"?"ALT":"CO"}-${String(c.changeId).padStart(6,"0")}`;
@@ -161,6 +162,8 @@ export default function ContractChangesPanel({context}:{context:ChangeContext}) 
       <form onSubmit={save}>
         {error&&<p className="financeImportError" role="alert">{error}</p>}
         <ContractChangeFields input={input} sources={data?.sourceLines??[]} unitPresets={data?.unitPresets??[]}
+          customerMode={context.projectId?"selectable":"locked"} canCreateCustomer={data?.canCreateCustomer??false}
+          contractCustomer={data?{customerId:data.parent.customerId??null,name:data.parent.customerName??"",address:data.parent.customerAddress??null}:null}
           disabled={busy||editor.readOnly} onChange={value=>setEditor(current=>current?{...current,input:value}:current)}/>
         <p><strong>Net contract change: {money(editor.readOnly&&editor.change?editor.change.quotedTotal:preview)}</strong></p>
         <p>Saving creates a draft, not an approval. Negotiated edits return proposals to Draft and require a new proposal.</p>

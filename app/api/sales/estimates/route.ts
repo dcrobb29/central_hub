@@ -3,6 +3,7 @@ import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/pr
 import { InvalidUnitPresetError } from "@/app/lib/unit-presets";
 import { parseNotes } from "@/app/lib/document-notes";
 import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
+import { optionalCustomerId } from "@/app/lib/customer-fields";
 import { getPool, sql } from "@/app/lib/db";
 import { isEditableEstimateStatus } from "@/app/lib/estimate-status";
 import type { InitialAlternateInput } from "@/app/lib/contract-changes";
@@ -47,6 +48,7 @@ function decimalPlaces(value: number, places: number) {
 export function parseEstimate(body: Record<string, unknown>): CreateEstimateInput {
   const estimateName = typeof body.estimateName === "string" ? body.estimateName.trim() : "";
   const customerName = typeof body.customerName === "string" ? body.customerName.trim() : "";
+  const customerId = optionalCustomerId(body.customerId);
   const internalNotes = parseNotes(body.internalNotes, "Internal notes");
   const customerNotes = parseNotes(body.customerNotes, "Customer notes");
   if (!estimateName) throw new Error("Enter an estimate name");
@@ -139,6 +141,7 @@ export function parseEstimate(body: Record<string, unknown>): CreateEstimateInpu
   return {
     estimateName,
     customerName: customerName || null,
+    customerId,
     internalNotes,
     customerNotes,
     engagementType,

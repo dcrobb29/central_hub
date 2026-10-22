@@ -4,6 +4,7 @@ import type { ChangeInput, ChangeSourceLine } from "@/app/lib/contract-changes";
 import { calculateChange } from "@/app/lib/contract-change-pricing";
 import { defaultUnitAbbreviation, type UnitPreset } from "@/app/lib/unit-presets";
 import { DocumentNotesFields } from "./document-notes";
+import CustomerPicker, { type PickedCustomer } from "@/app/sales/customer-picker";
 
 export function blankContractChange(unitName: string): ChangeInput {
   return {
@@ -27,15 +28,31 @@ export function contractChangePreview(input: ChangeInput, sources: ChangeSourceL
   }, 0) * 100) / 100;
 }
 
-export default function ContractChangeFields({ input, sources, unitPresets, disabled, onChange }: {
+export default function ContractChangeFields({ input, sources, unitPresets, disabled, onChange, customerMode = "hidden", contractCustomer = null, canCreateCustomer = false }: {
   input: ChangeInput; sources: ChangeSourceLine[]; unitPresets: UnitPreset[]; disabled?: boolean;
   onChange: (input: ChangeInput) => void;
+  customerMode?: "hidden" | "locked" | "selectable";
+  contractCustomer?: PickedCustomer | null;
+  canCreateCustomer?: boolean;
 }) {
   const patch = (values: Partial<ChangeInput>) => onChange({ ...input, ...values });
   const linePatch = (index: number, values: Partial<ChangeInput["lines"][number]>) =>
     patch({ lines: input.lines.map((line, position) => position === index ? { ...line, ...values } : line) });
+  // An unset change-order customer falls back to the contract's customer on the server.
+  const shown: PickedCustomer = input.customerId != null
+    ? { customerId: input.customerId, name: input.customerName ?? "", address: input.customerAddress ?? null }
+    : contractCustomer ?? { customerId: null, name: "", address: null };
+  const differs = customerMode === "selectable" && input.customerId != null && input.customerId !== contractCustomer?.customerId;
   return <fieldset disabled={disabled} className="financeImportGroup">
     <legend>Estimate-style pricing</legend>
+    {customerMode === "locked" && <p>Customer: <strong>{contractCustomer?.name || "Unassigned"}</strong> (alternates always use the contract&apos;s customer)</p>}
+    {customerMode === "selectable" && <div className="financeImportField">
+      <span>Customer</span>
+      <CustomerPicker value={shown} canCreate={canCreateCustomer} disabled={disabled}
+        onChange={customer => patch({ customerId: customer.customerId, customerName: customer.name, customerAddress: customer.address })}/>
+      {differs && <p role="note"><strong>Different customer:</strong> this change order is for a customer other than the contract&apos;s
+        {contractCustomer?.name ? ` (${contractCustomer.name})` : ""}. Confirm this is intended.</p>}
+    </div>}
     <div className="financeImportFields">
       <label className="financeImportField">Name<input required maxLength={150} value={input.estimateName} onChange={e => patch({ estimateName: e.target.value })}/></label>
       <label className="financeImportField">Markup method<select value={input.markupMode}

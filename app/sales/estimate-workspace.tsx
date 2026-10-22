@@ -30,6 +30,7 @@ import { draftAlternateSources, initialAlternateInputs, type EstimateLineDraft }
 import ListViewControls from "@/app/components/list-view-controls";
 import { DocumentNotesFields } from "@/app/components/document-notes";
 import EstimateRecord from "./estimate-record";
+import CustomerPicker from "./customer-picker";
 import EstimateStatusSelector from "./estimate-status-selector";
 import { ESTIMATE_STATUSES, matchesEstimateStatus } from "@/app/lib/estimate-status";
 import recordStyles from "@/app/components/record-workspace.module.css";
@@ -119,10 +120,11 @@ function asNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export default function EstimateWorkspace({ estimates, unitPresets, canEdit = true, selectedEstimate = null, selectedTab }: {
+export default function EstimateWorkspace({ estimates, unitPresets, canEdit = true, canCreateCustomer = false, selectedEstimate = null, selectedTab }: {
   estimates: EstimateSummary[];
   unitPresets: UnitPreset[];
   canEdit?: boolean;
+  canCreateCustomer?: boolean;
   selectedEstimate?: EstimateDetails | null;
   selectedTab?: string;
 }) {
@@ -140,6 +142,8 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
   const [isCreating, setIsCreating] = useState(false);
   const [estimateName, setEstimateName] = useState("");
   const [customerName, setCustomerName] = useState("");
+  const [customerId, setCustomerId] = useState<number | null>(null);
+  const [customerAddress, setCustomerAddress] = useState<string | null>(null);
   const [internalNotes, setInternalNotes] = useState("");
   const [customerNotes, setCustomerNotes] = useState("");
   const [markupMode, setMarkupMode] = useState<EstimateMarkupMode>("perLine");
@@ -256,6 +260,8 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
   function resetForm() {
     setEstimateName("");
     setCustomerName("");
+    setCustomerId(null);
+    setCustomerAddress(null);
     setInternalNotes("");
     setCustomerNotes("");
     setMarkupMode("perLine");
@@ -294,6 +300,8 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
       const details = result as EstimateDetails;
       setEstimateName(details.estimateName);
       setCustomerName(details.customerName ?? "");
+      setCustomerId(details.customerId);
+      setCustomerAddress(details.customerAddress);
       setInternalNotes(details.internalNotes ?? "");
       setCustomerNotes(details.customerNotes ?? "");
       setMarkupMode(details.markupMode);
@@ -496,6 +504,7 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
         body: JSON.stringify({
           estimateName,
           customerName,
+          customerId,
           internalNotes,
           customerNotes,
           markupMode,
@@ -849,7 +858,15 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
                 <legend>Quote</legend>
                 <div className="financeImportFields">
                   <label className="financeImportField">Estimate name *<input value={estimateName} onChange={(event) => setEstimateName(event.target.value)} maxLength={150} required /></label>
-                  <label className="financeImportField">Customer name<input value={customerName} onChange={(event) => setCustomerName(event.target.value)} maxLength={150} /></label>
+                  <div className="financeImportField">
+                    <span id="estimateCustomerLabel">Customer</span>
+                    <CustomerPicker
+                      value={{ customerId, name: customerName, address: customerAddress }}
+                      onChange={(customer) => { setCustomerId(customer.customerId); setCustomerName(customer.name); setCustomerAddress(customer.address); }}
+                      canCreate={canCreateCustomer}
+                      disabled={isSaving}
+                    />
+                  </div>
                 </div>
               </fieldset>
 
@@ -998,6 +1015,7 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
                 {alternateDrafts.map((alternate,index)=><section key={index} className="estimateBaseBid" aria-label={`Alternate ${index+1}`}>
                   <h4>Alternate {index+1}</h4>
                   <ContractChangeFields input={alternate} sources={alternateSources} unitPresets={unitPresets} disabled={isSaving}
+                    customerMode="locked" contractCustomer={{ customerId, name: customerName, address: customerAddress }}
                     onChange={value=>setAlternateDrafts(current=>current.map((item,position)=>position===index?value:item))}/>
                   <div className="estimatePreviewTotal">
                     <span>Alternate {index+1} subtotal{alternate.estimateName?`: ${alternate.estimateName}`:""} (separate from base bid)</span>

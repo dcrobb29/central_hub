@@ -8,6 +8,7 @@ import { requireUnitAbbreviation } from "@/app/lib/unit-presets";
 import { ensureProjectBillingSnapshot } from "@/app/lib/project-billing";
 import { approveChangeInTransaction, saveContractChangeInTransaction, type InitialAlternateInput } from "./contract-changes";
 import { ProjectAccessError } from "./project-access-error";
+import { resolveEstimateCustomer } from "@/app/lib/customers";
 import {
   calculateEstimate,
   type EstimateMarkupMode,
@@ -32,6 +33,7 @@ export type EstimateLineInput = EstimatePricingLine & {
 export type CreateEstimateInput = {
   estimateName: string;
   customerName: string | null;
+  customerId?: number | null;
   internalNotes: string | null;
   customerNotes: string | null;
   engagementType: EngagementType;
@@ -65,6 +67,8 @@ export type EstimateSummary = {
   estimateId: number;
   estimateName: string;
   customerName: string | null;
+  customerId: number | null;
+  customerAddress: string | null;
   internalNotes: string | null;
   customerNotes: string | null;
   status: EstimateStatus;
@@ -141,6 +145,8 @@ export async function getEstimates(organizationId:number): Promise<EstimateSumma
       e.EstimateID AS estimateId,
       e.EstimateName AS estimateName,
       e.CustomerName AS customerName,
+      e.CustomerID AS customerId,
+      e.CustomerAddressSnapshot AS customerAddress,
       e.InternalNotes AS internalNotes,
       e.CustomerNotes AS customerNotes,
       e.EstimateStatus AS status,
@@ -191,6 +197,8 @@ export async function getEstimateDetails(estimateId: number): Promise<EstimateDe
         e.EstimateID AS estimateId,
         e.EstimateName AS estimateName,
         e.CustomerName AS customerName,
+        e.CustomerID AS customerId,
+        e.CustomerAddressSnapshot AS customerAddress,
         e.InternalNotes AS internalNotes,
         e.CustomerNotes AS customerNotes,
         e.EstimateStatus AS status,
@@ -272,9 +280,14 @@ export async function createEstimate(input: CreateEstimateInput, organizationId:
   await transaction.begin();
 
   try {
+    const customer = input.customerId ? await resolveEstimateCustomer(transaction, organizationId, input.customerId) : null;
+    if (customer) input = { ...input, customerName: customer.customerName };
+    else input = { ...input, customerName: null };
     const estimateResult = await transaction.request()
       .input("estimateName", sql.NVarChar(150), input.estimateName)
       .input("customerName", sql.NVarChar(150), input.customerName)
+      .input("customerId", sql.Int, customer?.customerId ?? null)
+      .input("customerAddress", sql.NVarChar(600), customer?.customerAddress ?? null)
       .input("internalNotes", sql.NVarChar(4000), input.internalNotes)
       .input("customerNotes", sql.NVarChar(4000), input.customerNotes)
       .input("engagementType", sql.VarChar(16), input.engagementType)
@@ -284,9 +297,9 @@ export async function createEstimate(input: CreateEstimateInput, organizationId:
       .input("org",sql.Int,organizationId)
       .query<{ EstimateID: number }>(`
         INSERT INTO dbo.Estimates (
-          EstimateName, CustomerName, InternalNotes, CustomerNotes, EngagementType, RecurrenceFrequency, ExpectedStartDate, ExpectedEndDate,OrganizationID
+          EstimateName, CustomerName, CustomerID, CustomerAddressSnapshot, InternalNotes, CustomerNotes, EngagementType, RecurrenceFrequency, ExpectedStartDate, ExpectedEndDate,OrganizationID
         )
-        VALUES (@estimateName, @customerName, @internalNotes, @customerNotes, @engagementType, @recurrenceFrequency, @expectedStartDate, @expectedEndDate,
+        VALUES (@estimateName, @customerName, @customerId, @customerAddress, @internalNotes, @customerNotes, @engagementType, @recurrenceFrequency, @expectedStartDate, @expectedEndDate,
           COALESCE(@org,(SELECT TOP(1) OrganizationID FROM dbo.Organizations ORDER BY OrganizationID)));
         SELECT CONVERT(int, SCOPE_IDENTITY()) AS EstimateID;
       `);
@@ -414,8 +427,8 @@ export async function updateEstimate(estimateId: number, input: CreateEstimateIn
   try {
     const estimateResult = await transaction.request()
       .input("estimateId", sql.Int, estimateId)
-      .query<{ EstimateStatus: string; EstimateRevisionID: number | null }>(`
-        SELECT e.EstimateStatus, r.EstimateRevisionID
+      .query<{ EstimateStatus: string; EstimateRevisionID: number | null; OrganizationID: number; CustomerID: number | null; CustomerName: string | null }>(`
+        SELECT e.EstimateStatus, r.EstimateRevisionID, e.OrganizationID, e.CustomerID, e.CustomerName
         FROM dbo.Estimates e WITH (UPDLOCK, HOLDLOCK)
         OUTER APPLY (
           SELECT TOP (1) EstimateRevisionID
@@ -433,10 +446,21 @@ export async function updateEstimate(estimateId: number, input: CreateEstimateIn
       .query("UPDATE dbo.ContractChanges SET Status='Draft',Version=Version+1 WHERE ParentEstimateID=@id AND Status<>'Approved'");
     const revisionId = estimate.EstimateRevisionID;
 
+    // A free-text name is only kept when it is the unchanged name of an estimate that predates customer linking.
+    const customer = input.customerId
+      ? await resolveEstimateCustomer(transaction, estimate.OrganizationID, input.customerId, estimate.CustomerID)
+      : null;
+    const keepLegacyName = !customer && estimate.CustomerID === null && estimate.CustomerName !== null
+      && input.customerName === estimate.CustomerName;
+    input = { ...input, customerName: customer ? customer.customerName : keepLegacyName ? estimate.CustomerName : null };
+
     await transaction.request()
       .input("estimateId", sql.Int, estimateId)
       .input("estimateName", sql.NVarChar(150), input.estimateName)
       .input("customerName", sql.NVarChar(150), input.customerName)
+      .input("customerId", sql.Int, customer?.customerId ?? null)
+      .input("customerAddress", sql.NVarChar(600), customer?.customerAddress ?? null)
+      .input("keepSnapshot", sql.Bit, customer !== null && customer.customerId === estimate.CustomerID)
       .input("internalNotes", sql.NVarChar(4000), input.internalNotes)
       .input("customerNotes", sql.NVarChar(4000), input.customerNotes)
       .input("recurrenceFrequency", sql.VarChar(16), input.recurrenceFrequency)
@@ -444,7 +468,10 @@ export async function updateEstimate(estimateId: number, input: CreateEstimateIn
       .input("expectedEndDate", sql.Date, input.expectedEndDate)
       .query(`
         UPDATE dbo.Estimates
-        SET EstimateName = @estimateName, CustomerName = @customerName,
+        SET EstimateName = @estimateName,
+          CustomerName = CASE WHEN @keepSnapshot = 1 THEN CustomerName ELSE @customerName END,
+          CustomerAddressSnapshot = CASE WHEN @keepSnapshot = 1 THEN CustomerAddressSnapshot ELSE @customerAddress END,
+          CustomerID = @customerId,
           InternalNotes = @internalNotes, CustomerNotes = @customerNotes, RecurrenceFrequency = @recurrenceFrequency,
           ExpectedStartDate = @expectedStartDate, ExpectedEndDate = @expectedEndDate
         WHERE EstimateID = @estimateId
@@ -579,10 +606,11 @@ export async function winEstimate(estimateId: number, alternateApproval?: Initia
         ExpectedStartDate: Date | null;
         ExpectedEndDate: Date | null;
         OrganizationID: number;
+        CustomerID: number | null;
         QuotedTotal: number;
       }>(`
         SELECT e.EstimateName, e.EstimateStatus, e.InternalNotes, e.CustomerNotes, e.EngagementType, e.RecurrenceFrequency,
-          e.ExpectedStartDate, e.ExpectedEndDate, r.EstimateRevisionID,e.OrganizationID,r.QuotedTotal
+          e.ExpectedStartDate, e.ExpectedEndDate, r.EstimateRevisionID,e.OrganizationID,e.CustomerID,r.QuotedTotal
         FROM dbo.Estimates e WITH (UPDLOCK, HOLDLOCK)
         OUTER APPLY (
           SELECT TOP (1) EstimateRevisionID,QuotedTotal
@@ -621,13 +649,14 @@ export async function winEstimate(estimateId: number, alternateApproval?: Initia
       .input("expectedStartDate", sql.Date, estimate.ExpectedStartDate)
       .input("expectedEndDate", sql.Date, estimate.ExpectedEndDate)
       .input("org",sql.Int,estimate.OrganizationID)
+      .input("customerId",sql.Int,estimate.CustomerID)
       .query<{ ProjectID: number }>(`
         INSERT INTO dbo.Projects (
           ProjectName, ProjectStatus, InternalNotes, CustomerNotes, AcceptedEstimateRevisionID, EngagementType, RecurrenceFrequency,
-          ExpectedStartDate, ExpectedEndDate,OrganizationID
+          ExpectedStartDate, ExpectedEndDate,OrganizationID,CustomerID
         )
         VALUES (@projectName, @status, @internalNotes, @customerNotes, @revisionId, @engagementType, @recurrenceFrequency,
-          @expectedStartDate, @expectedEndDate,@org);
+          @expectedStartDate, @expectedEndDate,@org,@customerId);
         SELECT CONVERT(int, SCOPE_IDENTITY()) AS ProjectID;
       `);
     const projectId = projectResult.recordset[0].ProjectID;

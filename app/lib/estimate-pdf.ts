@@ -78,6 +78,7 @@ export function renderEstimatePdf(estimate: EstimateDetails, alternates: Estimat
     doc.fontSize(20).text(estimate.estimateName, { continued: false });
     if (estimate.customerName) {
       doc.fontSize(11).fillColor("#555555").text(`Prepared for ${estimate.customerName}`);
+      if (estimate.customerAddress) doc.fontSize(10).text(estimate.customerAddress);
     }
     doc.fillColor("#000000").fontSize(10).text(`Date: ${new Date(estimate.createdAt).toLocaleDateString()}`);
     doc.moveDown(1.2);

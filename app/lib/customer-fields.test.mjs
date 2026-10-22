@@ -9,7 +9,7 @@ registerHooks({
   },
 });
 
-const { EMPTY_CUSTOMER, parseCustomerDetails, optionalCustomerId, customerLabel, customerToDraft, invoiceCustomerSnapshot } =
+const { EMPTY_CUSTOMER, parseCustomerDetails, optionalCustomerId, customerLabel, customerToDraft, invoiceCustomerSnapshot, customerEstimateName, customerBillingAddressText } =
   await import("./customer-fields.ts");
 
 test("individual customers do not require a company, last name or addresses", () => {
@@ -63,4 +63,28 @@ test("invoice snapshots are copies and exclude directory-only fields", () => {
   assert.equal("email" in snapshot, false);
   assert.equal("phone" in snapshot, false);
   assert.equal(customerToDraft(customer).lastName, "");
+});
+
+test("estimate customer name prefers the company, else first and last name", () => {
+  assert.equal(customerEstimateName({ companyName: "Skanska", firstName: "Pat", lastName: "Lee" }), "Skanska");
+  assert.equal(customerEstimateName({ companyName: " ", firstName: "Ms.", lastName: "Miller" }), "Ms. Miller");
+  assert.equal(customerEstimateName({ companyName: null, firstName: "Sam", lastName: null }), "Sam");
+});
+
+test("billing address text is multi-line and null when empty", () => {
+  assert.equal(customerBillingAddressText({
+    billingAddressLine1: "1 Main St", billingAddressLine2: "Suite 4",
+    billingAddressCity: "Austin", billingAddressState: "TX", billingAddressZip: "78701",
+  }), "1 Main St\nSuite 4\nAustin, TX 78701");
+  assert.equal(customerBillingAddressText({
+    billingAddressLine1: null, billingAddressLine2: null,
+    billingAddressCity: null, billingAddressState: null, billingAddressZip: null,
+  }), null);
+});
+
+test("optionalCustomerId rejects non-numeric and out-of-range ids", () => {
+  assert.equal(optionalCustomerId(""), null);
+  assert.equal(optionalCustomerId("12"), 12);
+  assert.throws(() => optionalCustomerId(0));
+  assert.throws(() => optionalCustomerId({}));
 });

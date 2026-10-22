@@ -62,7 +62,6 @@ export default function Body() {
                 <span className="homeTileTitle">{tile.label}</span>
                 <span className="homeTileDescription">{tile.description}</span>
               </span>
-              <span className="homeTileArrow" aria-hidden="true"><ArrowUpRight size={17} /></span>
             </Link>
           ))}
         </div>

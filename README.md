@@ -14,6 +14,23 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 ## Azure App Service deployment
 
+### Organization-specific personnel roles
+
+Apply [organization-role-uniqueness.sql](database/organization-role-uniqueness.sql)
+separately to local and Azure databases after `dbo.Roles.OrganizationID` exists.
+It replaces the global role-name uniqueness index with uniqueness on
+`(OrganizationID, RoleName)`, preserving role IDs and employee assignments.
+Companies may use identical role names without sharing roles; duplicates inside
+one organization remain rejected under the database's existing collation.
+The personnel API already scopes role lists, creation, and employee role selection
+to the authenticated organization. These are personnel job titles, not access-control roles.
+
+On a test database with two existing organizations, run
+[organization-role-uniqueness.verify.sql](database/organization-role-uniqueness.verify.sql).
+It verifies both uniqueness cases using temporary test roles and rolls back all
+inserts. Then verify each organization's Personnel list and sample-data insertion
+in the browser. SQL migrations are not run automatically by code deployment.
+
 ### User appearance preferences
 
 Appearance changes are local until deployed. Apply

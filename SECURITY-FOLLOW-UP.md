@@ -110,7 +110,7 @@ Do not perform cross-organization or destructive checks against live customer da
 - Alternates and change orders also carry a customer. Alternates always inherit the contract's customer; a change order defaults to it but may name another customer, which is re-validated against the caller's organization on the server (`resolveEstimateCustomer`). Winning an estimate copies `CustomerID` to the project. Note: `POST /api/contract-changes` checks organization membership of the chosen customer but not `sales.read`/`finances.read`; an authenticated `projects.write` user can reference any customer ID in their own organization.
 
 - Estimate billing address: Draft/Lost estimates now show the customer's current billing address (read live, same organization only, via `withLiveCustomerAddress` in `customers.ts`); the address is frozen onto the estimate when it is won. The customer name is still a saved copy. The live lookup uses an inline list of validated integer IDs (no `OPENJSON`). Change documents with a different customer still show their stored address. No automated test covers this yet; verify manually (edit address, reopen draft, win, edit again).
-- Open item: `/sales` returned a 500 after these changes. The `OPENJSON` removal is a suspected, unconfirmed fix; if it persists, get the actual error from the Azure log stream.
+- Resolved deployment issue: Azure logs identified missing `Estimates.CustomerID` and `CustomerAddressSnapshot` columns, not an established `OPENJSON` compatibility failure. The customer migration had run locally but not in Azure. After updating the backfill to skip completed jobs and approved change documents, the user applied it in Azure, confirmed column lengths 4/1200 and zero open transactions, and confirmed Sales loads again.
 ## Sales libraries were not organization-isolated (HIGH, fixed in code)
 
 - Finding: the material catalog, price history and scope templates had an `OrganizationID` column but the code never filtered on it or set it. Any organization could read and edit every organization's libraries, and new rows landed in organization 1 (the column default).
@@ -119,3 +119,14 @@ Do not perform cross-organization or destructive checks against live customer da
 - Tests: `app/lib/library-isolation.test.mjs`.
 - Needs manual verification with two organizations: org B sees an empty catalog and template list, and requests for org A's material or template IDs return 404.
 - Not addressed: sample-data seeding was left unchanged (it already sets `OrganizationID`).
+
+## Organization-specific personnel titles
+
+- Reported failure: sample-data insertion collided on `Crew Lead (Sample)` under the global `UX_Roles_RoleName` index.
+- Personnel titles in `dbo.Roles` (CEO, Owner, Crew Lead, etc.) belong to one organization. They are distinct from permission groups in `dbo.AccessRoles`, which are unchanged.
+- Prepared `database/organization-role-uniqueness.sql` to create unique `(OrganizationID, RoleName)` indexing before dropping the global name index, in one transaction with rollback on error. Existing role IDs, names, and employee references are preserved.
+- Personnel reads, creation, and employee-role selection already use the caller's organization. The sample generator reads existing roles only within that organization and tracks only roles it creates, not reused roles.
+- Updated fresh-database indexing and the legacy personnel setup to avoid recreating global name uniqueness on tenant-aware schemas.
+- Pending database validation: run the migration separately against local and Azure test databases, followed by `database/organization-role-uniqueness.verify.sql` on a test database with two organizations. It checks cross-organization name reuse and same-organization duplicate rejection, then rolls back its inserted test rows.
+- Pending browser checks: each organization sees only its titles; both organizations can add sample data; a repeated sample-data request does not add a second set. Concurrent sample-data insertion is not covered by this index change.
+- Sample-role cleanup now deletes only tracked titles in the caller's organization that no employee references (active or inactive). Adopted titles remain, and successful cleanup removes their sample tracking so future cleanup leaves them alone. Existing untracked titles remain untouched. Focused mocked regression coverage is in `app/lib/sample-role-cleanup.test.mjs`; a real-database/browser adoption-and-cleanup check remains required.

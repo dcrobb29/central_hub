@@ -1552,12 +1552,16 @@ export async function excludeSampleData(organizationId?: number): Promise<Sample
       `);
     }
 
-    // 9. Roles (if created by sample)
+    // Keep sample-created titles adopted by real personnel, including inactive employees.
     const roleKeys = byTable.get("Roles");
     if (roleKeys && roleKeys.length > 0) {
       const roleList = roleKeys.join(",");
-      await transaction.request().query(`
-        DELETE FROM dbo.Roles WHERE RoleID IN (${roleList});
+      await transaction.request().input("orgId", sql.Int, orgId).query(`
+        DELETE r FROM dbo.Roles r
+        WHERE r.OrganizationID = @orgId AND r.RoleID IN (${roleList})
+          AND NOT EXISTS (
+            SELECT 1 FROM dbo.Employees e WHERE e.RoleID = r.RoleID
+          );
       `);
     }
 

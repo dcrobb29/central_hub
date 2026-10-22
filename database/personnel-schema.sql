@@ -7,12 +7,23 @@ BEGIN
 END;
 GO
 
-IF NOT EXISTS (
-    SELECT 1 FROM sys.indexes
-    WHERE object_id = OBJECT_ID(N'dbo.Roles') AND name = N'UX_Roles_RoleName'
-)
+-- Legacy databases without organizations retain their original setup. Once tenant
+-- columns exist, never recreate the global constraint; apply organization-role-uniqueness.sql.
+IF COL_LENGTH(N'dbo.Roles', N'OrganizationID') IS NOT NULL
 BEGIN
-    CREATE UNIQUE INDEX UX_Roles_RoleName ON dbo.Roles(RoleName);
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.Roles') AND name = N'UX_Roles_Organization_RoleName'
+    )
+        EXEC (N'CREATE UNIQUE INDEX UX_Roles_Organization_RoleName ON dbo.Roles(OrganizationID, RoleName);');
+END
+ELSE
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.Roles') AND name = N'UX_Roles_RoleName'
+    )
+        CREATE UNIQUE INDEX UX_Roles_RoleName ON dbo.Roles(RoleName);
 END;
 GO
 

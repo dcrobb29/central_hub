@@ -5,7 +5,8 @@ import {
   updateScopeTemplate,
 } from "@/app/lib/scope-templates";
 import { isRecord, parseScopeTemplate } from "../route";
-import { requireSalesApiPermission } from "../../authorization";
+import { ProjectAccessError } from "@/app/lib/project-access-error";
+import { authorizeSalesApi } from "../../authorization";
 
 function parseScopeTemplateId(raw: string): number | null {
   const scopeTemplateId = Number(raw);
@@ -13,14 +14,14 @@ function parseScopeTemplateId(raw: string): number | null {
 }
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ scopeTemplateId: string }> }) {
-  const denied = await requireSalesApiPermission(request, "sales.read");
-  if (denied) return denied;
+  const auth = await authorizeSalesApi(request, "sales.read");
+  if (auth instanceof NextResponse) return auth;
 
   const scopeTemplateId = parseScopeTemplateId((await params).scopeTemplateId);
   if (scopeTemplateId == null) return NextResponse.json({ error: "Invalid scope template ID" }, { status: 400 });
 
   try {
-    const scopeTemplate = await getScopeTemplateDetails(scopeTemplateId);
+    const scopeTemplate = await getScopeTemplateDetails(auth.organizationId, scopeTemplateId);
     if (!scopeTemplate) return NextResponse.json({ error: "Scope template not found" }, { status: 404 });
     return NextResponse.json({ scopeTemplate });
   } catch {
@@ -29,8 +30,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 }
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ scopeTemplateId: string }> }) {
-  const denied = await requireSalesApiPermission(request, "sales.write");
-  if (denied) return denied;
+  const auth = await authorizeSalesApi(request, "sales.write");
+  if (auth instanceof NextResponse) return auth;
 
   const scopeTemplateId = parseScopeTemplateId((await params).scopeTemplateId);
   if (scopeTemplateId == null) return NextResponse.json({ error: "Invalid scope template ID" }, { status: 400 });
@@ -46,24 +47,26 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   try {
-    await updateScopeTemplate(scopeTemplateId, input);
+    await updateScopeTemplate(auth.organizationId, scopeTemplateId, input);
     return NextResponse.json({ scopeTemplateId });
-  } catch {
+  } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: "Unable to save scope template. Check database insert permissions." }, { status: 500 });
   }
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ scopeTemplateId: string }> }) {
-  const denied = await requireSalesApiPermission(request, "sales.write");
-  if (denied) return denied;
+  const auth = await authorizeSalesApi(request, "sales.write");
+  if (auth instanceof NextResponse) return auth;
 
   const scopeTemplateId = parseScopeTemplateId((await params).scopeTemplateId);
   if (scopeTemplateId == null) return NextResponse.json({ error: "Invalid scope template ID" }, { status: 400 });
 
   try {
-    await deleteScopeTemplate(scopeTemplateId);
+    await deleteScopeTemplate(auth.organizationId, scopeTemplateId);
     return new NextResponse(null, { status: 204 });
-  } catch {
+  } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: "Unable to delete scope template" }, { status: 500 });
   }
 }

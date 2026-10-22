@@ -1,22 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createMaterial, getMaterialsWithLatestPrice } from "@/app/lib/materials";
 import { isoDateString, nonNegativeNumberValue, ValidationError } from "@/app/lib/validation";
-import { requireSalesApiPermission } from "../authorization";
+import { authorizeSalesApi } from "../authorization";
 
 export async function GET(request: NextRequest) {
-  const denied = await requireSalesApiPermission(request, "sales.read");
-  if (denied) return denied;
+  const auth = await authorizeSalesApi(request, "sales.read");
+  if (auth instanceof NextResponse) return auth;
 
   try {
-    return NextResponse.json({ materials: await getMaterialsWithLatestPrice() });
+    return NextResponse.json({ materials: await getMaterialsWithLatestPrice(auth.organizationId) });
   } catch {
     return NextResponse.json({ error: "Unable to load material catalog" }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
-  const denied = await requireSalesApiPermission(request, "sales.write");
-  if (denied) return denied;
+  const auth = await authorizeSalesApi(request, "sales.write");
+  if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object") {
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const materialId = await createMaterial({
+    const materialId = await createMaterial(auth.organizationId, {
       materialName,
       unitName: unitName || null,
       unitCost,

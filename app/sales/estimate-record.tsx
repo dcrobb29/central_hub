@@ -38,10 +38,12 @@ export default function EstimateRecord({ estimate, selectedTab, canEdit, loading
       </button>}
       <button type="button" className="projectWorkspaceLink" onClick={onPdf}><FileDown size={24} aria-hidden="true" /></button>
       {estimate.projectId && <Link className="projectWorkspaceLink" href={`/projects/${estimate.projectId}`}>Open project</Link>}
-      {canEdit && estimate.status !== "Won" && <details className={styles.moreActions}>
-        <summary>More actions</summary>
-        <button type="button" className="estimateDangerAction" onClick={onDelete}>Delete estimate</button>
-      </details>}
+      {canEdit && estimate.status !== "Won" && <button type="button" className="financeImportButton" onClick={onDelete}>Delete</button>}
+      {/* // && <details className={styles.moreActions}>
+      //   <summary>More actions</summary>
+      //   <button type="button" className="estimateDangerAction" onClick={onDelete}>Delete estimate</button>
+      // </details>} */}
+
     </div>
     <nav className="projectHubTabs" aria-label="Estimate sections">
       {tabs.map(([key, label]) => <Link key={key} href={href(key)} aria-current={tab === key ? "page" : undefined}>{label}</Link>)}

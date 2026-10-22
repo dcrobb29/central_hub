@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Plus } from "lucide-react";
 import type { MaterialPriceEntry, MaterialWithLatestPrice } from "@/app/lib/materials";
 import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
@@ -181,7 +182,7 @@ export default function MaterialCatalog({ materials }: { materials: MaterialWith
           />
         </label>
         <div className="estimateActionsInner">
-          <a className="estimateTextAction" href="/sales">Back to estimates</a>
+          <Link className="estimateTextAction" href="/sales">Back to estimates</Link>
           <button className="financeImportButton" type="button" onClick={() => { resetForm(); setIsAdding(true); }}>
             <Plus size={15} aria-hidden="true" />
             Add material

@@ -70,6 +70,38 @@ export async function findSimilarCustomers(organizationId: number, details: Cust
 
 export type EstimateCustomerSnapshot = { customerId: number; customerName: string; customerAddress: string | null };
 
+// Current billing address of each estimate's linked customer (same organization only), keyed by estimate ID.
+export async function getLiveEstimateAddresses(
+  runner: { request(): sql.Request },
+  estimateIds: number[],
+): Promise<Map<number, string | null>> {
+  const live = new Map<number, string | null>();
+  const ids = [...new Set(estimateIds)].filter((id) => Number.isInteger(id));
+  if (!ids.length) return live;
+  // IDs are validated integers, so an inline list avoids OPENJSON (needs a newer compatibility level).
+  const result = await runner.request()
+    .query<CustomerDetails & { estimateId: number }>(`
+      SELECT e.EstimateID AS estimateId,
+        c.BillingAddressLine1 AS billingAddressLine1, c.BillingAddressLine2 AS billingAddressLine2,
+        c.BillingAddressCity AS billingAddressCity, c.BillingAddressState AS billingAddressState, c.BillingAddressZip AS billingAddressZip
+      FROM dbo.Estimates e
+      JOIN dbo.Customers c ON c.CustomerID = e.CustomerID AND c.OrganizationID = e.OrganizationID
+      WHERE e.EstimateID IN (${ids.join(",")})
+    `);
+  for (const row of result.recordset ?? []) live.set(row.estimateId, customerBillingAddressText(row));
+  return live;
+}
+
+// Estimates that are not Won follow the customer's current billing address; Won estimates keep their stored snapshot.
+export async function withLiveCustomerAddress<T extends { estimateId: number; customerId?: number | null; status?: string | null; customerAddress?: string | null }>(
+  runner: { request(): sql.Request },
+  rows: T[],
+): Promise<T[]> {
+  const open = rows.filter((row) => row.customerId != null && row.status !== "Won");
+  const live = await getLiveEstimateAddresses(runner, open.map((row) => row.estimateId));
+  return rows.map((row) => live.has(row.estimateId) ? { ...row, customerAddress: live.get(row.estimateId) ?? null } : row);
+}
+
 // Confirms the customer belongs to the organization (and is active unless already linked) and returns the values to snapshot.
 export async function resolveEstimateCustomer(
   runner: { request(): sql.Request },

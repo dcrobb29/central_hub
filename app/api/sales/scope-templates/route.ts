@@ -7,7 +7,8 @@ import {
 } from "@/app/lib/scope-templates";
 import { nonNegativeNumberValue, textValue, ValidationError } from "@/app/lib/validation";
 import type { LineType } from "@/app/lib/estimates";
-import { requireSalesApiPermission } from "../authorization";
+import { ProjectAccessError } from "@/app/lib/project-access-error";
+import { authorizeSalesApi } from "../authorization";
 
 const LINE_TYPES: LineType[] = ["Material", "Labor", "Equipment"];
 
@@ -53,19 +54,19 @@ export function parseScopeTemplate(body: Record<string, unknown>): ScopeTemplate
 }
 
 export async function GET(request: NextRequest) {
-  const denied = await requireSalesApiPermission(request, "sales.read");
-  if (denied) return denied;
+  const auth = await authorizeSalesApi(request, "sales.read");
+  if (auth instanceof NextResponse) return auth;
 
   try {
-    return NextResponse.json({ scopeTemplates: await getScopeTemplates() });
+    return NextResponse.json({ scopeTemplates: await getScopeTemplates(auth.organizationId) });
   } catch {
     return NextResponse.json({ error: "Unable to load scope templates" }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
-  const denied = await requireSalesApiPermission(request, "sales.write");
-  if (denied) return denied;
+  const auth = await authorizeSalesApi(request, "sales.write");
+  if (auth instanceof NextResponse) return auth;
 
   const body: unknown = await request.json().catch(() => null);
   if (!isRecord(body)) return NextResponse.json({ error: "Invalid scope template data" }, { status: 400 });
@@ -78,9 +79,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const scopeTemplateId = await createScopeTemplate(input);
+    const scopeTemplateId = await createScopeTemplate(auth.organizationId, input);
     return NextResponse.json({ scopeTemplateId }, { status: 201 });
-  } catch {
+  } catch (error) {
+    if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: "Unable to save scope template. Check database insert permissions." }, { status: 500 });
   }
 }

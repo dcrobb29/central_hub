@@ -18,6 +18,9 @@ registerHooks({
     if (specifier === "./sample-data" && context.parentURL?.includes("/app/lib/")) {
       return nextResolve("./sample-data.ts", context);
     }
+    if (specifier === "./project-access-error" && context.parentURL?.includes("/app/lib/")) {
+      return nextResolve("./project-access-error.ts", context);
+    }
     return nextResolve(specifier, context);
   },
   load(url, context, nextLoad) {

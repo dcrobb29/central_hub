@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Library, Plus, Trash2 } from "lucide-react";
 import type {
   ScopeTemplateComponentInput,
@@ -208,7 +209,7 @@ export default function ScopeTemplateManager({
           />
         </label>
         <div className="estimateActionsInner">
-          <a className="estimateTextAction" href="/sales">Back to estimates</a>
+          <Link className="estimateTextAction" href="/sales">Back to estimates</Link>
           <button className="financeImportButton" type="button" onClick={() => { resetForm(); setIsAdding(true); }}>
             <Plus size={15} aria-hidden="true" />
             Add scope template

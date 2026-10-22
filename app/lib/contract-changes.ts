@@ -5,7 +5,7 @@ import { canWinEstimate } from "./estimate-status";
 import { billingCents } from "./project-billing-pricing";
 import { ensureProjectBillingSnapshot } from "./project-billing";
 import { insertScopesAndLines, type CreateEstimateInput, type EstimateLineInput } from "./estimates";
-import { resolveEstimateCustomer } from "./customers";
+import { resolveEstimateCustomer, withLiveCustomerAddress } from "./customers";
 import { getUnitsOfMeasurement } from "./units-of-measurement";
 import { requireUnitAbbreviation } from "./unit-presets";
 import { allocateEstimateLineValues, calculateChange, type ChangeLineOperation } from "./contract-change-pricing";
@@ -128,7 +128,7 @@ export async function getContractChanges(context: ChangeContext, organizationId:
     `)).recordset;
   const approvedAlternates = changes.filter((c) => c.kind === "Alternate" && c.status === "Approved").reduce((s, c) => s + c.quotedTotal, 0);
   const approvedChanges = changes.filter((c) => c.kind === "ChangeOrder" && c.status === "Approved").reduce((s, c) => s + c.quotedTotal, 0);
-  return { parent, changes, sourceLines: await sourceLines(pool.request(), parent),
+  return { parent: (await withLiveCustomerAddress(pool, [parent]))[0], changes, sourceLines: await sourceLines(pool.request(), parent),
     baseValue: parent.quotedTotal, initialContract: parent.quotedTotal + approvedAlternates,
     currentContract: parent.quotedTotal + approvedAlternates + approvedChanges };
 }

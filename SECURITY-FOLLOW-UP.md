@@ -108,3 +108,14 @@ Do not perform cross-organization or destructive checks against live customer da
 - Needs manual verification: cross-organization isolation and permission-denied behavior on both methods.
 
 - Alternates and change orders also carry a customer. Alternates always inherit the contract's customer; a change order defaults to it but may name another customer, which is re-validated against the caller's organization on the server (`resolveEstimateCustomer`). Winning an estimate copies `CustomerID` to the project. Note: `POST /api/contract-changes` checks organization membership of the chosen customer but not `sales.read`/`finances.read`; an authenticated `projects.write` user can reference any customer ID in their own organization.
+
+- Estimate billing address: Draft/Lost estimates now show the customer's current billing address (read live, same organization only, via `withLiveCustomerAddress` in `customers.ts`); the address is frozen onto the estimate when it is won. The customer name is still a saved copy. The live lookup uses an inline list of validated integer IDs (no `OPENJSON`). Change documents with a different customer still show their stored address. No automated test covers this yet; verify manually (edit address, reopen draft, win, edit again).
+- Open item: `/sales` returned a 500 after these changes. The `OPENJSON` removal is a suspected, unconfirmed fix; if it persists, get the actual error from the Azure log stream.
+## Sales libraries were not organization-isolated (HIGH, fixed in code)
+
+- Finding: the material catalog, price history and scope templates had an `OrganizationID` column but the code never filtered on it or set it. Any organization could read and edit every organization's libraries, and new rows landed in organization 1 (the column default).
+- Fix: every function in `materials.ts` and `scope-templates.ts` now takes the organization from the session (`authorizeSalesApi`) and filters by it. Inserts set `OrganizationID` explicitly. Updates and deletes verify ownership first and return 404 otherwise; a template update stops before touching its components. Template components may only reference materials from the same organization (400 otherwise).
+- Data: existing libraries remain in organization 1. New organizations start empty. No database migration is needed.
+- Tests: `app/lib/library-isolation.test.mjs`.
+- Needs manual verification with two organizations: org B sees an empty catalog and template list, and requests for org A's material or template IDs return 404.
+- Not addressed: sample-data seeding was left unchanged (it already sets `OrganizationID`).

@@ -8,7 +8,7 @@ import { requireUnitAbbreviation } from "@/app/lib/unit-presets";
 import { ensureProjectBillingSnapshot } from "@/app/lib/project-billing";
 import { approveChangeInTransaction, saveContractChangeInTransaction, type InitialAlternateInput } from "./contract-changes";
 import { ProjectAccessError } from "./project-access-error";
-import { resolveEstimateCustomer } from "@/app/lib/customers";
+import { getLiveEstimateAddresses, resolveEstimateCustomer, withLiveCustomerAddress } from "@/app/lib/customers";
 import {
   calculateEstimate,
   type EstimateMarkupMode,
@@ -185,7 +185,7 @@ export async function getEstimates(organizationId:number): Promise<EstimateSumma
     WHERE e.DocumentKind='Base' AND e.OrganizationID=@org
     ORDER BY e.CreatedAt DESC, e.EstimateID DESC
   `);
-  return result.recordset;
+  return withLiveCustomerAddress(pool, result.recordset);
 }
 
 export async function getEstimateDetails(estimateId: number): Promise<EstimateDetails | null> {
@@ -227,7 +227,7 @@ export async function getEstimateDetails(estimateId: number): Promise<EstimateDe
       WHERE e.EstimateID = @estimateId AND e.DocumentKind='Base'
       ORDER BY r.RevisionNumber DESC
     `);
-  const summary = estimate.recordset[0];
+  const summary = (await withLiveCustomerAddress(pool, estimate.recordset.slice(0, 1)))[0];
   if (!summary) return null;
   const lines = await pool.request()
     .input("revisionId", sql.Int, summary.revisionId)
@@ -668,9 +668,13 @@ export async function winEstimate(estimateId: number, alternateApproval?: Initia
         title: estimate.EstimateName, quotedTotal: estimate.QuotedTotal,
       }, selection.changeId, selection.version, alternateApproval!.userId, alternateApproval!.approvedAt, alternateApproval!.reference, true);
     }
+    // Freeze the customer's current billing address on the estimate at the moment it is won.
+    const frozen = (await getLiveEstimateAddresses(transaction, [estimateId])).get(estimateId);
     await transaction.request()
       .input("estimateId", sql.Int, estimateId)
-      .query("UPDATE dbo.Estimates SET EstimateStatus = 'Won' WHERE EstimateID = @estimateId");
+      .input("customerAddress", sql.NVarChar(600), frozen ?? null)
+      .input("hasLiveAddress", sql.Bit, frozen !== undefined)
+      .query("UPDATE dbo.Estimates SET EstimateStatus = 'Won', CustomerAddressSnapshot = CASE WHEN @hasLiveAddress = 1 THEN @customerAddress ELSE CustomerAddressSnapshot END WHERE EstimateID = @estimateId");
 
     await transaction.commit();
     return projectId;

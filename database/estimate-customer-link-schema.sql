@@ -23,7 +23,7 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.Estim
 -- The columns above are new, so the backfill runs as dynamic SQL and compiles after they exist.
 -- Existing estimates link only when the saved name matches exactly one customer in the same organization;
 -- existing unapproved alternates and change orders take their parent contract's customer when they have none yet.
--- Approved change documents are immutable (TR_ChangeEstimate_Locked) and are intentionally left untouched.
+-- Completed jobs and approved change documents are read-only and are intentionally left untouched.
 EXEC (N'
 DECLARE @links TABLE (EstimateID int PRIMARY KEY, CustomerID int NOT NULL);
 WITH Names AS (
@@ -46,7 +46,16 @@ INSERT INTO @links (EstimateID, CustomerID)
 SELECT e.EstimateID, u.CustomerID
 FROM dbo.Estimates e
 JOIN Unique_ u ON u.OrganizationID = e.OrganizationID AND u.Name = LOWER(LTRIM(RTRIM(e.CustomerName)))
-WHERE e.CustomerID IS NULL AND e.CustomerName IS NOT NULL;
+WHERE e.CustomerID IS NULL AND e.CustomerName IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM dbo.EstimateRevisions r
+      JOIN dbo.Projects p ON p.AcceptedEstimateRevisionID = r.EstimateRevisionID
+      WHERE r.EstimateID = e.EstimateID AND p.ProjectStatus = N''Complete''
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM dbo.ContractChanges c
+      WHERE c.DocumentEstimateID = e.EstimateID AND c.Status = N''Approved''
+  );
 
 UPDATE e SET CustomerID = l.CustomerID
 FROM dbo.Estimates e JOIN @links l ON l.EstimateID = e.EstimateID;
@@ -60,7 +69,16 @@ FROM dbo.ContractChanges c
 JOIN dbo.Estimates d ON d.EstimateID = c.DocumentEstimateID
 JOIN dbo.Estimates p ON p.EstimateID = c.ParentEstimateID AND p.OrganizationID = d.OrganizationID
 WHERE d.CustomerID IS NULL AND d.CustomerName IS NULL AND p.CustomerID IS NOT NULL
-  AND c.Status <> N''Approved'';
+  AND c.Status <> N''Approved''
+  AND NOT EXISTS (
+      SELECT 1 FROM dbo.EstimateRevisions r
+      JOIN dbo.Projects job ON job.AcceptedEstimateRevisionID = r.EstimateRevisionID
+      WHERE r.EstimateID = d.EstimateID AND job.ProjectStatus = N''Complete''
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM dbo.ContractChanges locked
+      WHERE locked.DocumentEstimateID = d.EstimateID AND locked.Status = N''Approved''
+  );
 
 SELECT @@ROWCOUNT AS ChangeDocumentsLinked;
 ');

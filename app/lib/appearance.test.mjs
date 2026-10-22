@@ -4,7 +4,7 @@ import vm from "node:vm";
 import fs from "node:fs";
 import {
   APPEARANCE_BOOTSTRAP, APPEARANCE_CACHE_KEY, PALETTES, accentForeground, activeTheme,
-  contrastRatio, defaultAppearance, paletteWarnings, parseAppearance, themePalette, toggledAppearance,
+  contrastRatio, defaultAppearance, paletteWarnings, parseAppearance, signedOutAppearance, themePalette, toggledAppearance,
 } from "./appearance.ts";
 
 test("appearance defaults follow the system and the toggle exits system mode in either direction", () => {
@@ -55,16 +55,29 @@ function bootstrap(cached, systemDark = false) {
   return { properties, root };
 }
 
-test("prepaint bootstrap follows system or validated cache and cannot inject CSS", () => {
+test("prepaint bootstrap permits only standard signed-out Light/Dark, never account palettes", () => {
   assert.equal(bootstrap(null, true).root.dataset.theme, "dark");
   const p = { ...defaultAppearance(), followSystem: false, slotA: "custom" };
   p.custom.accent = "#123456";
   const result = bootstrap(JSON.stringify(p), true);
-  assert.equal(result.properties["--theme-accent"], "#123456");
-  assert.equal(result.root.dataset.theme, "custom");
+  assert.equal(result.properties["--theme-accent"], PALETTES.dark.accent);
+  assert.equal(result.root.dataset.theme, "dark");
   p.custom.accent = "url(https://example.com)";
   assert.equal(bootstrap(JSON.stringify(p)).properties["--theme-accent"], PALETTES.light.accent);
   assert.equal(bootstrap("invalid JSON").root.dataset.theme, undefined);
+  const guest = { ...defaultAppearance(), followSystem: false, activeSlot: "B" };
+  assert.equal(bootstrap(JSON.stringify(guest), false).root.dataset.theme, "dark");
+  guest.activeSlot = "A";
+  assert.equal(bootstrap(JSON.stringify(guest), true).root.dataset.theme, "light");
+});
+
+test("signed-out preferences reset custom slots and custom colors without changing account preferences", () => {
+  const account = { ...defaultAppearance(), followSystem: false, slotA: "custom" };
+  assert.deepEqual(signedOutAppearance(account), defaultAppearance());
+  assert.equal(account.slotA, "custom");
+  assert.deepEqual(signedOutAppearance(null), defaultAppearance());
+  const guest = { ...defaultAppearance(), followSystem: false, activeSlot: "B", custom: { ...PALETTES.vision } };
+  assert.deepEqual(signedOutAppearance(guest), { ...defaultAppearance(), followSystem: false, activeSlot: "B" });
 });
 
 test("legacy stylesheets use theme tokens rather than literal UI colors", () => {

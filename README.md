@@ -50,8 +50,10 @@ Save persists to the authenticated user's ID; Cancel restores the saved theme.
 Reset previews defaults until Save. Existing users without a preference row
 receive defaults; database errors are visible, not silently saved locally.
 
-Signed-out pages use the last browser-cached appearance or the OS default.
-Only appearance values are cached; no identity or credentials are included.
+Signed-out pages use a separate browser-cached standard Light/Dark choice or the
+OS default. Account palettes are not cached for signed-out use; custom and
+accessibility palettes apply only after authenticated preferences load.
+Only signed-out appearance values are cached; no identity or credentials are included.
 Signing into a different account loads that account's own preferences rather
 than adopting the previous account's cache. A pre-hydration script applies the
 cache before first paint. This is an inline script; a future strict CSP must

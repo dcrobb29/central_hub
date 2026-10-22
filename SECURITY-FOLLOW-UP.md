@@ -130,3 +130,9 @@ Do not perform cross-organization or destructive checks against live customer da
 - Pending database validation: run the migration separately against local and Azure test databases, followed by `database/organization-role-uniqueness.verify.sql` on a test database with two organizations. It checks cross-organization name reuse and same-organization duplicate rejection, then rolls back its inserted test rows.
 - Pending browser checks: each organization sees only its titles; both organizations can add sample data; a repeated sample-data request does not add a second set. Concurrent sample-data insertion is not covered by this index change.
 - Sample-role cleanup now deletes only tracked titles in the caller's organization that no employee references (active or inactive). Adopted titles remain, and successful cleanup removes their sample tracking so future cleanup leaves them alone. Existing untracked titles remain untouched. Focused mocked regression coverage is in `app/lib/sample-role-cleanup.test.mjs`; a real-database/browser adoption-and-cleanup check remains required.
+
+## Signed-out appearance isolation
+
+- User confirmed the Azure appearance migration removed load errors, custom settings persist after reload and re-login, and another account does not inherit them.
+- Found signed-out pages intentionally loaded the previous account's browser cache. Changed the provider and pre-paint bootstrap to use a separate signed-out cache restricted to standard Light/Dark. Authenticated preferences continue to load from the per-user database record and no longer overwrite the signed-out cache.
+- Pending deployment/browser verification: save a custom palette, sign out, confirm standard Light/Dark on login (including reload), toggle the signed-out theme, then sign in again and confirm the account's custom palette returns unchanged.

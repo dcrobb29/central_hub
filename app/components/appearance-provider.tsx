@@ -7,7 +7,7 @@ import { useAccountSession } from "./account-session-context";
 import { Sun, Moon } from "lucide-react";
 import {
   APPEARANCE_CACHE_KEY, accentForeground, activeTheme, defaultAppearance, paletteIsDark,
-  parseAppearance, themePalette, toggledAppearance, THEME_NAMES, type Appearance,
+  parseAppearance, signedOutAppearance, themePalette, toggledAppearance, THEME_NAMES, type Appearance,
 } from "@/app/lib/appearance";
 
 function applyTheme(preferences: Appearance) {
@@ -46,10 +46,12 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     savedRef.current = value;
     setPreferences(value);
     applyTheme(value);
-    try {
-      localStorage.setItem(APPEARANCE_CACHE_KEY, JSON.stringify(value));
-    } catch {
-      console.warn("Unable to cache appearance on this browser");
+    if (!currentUser.current) {
+      try {
+        localStorage.setItem(APPEARANCE_CACHE_KEY, JSON.stringify(signedOutAppearance(value)));
+      } catch {
+        console.warn("Unable to cache appearance on this browser");
+      }
     }
   }, []);
 
@@ -64,7 +66,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
       if (!userId) {
         try {
           const cached = localStorage.getItem(APPEARANCE_CACHE_KEY);
-          commit(cached ? parseAppearance(JSON.parse(cached)) ?? defaultAppearance() : defaultAppearance());
+          commit(cached ? signedOutAppearance(JSON.parse(cached)) : defaultAppearance());
         } catch {
           console.warn("Unable to read appearance cache");
           commit(defaultAppearance());
@@ -108,7 +110,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     setError(null);
     const savingUser = userId;
     try {
-      let saved = value;
+      let saved = signedOutAppearance(value);
       if (savingUser) {
         const response = await fetch("/api/account/appearance", {
           method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value),

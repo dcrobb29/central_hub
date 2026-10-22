@@ -103,7 +103,14 @@ export function accentForeground(palette: Palette): string {
   return contrastRatio(palette.accent, "#ffffff") >= contrastRatio(palette.accent, "#000000") ? "#ffffff" : "#000000";
 }
 
-export const APPEARANCE_CACHE_KEY = "overhead-appearance-v1";
+// Signed-out preferences are separate from account preferences and only support Light/Dark.
+export const APPEARANCE_CACHE_KEY = "overhead-signed-out-appearance-v1";
+
+export function signedOutAppearance(value: unknown): Appearance {
+  const parsed = parseAppearance(value);
+  if (!parsed || parsed.slotA !== "light" || parsed.slotB !== "dark") return defaultAppearance();
+  return { ...defaultAppearance(), followSystem: parsed.followSystem, activeSlot: parsed.activeSlot };
+}
 
 // Runs before hydration; keep its dependencies inside this function.
 function bootstrap(palettes: typeof PALETTES, cacheKey: string) {
@@ -115,10 +122,11 @@ function bootstrap(palettes: typeof PALETTES, cacheKey: string) {
     const raw = localStorage.getItem(cacheKey);
     if (raw) {
       const p = JSON.parse(raw);
-      if (p && typeof p.followSystem === "boolean" && ["A", "B"].includes(p.activeSlot)) {
+      if (p && typeof p.followSystem === "boolean" && ["A", "B"].includes(p.activeSlot)
+        && p.slotA === "light" && p.slotB === "dark") {
         const name = p.followSystem ? theme : p[p.activeSlot === "A" ? "slotA" : "slotB"];
-        if (name === "custom" || Object.hasOwn(palettes, name)) {
-          const candidate = name === "custom" ? p.custom : palettes[name as keyof typeof palettes];
+        if (name === "light" || name === "dark") {
+          const candidate = name === "dark" ? palettes.dark : palettes.light;
           if (candidate && ["page", "surface", "accent", "text"].every(key => /^#[0-9a-f]{6}$/i.test(candidate[key as keyof Palette]))) {
             palette = candidate;
             theme = name;

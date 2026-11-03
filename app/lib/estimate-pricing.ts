@@ -1,3 +1,5 @@
+import { assertMoneyRange } from "./decimal-input";
+
 export type EstimateMarkupMode = "perLine" | "estimate";
 
 export type EstimatePricingLine = {
@@ -36,6 +38,14 @@ export type EstimatePricingResult = {
   quotedTotal: number;
   lines: EstimateLinePricingResult[];
 };
+
+export function validateEstimateTotals(input: EstimatePricingInput): void {
+  const pricing = calculateEstimate(input);
+  for (const [index, line] of pricing.lines.entries()) {
+    assertMoneyRange(Object.values(line), `Line ${index + 1}`);
+  }
+  assertMoneyRange(Object.values(pricing).filter((value): value is number => typeof value === "number"), "Estimate total");
+}
 
 function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;

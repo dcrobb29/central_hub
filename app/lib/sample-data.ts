@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { getPool, sql } from "@/app/lib/db";
 import { getActiveOrganizationId } from "@/app/lib/auth";
+import { rollbackIfActive } from "@/app/lib/sql-transactions";
 
 export type SampleDataStatus = {
   hasSampleData: boolean;
@@ -97,22 +98,34 @@ function addDays(d: Date, days: number): Date {
   return res;
 }
 
+async function lockSampleData(transaction: sql.Transaction): Promise<void> {
+  // Serialize sample mutations across app instances, including different organizations.
+  await transaction.request().query(`
+    DECLARE @result int;
+    EXEC @result = sys.sp_getapplock @Resource = N'SampleDataMutation',
+      @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000;
+    IF @result < 0
+      THROW 51330, 'Sample data is busy. Please retry shortly.', 1;
+  `);
+}
+
+async function allocateSampleBillId(transaction: sql.Transaction): Promise<string> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const id = crypto.randomBytes(5).toString("hex");
+    const existing = await transaction.request().input("id", sql.NChar(10), id)
+      .query<{ id: string }>(`
+        SELECT id FROM dbo.Bills WITH (UPDLOCK, HOLDLOCK) WHERE id = @id;
+      `);
+    if (existing.recordset.length === 0) return id;
+  }
+  throw new Error("Unable to allocate a unique sample bill ID. Please retry.");
+}
+
 /**
  * Creates rich sample data covering all application modules and lifecycle stages.
  */
 export async function includeSampleData(organizationId?: number): Promise<SampleDataResult> {
   const orgId = organizationId ?? (await getActiveOrganizationId());
-  const currentStatus = await isSampleDataIncluded(orgId);
-  if (currentStatus.hasSampleData) {
-    return {
-      success: true,
-      hasSampleData: true,
-      recordCount: currentStatus.sampleRecordCount,
-      message: "Sample data is already included.",
-      details: { existingRecords: currentStatus.sampleRecordCount },
-    };
-  }
-
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
   await transaction.begin();
@@ -120,6 +133,19 @@ export async function includeSampleData(organizationId?: number): Promise<Sample
   const tracker = new SampleTracker(orgId);
 
   try {
+    await lockSampleData(transaction);
+    const existing = await transaction.request().input("orgId", sql.Int, orgId)
+      .query<{ total: number }>(`
+        SELECT COUNT(1) AS total FROM dbo.SampleDataRecords WHERE OrganizationID = @orgId;
+      `);
+    const count = existing.recordset[0].total;
+    if (count > 0) {
+      await transaction.commit();
+      return {
+        success: true, hasSampleData: true, recordCount: count,
+        message: "Sample data is already included.", details: { existingRecords: count },
+      };
+    }
     const now = new Date();
     const todayStr = toDateString(now);
 
@@ -1173,7 +1199,7 @@ export async function includeSampleData(organizationId?: number): Promise<Sample
     tracker.add("Invoices", invFinishedId);
 
     // Paid Bill for Project 2
-    const billFinishedId = "SMP-B01";
+    const billFinishedId = await allocateSampleBillId(transaction);
     await transaction.request()
       .input("id", sql.NChar(10), billFinishedId)
       .input("billNo", sql.NChar(10), "SB-001")
@@ -1267,7 +1293,7 @@ export async function includeSampleData(organizationId?: number): Promise<Sample
     tracker.add("Invoices", invActiveId);
 
     // Active (Unpaid / Pending) Bill for Project 1
-    const billActiveId = "SMP-B02";
+    const billActiveId = await allocateSampleBillId(transaction);
     await transaction.request()
       .input("id", sql.NChar(10), billActiveId)
       .input("billNo", sql.NChar(10), "SB-002")
@@ -1396,11 +1422,7 @@ export async function includeSampleData(organizationId?: number): Promise<Sample
       details: tracker.getCounts(),
     };
   } catch (err) {
-    try {
-      await transaction.rollback();
-    } catch {
-      // rollback error suppressed
-    }
+    await rollbackIfActive(transaction);
     throw err;
   }
 }
@@ -1412,37 +1434,38 @@ export async function includeSampleData(organizationId?: number): Promise<Sample
 export async function excludeSampleData(organizationId?: number): Promise<SampleDataResult> {
   const orgId = organizationId ?? (await getActiveOrganizationId());
   const pool = await getPool();
-
-  const tracked = await pool
-    .request()
-    .input("orgId", sql.Int, orgId)
-    .query<{ TableName: string; RecordKey: string }>(`
-      SELECT TableName, RecordKey
-      FROM dbo.SampleDataRecords
-      WHERE OrganizationID = @orgId
-      ORDER BY SampleRecordID DESC;
-    `);
-
-  if (tracked.recordset.length === 0) {
-    return {
-      success: true,
-      hasSampleData: false,
-      recordCount: 0,
-      message: "No sample data found to remove.",
-    };
-  }
-
-  const byTable = new Map<string, string[]>();
-  for (const row of tracked.recordset) {
-    const list = byTable.get(row.TableName) ?? [];
-    list.push(row.RecordKey);
-    byTable.set(row.TableName, list);
-  }
-
   const transaction = new sql.Transaction(pool);
   await transaction.begin();
 
   try {
+    await lockSampleData(transaction);
+    const tracked = await transaction
+      .request()
+      .input("orgId", sql.Int, orgId)
+      .query<{ TableName: string; RecordKey: string }>(`
+        SELECT TableName, RecordKey
+        FROM dbo.SampleDataRecords
+        WHERE OrganizationID = @orgId
+        ORDER BY SampleRecordID DESC;
+      `);
+
+    if (tracked.recordset.length === 0) {
+      await transaction.commit();
+      return {
+        success: true,
+        hasSampleData: false,
+        recordCount: 0,
+        message: "No sample data found to remove.",
+      };
+    }
+
+    const byTable = new Map<string, string[]>();
+    for (const row of tracked.recordset) {
+      const list = byTable.get(row.TableName) ?? [];
+      list.push(row.RecordKey);
+      byTable.set(row.TableName, list);
+    }
+
     const estimateKeys=byTable.get("Estimates")??[];
     if(estimateKeys.length) {
       const protectedChanges=(await transaction.request().input("org",sql.Int,orgId)
@@ -1582,11 +1605,7 @@ export async function excludeSampleData(organizationId?: number): Promise<Sample
       message: "Sample data removed successfully.",
     };
   } catch (err) {
-    try {
-      await transaction.rollback();
-    } catch {
-      // rollback error suppressed
-    }
+    await rollbackIfActive(transaction);
     throw err;
   }
 }

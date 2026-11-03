@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { renderProjectInvoicePdf } from "@/app/lib/project-invoice-pdf";
 import {
   getOrganizationInvoiceSettings,
-  type OrganizationInvoiceSettings,
+  DEFAULT_INVOICE_SETTINGS,
 } from "@/app/lib/invoice-settings";
 import type { Invoice } from "@/app/lib/invoices";
 import type { BillingInvoice } from "@/app/lib/project-billing";
 import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
+import { parseInvoiceSettings } from "@/app/lib/invoice-settings-input";
+import { describeValidationError, ValidationError } from "@/app/lib/validation";
 
 const SAMPLE_INVOICE: Invoice = {
   id: 99999,
@@ -103,9 +105,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    await requireProjectSession(request, "organization.manage");
-    const body = (await request.json().catch(() => ({}))) as Partial<OrganizationInvoiceSettings>;
-    const pdf = await renderProjectInvoicePdf(SAMPLE_INVOICE, SAMPLE_BILLING, body as OrganizationInvoiceSettings);
+    const session = await requireProjectSession(request, "organization.manage");
+    const body: unknown = await request.json().catch(() => null);
+    const settings = parseInvoiceSettings(body);
+    const pdf = await renderProjectInvoicePdf(SAMPLE_INVOICE, SAMPLE_BILLING,
+      { ...DEFAULT_INVOICE_SETTINGS, ...settings, organizationId: session.organization.organizationId });
 
     return new NextResponse(new Uint8Array(pdf), {
       headers: {
@@ -115,6 +119,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof ValidationError) return NextResponse.json({ error: describeValidationError(error) }, { status: 400 });
     console.error("Template preview POST failed:", error);
     return NextResponse.json({ error: "Failed to render preview PDF" }, { status: 500 });
   }

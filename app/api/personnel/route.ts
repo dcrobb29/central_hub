@@ -7,6 +7,7 @@ import {
   updatePerson,
 } from "@/app/lib/personnel";
 import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
+import { describeValidationError, integerValue, textValue, ValidationError } from "@/app/lib/validation";
 
 function isUniqueConstraintError(error: unknown) {
   return typeof error === "object" && error !== null && "number" in error && [2601, 2627].includes(Number(error.number));
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
 
   try {
     if (body.action === "add-role") {
-      const name = typeof body.name === "string" ? body.name.trim() : "";
+      const name = textValue(body.name, 80, true);
       if (!name) return NextResponse.json({ error: "Enter a role name" }, { status: 400 });
       await addRole(name, organizationId);
       return NextResponse.json(await getPersonnelData(organizationId), { status: 201 });
@@ -45,9 +46,9 @@ export async function POST(request: NextRequest) {
 
     if (body.action === "add-person") {
       const name = typeof body.name === "string" ? body.name.trim() : "";
-      const roleId = Number(body.roleId);
+      const roleId = integerValue(body.roleId, "Role");
       const relationType = body.relationType;
-      const relationPersonId = body.relationPersonId ? Number(body.relationPersonId) : null;
+      const relationPersonId = body.relationPersonId == null || body.relationPersonId === "" ? null : integerValue(body.relationPersonId, "Related person");
       if (!name) return NextResponse.json({ error: "Enter the person's name" }, { status: 400 });
       if (name.length > 200 || !Number.isInteger(roleId) || roleId < 1) {
         return NextResponse.json({ error: "Enter a valid name and role" }, { status: 400 });
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (error) {
     if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof ValidationError) return NextResponse.json({ error: describeValidationError(error) }, { status: 400 });
     if (error instanceof PersonnelRecordError) return NextResponse.json({ error: error.message }, { status: 400 });
     if (isUniqueConstraintError(error)) {
       return NextResponse.json({ error: "That role already exists" }, { status: 409 });
@@ -94,19 +96,19 @@ export async function PATCH(request: NextRequest) {
     throw error;
   }
   const body = await request.json().catch(() => null);
-  const id = Number(body?.id);
-  const name = typeof body?.name === "string" ? body.name.trim() : "";
-  const roleId = Number(body?.roleId);
-  const managerId = body?.managerId === null || body?.managerId === "" ? null : Number(body?.managerId);
-
-  if (!Number.isInteger(id) || id < 1 || !name || name.length > 200 || !Number.isInteger(roleId) || roleId < 1) {
-    return NextResponse.json({ error: "Enter a valid name and role" }, { status: 400 });
-  }
-  if (managerId !== null && (!Number.isInteger(managerId) || managerId < 1 || managerId === id)) {
-    return NextResponse.json({ error: "Choose a valid manager" }, { status: 400 });
-  }
-
   try {
+    const id = integerValue(body?.id, "Person");
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    const roleId = integerValue(body?.roleId, "Role");
+    const managerId = body?.managerId === null || body?.managerId === "" ? null : integerValue(body?.managerId, "Manager");
+
+    if (!Number.isInteger(id) || id < 1 || !name || name.length > 200 || !Number.isInteger(roleId) || roleId < 1) {
+      return NextResponse.json({ error: "Enter a valid name and role" }, { status: 400 });
+    }
+    if (managerId !== null && (!Number.isInteger(managerId) || managerId < 1 || managerId === id)) {
+      return NextResponse.json({ error: "Choose a valid manager" }, { status: 400 });
+    }
+
     const data = await getPersonnelData(organizationId);
     const person = data.people.find((item) => item.id === String(id));
     if (!person) return NextResponse.json({ error: "Person not found" }, { status: 404 });
@@ -128,6 +130,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json(await getPersonnelData(organizationId));
   } catch (error) {
     if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof ValidationError) return NextResponse.json({ error: describeValidationError(error) }, { status: 400 });
     if (error instanceof PersonnelRecordError) return NextResponse.json({ error: error.message }, { status: 404 });
     if (typeof error === "object" && error !== null && "number" in error && [51050, 51051].includes(Number(error.number))) {
       return NextResponse.json({ error: Number(error.number) === 51050 ? "Choose a role in your organization" : "Choose a person in your organization" }, { status: 400 });

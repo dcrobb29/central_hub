@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (specifier === "./validation" && context.parentURL?.endsWith("/customer-fields.ts")) return nextResolve("./validation.ts", context);
+    if (specifier.startsWith("./") && !/\.[a-z]+$/.test(specifier)) return nextResolve(`${specifier}.ts`, context);
     return nextResolve(specifier, context);
   },
 });
@@ -53,7 +53,7 @@ test("customer labels distinguish company and individual contacts", () => {
 test("invoice snapshots are copies and exclude directory-only fields", () => {
   const customer = parseCustomerDetails({
     firstName: "Jane", companyName: "A company name longer than ten characters",
-    email: "jane@example.com", phone: "555-1234", billingAddressLine1: "1 Main Street", shippingAddressLine1: "2 Delivery Street",
+    email: "jane@example.com", phone: "2065551234", billingAddressLine1: "1 Main Street", shippingAddressLine1: "2 Delivery Street",
   });
   const snapshot = invoiceCustomerSnapshot(customer);
   customer.billingAddressLine1 = "New billing address";

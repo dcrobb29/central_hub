@@ -1,41 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
+import { zipValue } from "@/app/lib/contact-input";
 import { addInvoice, getInvoices, type InvoiceInput } from "@/app/lib/invoices";
 import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
-import { amountValue, describeValidationError, isoDateValue, optionalIsoDateValue, optionalProjectId, textValue, ValidationError } from "@/app/lib/validation";
+import { amountValue, describeValidationError, fieldValue, isoDateValue, optionalIsoDateValue, optionalProjectId, textValue, validateDueDate, ValidationError } from "@/app/lib/validation";
 import { optionalCustomerId } from "@/app/lib/customer-fields";
 import { NotesValidationError, parseNotes } from "@/app/lib/document-notes";
 import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
 
 // Shared by POST (create) and the [id] route's PUT (update) so both stay in lockstep.
 export function parseInvoiceInput(body: unknown): InvoiceInput {
-  if (!body || typeof body !== "object") {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new ValidationError("invalid");
   }
   const input = body as Record<string, unknown>;
-  const rawInvoiceNo = typeof input.invoiceNo === "string" ? input.invoiceNo.trim() : "";
+  const rawInvoiceNo = fieldValue("Invoice number (up to 10 characters)", () => textValue(input.invoiceNo, 10));
+  const invoiceDate = fieldValue("Invoice date", () => isoDateValue(input.invoiceDate));
+  const invoiceDueDate = fieldValue("Due date", () => isoDateValue(input.invoiceDueDate));
+  validateDueDate(invoiceDate, invoiceDueDate);
+  const text = (key: string, label: string, max: number) =>
+    fieldValue(`${label} (up to ${max} characters)`, () => textValue(input[key], max));
   return {
     internalNotes: "internalNotes" in input ? parseNotes(input.internalNotes, "Internal notes") : undefined,
     customerNotes: "customerNotes" in input ? parseNotes(input.customerNotes, "Customer notes") : undefined,
     customerId: "customerId" in input ? optionalCustomerId(input.customerId) : undefined,
     invoiceNo: rawInvoiceNo ? textValue(rawInvoiceNo, 10, true) : "",
     projectId: optionalProjectId(input.projectId),
-    invoiceDate: isoDateValue(input.invoiceDate),
-    invoiceDueDate: isoDateValue(input.invoiceDueDate),
-    invoicePaidDate: optionalIsoDateValue(input.invoicePaidDate),
-    invoiceAmount: amountValue(input.invoiceAmount, { maxLength: 32 }),
-    firstName: textValue(input.firstName, 100),
-    lastName: textValue(input.lastName, 100),
-    companyName: textValue(input.companyName, 150),
-    billingAddressLine1: textValue(input.billingAddressLine1, 200),
-    billingAddressLine2: textValue(input.billingAddressLine2, 200),
-    billingAddressCity: textValue(input.billingAddressCity, 100),
-    billingAddressState: textValue(input.billingAddressState, 100),
-    billingAddressZip: textValue(input.billingAddressZip, 20),
-    shippingAddressLine1: textValue(input.shippingAddressLine1, 200),
-    shippingAddressLine2: textValue(input.shippingAddressLine2, 200),
-    shippingAddressCity: textValue(input.shippingAddressCity, 100),
-    shippingAddressState: textValue(input.shippingAddressState, 100),
-    shippingAddressZip: textValue(input.shippingAddressZip, 20),
+    invoiceDate,
+    invoiceDueDate,
+    invoicePaidDate: fieldValue("Paid date", () => optionalIsoDateValue(input.invoicePaidDate)),
+    invoiceAmount: fieldValue("Invoice amount", () => amountValue(input.invoiceAmount, { maxLength: 32 })),
+    firstName: text("firstName", "First name", 100),
+    lastName: text("lastName", "Last name", 100),
+    companyName: text("companyName", "Company name", 150),
+    billingAddressLine1: text("billingAddressLine1", "Billing address line 1", 200),
+    billingAddressLine2: text("billingAddressLine2", "Billing address line 2", 200),
+    billingAddressCity: text("billingAddressCity", "Billing city", 100),
+    billingAddressState: text("billingAddressState", "Billing state", 100),
+    billingAddressZip: fieldValue("Billing ZIP", () => zipValue(input.billingAddressZip)),
+    shippingAddressLine1: text("shippingAddressLine1", "Shipping address line 1", 200),
+    shippingAddressLine2: text("shippingAddressLine2", "Shipping address line 2", 200),
+    shippingAddressCity: text("shippingAddressCity", "Shipping city", 100),
+    shippingAddressState: text("shippingAddressState", "Shipping state", 100),
+    shippingAddressZip: fieldValue("Shipping ZIP", () => zipValue(input.shippingAddressZip)),
   };
 }
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { customerBillingAddressText, customerEstimateName, parseCustomerDetails } from "@/app/lib/customer-fields";
 import { findSimilarCustomers, saveCustomer, searchCustomers, type CustomerSearchResult } from "@/app/lib/customers";
 import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
-import { ValidationError } from "@/app/lib/validation";
+import { describeValidationError, ValidationError } from "@/app/lib/validation";
 
 export async function GET(request: NextRequest) {
   try {
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ customer }, { status: 201 });
   } catch (error) {
     if (error instanceof ValidationError) {
-      return NextResponse.json({ error: "Enter a contact name, a valid email if provided, and details within the field limits." }, { status: 400 });
+      return NextResponse.json({ error: describeValidationError(error) }, { status: 400 });
     }
     console.error("Customer create from estimate failed", error);
     return NextResponse.json({ error: "Unable to save customer." }, { status: 500 });

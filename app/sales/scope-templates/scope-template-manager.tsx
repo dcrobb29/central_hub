@@ -1,4 +1,5 @@
 "use client";
+import DecimalInput from "@/app/components/decimal-input";
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -317,11 +318,10 @@ export default function ScopeTemplateManager({
                     <option value="Labor">Labor</option>
                     <option value="Equipment">Equipment</option>
                   </select>
-                  <input
+                  <DecimalInput
                     aria-label={`Component ${index + 1} quantity per unit`}
-                    type="number"
+                    places={6}
                     min="0"
-                    step="0.000001"
                     value={component.quantityPerUnit}
                     onChange={(event) => updateComponent(index, { quantityPerUnit: asNumber(event.target.value) })}
                     required
@@ -333,11 +333,10 @@ export default function ScopeTemplateManager({
                     maxLength={30}
                     onChange={(event) => updateComponent(index, { unitName: event.target.value })}
                   />
-                  <input
+                  <DecimalInput
                     aria-label={`Component ${index + 1} unit cost`}
-                    type="number"
+                    currency
                     min="0"
-                    step="0.0001"
                     value={component.unitCost}
                     onChange={(event) => updateComponent(index, { unitCost: asNumber(event.target.value) })}
                     required

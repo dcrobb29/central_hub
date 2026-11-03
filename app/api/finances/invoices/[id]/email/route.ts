@@ -4,6 +4,7 @@ import { getProjectInvoiceBilling } from "@/app/lib/project-billing";
 import { renderProjectInvoicePdf } from "@/app/lib/project-invoice-pdf";
 import { getCustomers } from "@/app/lib/customers";
 import { sendEmail } from "@/app/lib/email";
+import { describeValidationError, emailValue, ValidationError } from "@/app/lib/validation";
 import { ProjectAccessError, requireProject, requireProjectSession } from "@/app/lib/project-access";
 import {
   getOrganizationInvoiceSettings,
@@ -22,7 +23,7 @@ export async function POST(
   try {
     const session = await requireProjectSession(request, "finances.write");
     const body = await request.json().catch(() => ({}));
-    const overrideEmail = typeof body?.recipientEmail === "string" && body.recipientEmail.trim() ? body.recipientEmail.trim() : null;
+    const overrideEmail = emailValue(body?.recipientEmail);
     const overrideSubject = typeof body?.subject === "string" && body.subject.trim() ? body.subject.trim() : null;
     const customMessage = typeof body?.customMessage === "string" && body.customMessage.trim() ? body.customMessage.trim() : null;
 
@@ -62,9 +63,7 @@ export async function POST(
     }
 
     // Basic email format validation
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail)) {
-      return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
-    }
+    recipientEmail = emailValue(recipientEmail, true);
 
     // Render invoice PDF with organization settings
     let pdfBuffer: Buffer;
@@ -227,6 +226,7 @@ ${companyDisplayName}`;
     });
   } catch (error) {
     if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof ValidationError) return NextResponse.json({ error: describeValidationError(error) }, { status: 400 });
     console.error("Invoice email delivery endpoint failed:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to send invoice email" },

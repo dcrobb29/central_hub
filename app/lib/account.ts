@@ -1,4 +1,6 @@
 import { getPool, sql } from "@/app/lib/db";
+import { emailValue, fieldValue, textValue } from "./validation";
+import { phoneValue } from "./contact-input";
 import {
   type OrganizationInvoiceSettings,
   getOrganizationInvoiceSettings,
@@ -608,10 +610,9 @@ export async function addOrganizationMember(
     linkEmployeeId?: number | null;
   },
 ): Promise<number> {
-  const trimmedEmail = input.email.trim();
-  const trimmedName = input.displayName.trim();
-  if (!trimmedEmail || !trimmedEmail.includes("@")) throw new Error("Enter a valid email address");
-  if (!trimmedName) throw new Error("Enter a display name");
+  const trimmedEmail = fieldValue("Email", () => emailValue(input.email, true));
+  const trimmedName = fieldValue("Display name (up to 150 characters)", () => textValue(input.displayName, 150, true));
+  const phone = phoneValue(input.phone);
 
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
@@ -640,7 +641,7 @@ export async function addOrganizationMember(
       const insertedUser = await transaction.request()
         .input("email", sql.NVarChar(254), trimmedEmail)
         .input("displayName", sql.NVarChar(150), trimmedName)
-        .input("phone", sql.NVarChar(50), input.phone ? input.phone.trim() : null)
+        .input("phone", sql.NVarChar(50), phone)
         .query<{ UserID: number }>(`
           INSERT INTO dbo.Users (Email, DisplayName, Phone, PasswordHash, IsActive)
           VALUES (@email, @displayName, @phone, NULL, 0);

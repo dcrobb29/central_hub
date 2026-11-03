@@ -1,4 +1,5 @@
 "use client";
+import ValidatedInput from "@/app/components/validated-input";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -509,7 +510,8 @@ export default function InvoiceTable({ className, invoices, projectOptions, cust
                     {group.fields.map((field) => (
                       <label className="financeImportField" key={field.key}>
                         {field.label}{field.required ? " *" : ""}
-                        <input
+                        <ValidatedInput field={field.key}
+                          min={field.key === "invoiceDueDate" ? invoiceDraft.invoiceDate || undefined : undefined}
                           type={field.type ?? "text"}
                           value={invoiceDraft[field.key] ?? ""}
                           onChange={(event) => setInvoiceDraft((current) => ({ ...current, [field.key]: event.target.value }))}

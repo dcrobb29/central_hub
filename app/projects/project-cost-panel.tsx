@@ -1,4 +1,5 @@
 "use client";
+import DecimalInput from "@/app/components/decimal-input";
 
 import Link from "next/link";
 import { CirclePlus } from "lucide-react";
@@ -302,11 +303,11 @@ export default function ProjectCostPanel({ project, costs, bills, financials, ca
             </div>
             <label className="financeImportField">Description *<input required maxLength={300} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>
             <label className="financeImportField">Cost date *<input type="date" required value={draft.costDate} onChange={(event) => setDraft({ ...draft, costDate: event.target.value })} /></label>
-            <label className="financeImportField">Actual quantity *<input type="number" required min="0.0001" max="1000000" step="0.0001" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} /></label>
+            <label className="financeImportField">Actual quantity *<DecimalInput places={4} required min="0.0001" max="1000000" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} /></label>
             <label className="financeImportField">Unit *<input required maxLength={30} value={draft.unitName} onChange={(event) => setDraft({ ...draft, unitName: event.target.value })} /></label>
-            <label className="financeImportField">Actual unit cost *<input type="number" required min="0" max="1000000" step="0.0001" value={draft.unitCost} onChange={(event) => setDraft({ ...draft, unitCost: event.target.value })} /></label>
-            <label className="financeImportField">Freight amount *<input type="number" required min="0" max="1000000" step="0.01" value={draft.freightAmount} onChange={(event) => setDraft({ ...draft, freightAmount: event.target.value })} /></label>
-            <label className="financeImportField">Actual tax amount *<input type="number" required min="0" max="1000000" step="0.01" value={draft.taxAmount} onChange={(event) => setDraft({ ...draft, taxAmount: event.target.value })} /></label>
+            <label className="financeImportField">Actual unit cost *<DecimalInput currency required min="0" max="1000000" value={draft.unitCost} onChange={(event) => setDraft({ ...draft, unitCost: event.target.value })} /></label>
+            <label className="financeImportField">Freight amount *<DecimalInput currency required min="0" max="1000000" value={draft.freightAmount} onChange={(event) => setDraft({ ...draft, freightAmount: event.target.value })} /></label>
+            <label className="financeImportField">Actual tax amount *<DecimalInput currency required min="0" max="1000000" value={draft.taxAmount} onChange={(event) => setDraft({ ...draft, taxAmount: event.target.value })} /></label>
           </div>
           <p className="projectCostHint">Job tax reference: {project.taxPercent}%. Enter the tax amount from the bill; do not repeat the full bill tax or freight on each partial allocation.</p>
           {selectedBill && <BillSplitToggle billId={selectedBill.billId} isSplit={selectedBill.isSplit} disabled={busy || selectedBill.readOnly} />}

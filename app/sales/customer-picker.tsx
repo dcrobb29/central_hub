@@ -1,4 +1,5 @@
 "use client";
+import ValidatedInput from "@/app/components/validated-input";
 
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
@@ -216,7 +217,7 @@ export default function CustomerPicker({ value, onChange, canCreate, disabled = 
               })}>Copy billing address</button>}
               <div className="financeImportFields">{group.fields.map((field) => <label className="financeImportField" key={field.key}>
                 {field.label}{field.required ? " *" : ""}
-                <input type={field.type ?? "text"} value={draft[field.key]} required={field.required} maxLength={field.maxLength} disabled={saving}
+                <ValidatedInput field={field.key} type={field.type ?? "text"} value={draft[field.key]} required={field.required} maxLength={field.maxLength} disabled={saving}
                   onChange={(event) => { setDraft({ ...draft, [field.key]: event.target.value }); setSimilar([]); }} />
               </label>)}</div>
             </fieldset>)}

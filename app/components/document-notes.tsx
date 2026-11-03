@@ -19,7 +19,7 @@ export function DocumentNotesFields({ internalNotes, customerNotes, onInternalCh
           aria-describedby={`${id}-internal-hint`} onChange={(event) => onInternalChange(event.target.value)} />
       </label>
       <p id={`${id}-internal-hint`} className="estimateInternalNote">
-        Private. Never included on the customer PDF. {internalHint ?? "Optional."} Up to {NOTES_MAX_LENGTH.toLocaleString()} characters.
+        Private. Never included on the customer PDF. {internalHint ?? "Optional."} {(internalNotes ?? "").length.toLocaleString()} / {NOTES_MAX_LENGTH.toLocaleString()} characters.
       </p>
     </div>
     <div className="estimateNotes">
@@ -29,7 +29,7 @@ export function DocumentNotesFields({ internalNotes, customerNotes, onInternalCh
           aria-describedby={`${id}-customer-hint`} onChange={(event) => onCustomerChange(event.target.value)} />
       </label>
       <p id={`${id}-customer-hint`} className="estimateInternalNote">
-        Optional. Included on the customer PDF. {customerHint} Up to {NOTES_MAX_LENGTH.toLocaleString()} characters.
+        Optional. Included on the customer PDF. {customerHint} {(customerNotes ?? "").length.toLocaleString()} / {NOTES_MAX_LENGTH.toLocaleString()} characters.
       </p>
     </div>
   </>;

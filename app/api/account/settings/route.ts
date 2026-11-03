@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { phoneValue } from "@/app/lib/contact-input";
+import { parseInvoiceSettings } from "@/app/lib/invoice-settings-input";
+import { booleanValue, describeValidationError, emailValue, fieldValue, integerValue, textValue, ValidationError } from "@/app/lib/validation";
 import {
   getOrganizationSettings,
   updateOrganizationName,
@@ -36,7 +39,7 @@ export async function POST(request: NextRequest) {
   try {
     const session = await requireProjectSession(request, "organization.manage");
     const body = await request.json().catch(() => null);
-    if (!body || typeof body !== "object") {
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
       return NextResponse.json({ error: "Invalid request payload" }, { status: 400 });
     }
 
@@ -59,18 +62,18 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "update-organization-name") {
-      const name = typeof body.name === "string" ? body.name : "";
+      const name = fieldValue("Organization name (up to 150 characters)", () => textValue(body.name, 150, true));
       await updateOrganizationName(organizationId, name);
       const settings = await getOrganizationSettings(organizationId);
       return NextResponse.json(settings);
     }
 
     if (action === "add-member") {
-      const email = typeof body.email === "string" ? body.email : "";
-      const displayName = typeof body.displayName === "string" ? body.displayName : "";
-      const phone = body.phone ? String(body.phone) : null;
-      const accessRoleId = Number(body.accessRoleId);
-      const linkEmployeeId = body.linkEmployeeId ? Number(body.linkEmployeeId) : null;
+      const email = fieldValue("Email", () => emailValue(body.email, true));
+      const displayName = fieldValue("Display name (up to 150 characters)", () => textValue(body.displayName, 150, true));
+      const phone = phoneValue(body.phone);
+      const accessRoleId = integerValue(body.accessRoleId, "Access role");
+      const linkEmployeeId = body.linkEmployeeId == null || body.linkEmployeeId === "" ? null : integerValue(body.linkEmployeeId, "Employee");
 
       if (!email || !displayName || !Number.isInteger(accessRoleId)) {
         return NextResponse.json({ error: "Email, display name, and role are required" }, { status: 400 });
@@ -89,13 +92,13 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "update-member") {
-      const membershipId = Number(body.membershipId);
+      const membershipId = integerValue(body.membershipId, "Membership");
       if (!Number.isInteger(membershipId)) {
         return NextResponse.json({ error: "Membership ID is required" }, { status: 400 });
       }
 
-      const accessRoleId = body.accessRoleId !== undefined ? Number(body.accessRoleId) : undefined;
-      const isActive = body.isActive !== undefined ? Boolean(body.isActive) : undefined;
+      const accessRoleId = body.accessRoleId !== undefined ? integerValue(body.accessRoleId, "Access role") : undefined;
+      const isActive = body.isActive !== undefined ? booleanValue(body.isActive, "Active status") : undefined;
 
       await updateOrganizationMember(organizationId, membershipId, { accessRoleId, isActive });
       const settings = await getOrganizationSettings(organizationId);
@@ -103,8 +106,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "link-employee") {
-      const membershipId = Number(body.membershipId);
-      const employeeId = Number(body.employeeId);
+      const membershipId = integerValue(body.membershipId, "Membership");
+      const employeeId = integerValue(body.employeeId, "Employee");
       if (!Number.isInteger(membershipId) || !Number.isInteger(employeeId)) {
         return NextResponse.json({ error: "Membership ID and employee ID are required" }, { status: 400 });
       }
@@ -115,7 +118,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "unlink-employee") {
-      const membershipId = Number(body.membershipId);
+      const membershipId = integerValue(body.membershipId, "Membership");
       if (!Number.isInteger(membershipId)) {
         return NextResponse.json({ error: "Membership ID is required" }, { status: 400 });
       }
@@ -126,8 +129,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "toggle-employee-active") {
-      const employeeId = Number(body.employeeId);
-      const isActive = Boolean(body.isActive);
+      const employeeId = integerValue(body.employeeId, "Employee");
+      const isActive = booleanValue(body.isActive, "Active status");
       if (!Number.isInteger(employeeId)) {
         return NextResponse.json({ error: "Employee ID is required" }, { status: 400 });
       }
@@ -138,7 +141,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "delete-employee") {
-      const employeeId = Number(body.employeeId);
+      const employeeId = integerValue(body.employeeId, "Employee");
       if (!Number.isInteger(employeeId)) {
         return NextResponse.json({ error: "Employee ID is required" }, { status: 400 });
       }
@@ -154,7 +157,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Invoice settings are required" }, { status: 400 });
       }
 
-      await updateOrganizationInvoiceSettings(organizationId, invoiceSettings);
+      await updateOrganizationInvoiceSettings(organizationId, parseInvoiceSettings(invoiceSettings));
       const settings = await getOrganizationSettings(organizationId);
       return NextResponse.json({ ...settings, notification: "Invoice template settings updated successfully." });
     }
@@ -162,6 +165,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (error) {
     if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof ValidationError) return NextResponse.json({ error: describeValidationError(error) }, { status: 400 });
     console.error("Unable to process organization settings", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to process settings request" },

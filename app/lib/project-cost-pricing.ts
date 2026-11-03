@@ -1,4 +1,5 @@
 import { isoDateString } from "./validation";
+import { decimalInputError, MAX_BILL_AMOUNT } from "./decimal-input";
 
 export type ProjectCostInput = {
   projectId: number;
@@ -44,8 +45,7 @@ export function parseProjectCost(body: unknown): ProjectCostInput {
     return value.trim();
   }
   function decimal(value: unknown, label: string, places: number, minimum = 0): number {
-    if (typeof value !== "number" || !Number.isFinite(value) || value < minimum || value > 1_000_000 ||
-      Math.abs(value - Number(value.toFixed(places))) > 0.00000001) {
+    if (typeof value !== "number" || decimalInputError(String(value), places, minimum, 1_000_000)) {
       throw new ProjectCostError(`${label} must be between ${minimum} and 1,000,000, with up to ${places} decimals`);
     }
     return value;
@@ -64,11 +64,11 @@ export function parseProjectCost(body: unknown): ProjectCostInput {
     costDate,
     quantity: decimal(input.quantity, "Quantity", 4, 0.0001),
     unitName: text(input.unitName, "Unit", 30),
-    unitCost: decimal(input.unitCost, "Unit cost", 4),
+    unitCost: decimal(input.unitCost, "Unit cost", 2),
     freightAmount: decimal(input.freightAmount, "Freight", 2),
     taxAmount: decimal(input.taxAmount, "Tax amount", 2),
   };
-  if (actualCostTotal(result) <= 0 || actualCostTotal(result) > 99_999_999.99) {
+  if (actualCostTotal(result) <= 0 || actualCostTotal(result) > MAX_BILL_AMOUNT) {
     throw new ProjectCostError("Total cost must be positive and fit the bill amount limit");
   }
   return result;

@@ -16,20 +16,26 @@ import {
 import { isAssignmentHoursMode } from "@/app/lib/field-capacity";
 import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
 import { requireFieldActionAccess } from "@/app/lib/field-operations-access";
+import { decimalValue } from "@/app/lib/decimal-input";
+import { describeValidationError, integerValue, isoDateValue, ValidationError } from "@/app/lib/validation";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function positiveInteger(value: unknown): number | null {
-  const number = typeof value === "number" ? value : Number(value);
-  return Number.isSafeInteger(number) && number > 0 ? number : null;
+  try { return integerValue(value, "Schedule record"); }
+  catch (error) { if (error instanceof ValidationError) return null; throw error; }
+}
+
+function hoursValue(value: unknown, label: string, maximum: number): number {
+  try { return decimalValue(value, label, 2, 0, maximum); }
+  catch (error) { if (error instanceof Error) throw new ValidationError(error.message); throw error; }
 }
 
 function validDate(value: unknown): value is string {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  try { isoDateValue(value); return true; }
+  catch (error) { if (error instanceof ValidationError) return false; throw error; }
 }
 
 function validWeek(startDate: string | null, endDate: string | null) {
@@ -38,6 +44,7 @@ function validWeek(startDate: string | null, endDate: string | null) {
 }
 
 function errorResponse(error: unknown) {
+  if (error instanceof ValidationError) return NextResponse.json({ error: describeValidationError(error) }, { status: 400 });
   if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
   if (isInactivePlannerError(error) || error instanceof Error && error.message === ACTIVE_PLANNER_MESSAGE) {
     return NextResponse.json({ error: ACTIVE_PLANNER_MESSAGE }, { status: 409 });
@@ -126,7 +133,7 @@ export async function POST(request: NextRequest) {
     if (body.action === "add-task") {
       const serviceVisitId = positiveInteger(body.serviceVisitId);
       const taskName = typeof body.taskName === "string" ? body.taskName.trim() : "";
-      const plannedLaborHours = typeof body.plannedLaborHours === "number" ? body.plannedLaborHours : Number(body.plannedLaborHours);
+      const plannedLaborHours = hoursValue(body.plannedLaborHours, "Planned hours", 100_000);
       if (!serviceVisitId || !taskName || taskName.length > 150 || !Number.isFinite(plannedLaborHours) || plannedLaborHours < 0 || plannedLaborHours > 100_000 || Math.abs(plannedLaborHours - Number(plannedLaborHours.toFixed(2))) > 0.0000001) {
         return NextResponse.json({ error: "Enter a task name and valid planned hours (0 to 100,000, up to two decimals)" }, { status: 400 });
       }
@@ -139,7 +146,7 @@ export async function POST(request: NextRequest) {
     if (body.action === "update-task") {
       const taskId = positiveInteger(body.taskId);
       const taskName = typeof body.taskName === "string" ? body.taskName.trim() : "";
-      const plannedLaborHours = typeof body.plannedLaborHours === "number" ? body.plannedLaborHours : Number(body.plannedLaborHours);
+      const plannedLaborHours = hoursValue(body.plannedLaborHours, "Planned hours", 100_000);
       if (!taskId || !taskName || taskName.length > 150 || !Number.isFinite(plannedLaborHours) || plannedLaborHours < 0 || plannedLaborHours > 100_000 || Math.abs(plannedLaborHours - Number(plannedLaborHours.toFixed(2))) > 0.0000001) {
         return NextResponse.json({ error: "Enter a task name and valid planned hours (0 to 100,000, up to two decimals)" }, { status: 400 });
       }
@@ -184,7 +191,7 @@ export async function POST(request: NextRequest) {
     if (body.action === "set-assignment-hours") {
       const assignmentId = positiveInteger(body.assignmentId);
       const hoursMode = body.hoursMode;
-      const customHours = body.customHours === null || body.customHours === undefined ? null : Number(body.customHours);
+      const customHours = hoursMode === "Custom" ? hoursValue(body.customHours, "Custom hours", 24) : null;
       if (!assignmentId || !isAssignmentHoursMode(hoursMode)) {
         return NextResponse.json({ error: "Choose a valid assignment and hours option" }, { status: 400 });
       }

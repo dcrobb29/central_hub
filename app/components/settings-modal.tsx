@@ -1,4 +1,5 @@
 "use client";
+import ValidatedInput from "./validated-input";
 
 import { useEffect, useState } from "react";
 import Modal from "@/app/components/modal";
@@ -430,6 +431,7 @@ export default function SettingsModal({
                     <input
                       type="email"
                       value={newMemberEmail}
+                      maxLength={254}
                       required
                       placeholder="user@example.com"
                       disabled={busy}
@@ -440,6 +442,7 @@ export default function SettingsModal({
                     Display Name *
                     <input
                       value={newMemberName}
+                      maxLength={150}
                       required
                       placeholder="John Doe"
                       disabled={busy}
@@ -448,7 +451,7 @@ export default function SettingsModal({
                   </label>
                   <label className="financeImportField">
                     Phone
-                    <input
+                    <ValidatedInput field="phone"
                       value={newMemberPhone}
                       placeholder="(555) 000-0000"
                       disabled={busy}
@@ -890,8 +893,8 @@ export default function SettingsModal({
                 </label>
 
                 <label className="financeImportField">
-                  State / Province
-                  <input
+                  State / Territory
+                  <ValidatedInput field="companyState"
                     type="text"
                     value={invState}
                     maxLength={50}
@@ -903,7 +906,7 @@ export default function SettingsModal({
 
                 <label className="financeImportField">
                   ZIP / Postal Code
-                  <input
+                  <ValidatedInput field="companyZip"
                     type="text"
                     value={invZip}
                     maxLength={20}
@@ -915,7 +918,7 @@ export default function SettingsModal({
 
                 <label className="financeImportField">
                   Phone
-                  <input
+                  <ValidatedInput field="companyPhone"
                     type="tel"
                     value={invPhone}
                     maxLength={50}

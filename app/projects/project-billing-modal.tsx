@@ -1,4 +1,6 @@
 "use client";
+import DecimalInput from "@/app/components/decimal-input";
+import { MAX_MONEY } from "@/app/lib/decimal-input";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -227,7 +229,7 @@ export default function ProjectBillingModal({ projectId, projectName, initialTab
         <option value="Full">Full remaining balance</option><option value="Percentage">Percentage of original</option>
       </select>}
       {item.kind !== "Full" && <label>{item.kind === "Amount" ? "$" : "%"}
-        <input aria-label={`${item.kind} for ${label}`} type="number" min="0" max={item.kind === "Percentage" ? 100 : undefined}
+        <DecimalInput currency={item.kind === "Amount"} aria-label={`${item.kind} for ${label}`} places={item.kind === "Percentage" ? 4 : 2} min="0" max={item.kind === "Percentage" ? 100 : MAX_MONEY}
           step={item.kind === "Percentage" ? "0.0001" : "0.01"} value={item.value} disabled={busy}
           onChange={(event) => changeDraft(key, { value: event.target.value })} />
       </label>}

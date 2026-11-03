@@ -1,4 +1,5 @@
-import { textValue, ValidationError } from "./validation";
+import { emailValue, fieldValue, textValue, ValidationError } from "./validation";
+import { phoneValue, zipValue } from "./contact-input";
 
 export type CustomerDetails = {
   firstName: string;
@@ -87,27 +88,26 @@ export function parseCustomerDetails(body: unknown): CustomerDetails {
   const input = body as Record<string, unknown>;
   for (const { fields } of CUSTOMER_FIELD_GROUPS) {
     for (const field of fields) {
-      if (input[field.key] != null && typeof input[field.key] !== "string") throw new ValidationError("invalid");
+      fieldValue(`${field.label} (up to ${field.maxLength} characters)`, () => textValue(input[field.key], field.maxLength, field.required));
     }
   }
-  const email = textValue(input.email, 254);
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new ValidationError("email");
+  const email = fieldValue("Email", () => emailValue(input.email));
   return {
     firstName: textValue(input.firstName, 100, true),
     lastName: textValue(input.lastName, 100),
     companyName: textValue(input.companyName, 150),
     email,
-    phone: textValue(input.phone, 50),
+    phone: fieldValue("Phone", () => phoneValue(input.phone)),
     billingAddressLine1: textValue(input.billingAddressLine1, 200),
     billingAddressLine2: textValue(input.billingAddressLine2, 200),
     billingAddressCity: textValue(input.billingAddressCity, 100),
     billingAddressState: textValue(input.billingAddressState, 100),
-    billingAddressZip: textValue(input.billingAddressZip, 20),
+    billingAddressZip: fieldValue("Billing ZIP", () => zipValue(input.billingAddressZip)),
     shippingAddressLine1: textValue(input.shippingAddressLine1, 200),
     shippingAddressLine2: textValue(input.shippingAddressLine2, 200),
     shippingAddressCity: textValue(input.shippingAddressCity, 100),
     shippingAddressState: textValue(input.shippingAddressState, 100),
-    shippingAddressZip: textValue(input.shippingAddressZip, 20),
+    shippingAddressZip: fieldValue("Shipping ZIP", () => zipValue(input.shippingAddressZip)),
   };
 }
 

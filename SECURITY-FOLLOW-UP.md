@@ -136,3 +136,33 @@ Do not perform cross-organization or destructive checks against live customer da
 - User confirmed the Azure appearance migration removed load errors, custom settings persist after reload and re-login, and another account does not inherit them.
 - Found signed-out pages intentionally loaded the previous account's browser cache. Changed the provider and pre-paint bootstrap to use a separate signed-out cache restricted to standard Light/Dark. Authenticated preferences continue to load from the per-user database record and no longer overwrite the signed-out cache.
 - Pending deployment/browser verification: save a custom palette, sign out, confirm standard Light/Dark on login (including reload), toggle the signed-out theme, then sign in again and confirm the account's custom palette returns unchanged.
+
+## Financial and US contact input validation
+
+- Release decision on 2026-11-03: the user approved proceeding with their
+  0.2.0 commit/push and deferring the two-organization sample-data check to Azure
+  after deployment (only one local test user available). This is an accepted
+  verification gap, not a passed live test; other unreported manual results
+  remain unconfirmed.
+
+- 2026-11-03 sample-data follow-up in the same 0.2.0 candidate: fixed globally
+  colliding sample bill IDs using checked random ten-character IDs and
+  transaction-held key locks. A shared transaction-owned application lock
+  serializes sample inclusion/removal and protects the tracking recheck from
+  overlapping requests. Existing tracked legacy IDs remain supported; no new
+  migration or production cleanup is required. Mocked regressions pass; actual
+  SQL concurrency and two-organization browser lifecycle checks remain pending.
+
+- Shared decimal controls block scientific notation, normalize leading zeros on blur, and report excess precision without rounding it away. Manually entered currency/unit costs allow two decimals; tax permits four decimals in the inclusive 0-100 range.
+- Server checks cover estimate/change additions, catalog/material prices, scope-template costs, bill/invoice amounts, project actual costs, and monetary billing selections. Contract deduction prices remain server-resolved from the original contract, outside manual-entry restrictions.
+- Quantity precision is separate from currency precision. Existing calculation functions remain unchanged; a regression checks that 0.005 tons per SF at $45.67/ton scales to $22,835 for 100,000 SF, rather than rounding the intermediate per-SF cost to cents.
+- US phone formatting/validation and ZIP/ZIP+4 formatting/validation are shared across customer, finance, profile, member, and invoice-settings entry points as applicable. Existing contact rows are not rewritten; invalid legacy values require correction when resaving.
+- The concrete ten-character name limit found was Bills.Company Name, not customer directory names. UI/API/SQL parameter limits are now 150; `database/bill-company-name-length.sql` must run separately against local and Azure before deployment. Existing customer first/last limits remain 100 and company limit 150.
+- Local validation for the expanded 0.2.0 candidate: 223 non-database regression tests passed, one existing test skipped (224 total); production build and type-check passed. Targeted lint had no errors and three existing warnings (profile image, project-cost memo dependency, unused estimate icon).
+- Migration confirmed by the user on 2026-10-24 separately in local and Azure: both returned a 300-byte column length and zero open transactions.
+- User confirmed leading-zero normalization, fractional quantities, four-decimal tax and upper bound, phone/ZIP digit counts, and the ZIP separator deletion/reinsertion correction.
+- Expanded checks now cover strict request types/IDs/booleans, calculated/storage limits, required blank versus explicit zero, valid US currency pastes, field-specific errors, real dates and due-date ordering on create/edit. Signed bill/invoice credits, early paid dates, optional settings defaults and server-resolved deduction precision remain allowed.
+- Template applications exceeding four-decimal line quantity precision are rejected before partial insertion, with the component identified. Planner hours and account/invoice-settings/preview fields use consistent validation.
+- State selectors preserve visible legacy values. Likely-duplicate customer, material-name and company-plus-bill-number warnings are advisory, organization-scoped, and do not replace existing database uniqueness constraints or concurrency protection.
+- Approved follow-up: estimate customer-name snapshots now allow 201 characters to accommodate existing 100-character first/last names. The user confirmed `database/estimate-customer-name-length.sql` succeeded separately locally and in Azure on 2026-10-26; both returned `CustomerNameBytes = 402`, `OpenTransactions = 0`.
+- Pending: the expanded manual checklist in [README.md](README.md#release-020-manual-acceptance), including save/reopen/PDF, long names, dates/credits, templates, duplicate warnings, state selection, project/planner/settings workflows, and narrow-screen layout. Database integration tests and authenticated browser checks were not executed by the assistant. This validation release does not resolve every item in this security tracker.

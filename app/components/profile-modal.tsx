@@ -1,4 +1,5 @@
 "use client";
+import ValidatedInput from "./validated-input";
 
 import { useState, type SubmitEvent } from "react";
 import Modal from "@/app/components/modal";
@@ -145,7 +146,7 @@ export default function ProfileModal({
             </label>
             <label className="financeImportField">
               Phone Number
-              <input
+              <ValidatedInput field="phone"
                 value={phone}
                 maxLength={50}
                 placeholder="(555) 000-0000"

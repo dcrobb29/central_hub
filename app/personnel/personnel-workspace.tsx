@@ -342,7 +342,7 @@ export default function PersonnelWorkspace({ selectedId, selectedTab, view, canW
               </form>
             ) : (
               <form onSubmit={submitPerson}>
-                <label className="personnelField">Name<input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Full name" required maxLength={120} /></label>
+                <label className="personnelField">Name<input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Full name" required maxLength={200} /></label>
                 <label className="personnelField">Role<select value={roleId} onChange={(event) => setRoleId(event.target.value)} required><option value="" disabled>Select a role</option>{data.roles.map((role) => <option value={role.id} key={role.id}>{role.name}</option>)}</select></label>
                 {editingPerson ? (
                   <label className="personnelField">Reports to<select value={relationPersonId} onChange={(event) => setRelationPersonId(event.target.value)}><option value="">No manager</option>{data.people.filter((person) => person.id !== editingPerson.id).map((person) => <option value={person.id} key={person.id}>{person.name} · {rolesById.get(person.roleId) ?? "Role not set"}</option>)}</select></label>

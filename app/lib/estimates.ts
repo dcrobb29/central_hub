@@ -285,7 +285,7 @@ export async function createEstimate(input: CreateEstimateInput, organizationId:
     else input = { ...input, customerName: null };
     const estimateResult = await transaction.request()
       .input("estimateName", sql.NVarChar(150), input.estimateName)
-      .input("customerName", sql.NVarChar(150), input.customerName)
+      .input("customerName", sql.NVarChar(201), input.customerName)
       .input("customerId", sql.Int, customer?.customerId ?? null)
       .input("customerAddress", sql.NVarChar(600), customer?.customerAddress ?? null)
       .input("internalNotes", sql.NVarChar(4000), input.internalNotes)
@@ -457,7 +457,7 @@ export async function updateEstimate(estimateId: number, input: CreateEstimateIn
     await transaction.request()
       .input("estimateId", sql.Int, estimateId)
       .input("estimateName", sql.NVarChar(150), input.estimateName)
-      .input("customerName", sql.NVarChar(150), input.customerName)
+      .input("customerName", sql.NVarChar(201), input.customerName)
       .input("customerId", sql.Int, customer?.customerId ?? null)
       .input("customerAddress", sql.NVarChar(600), customer?.customerAddress ?? null)
       .input("keepSnapshot", sql.Bit, customer !== null && customer.customerId === estimate.CustomerID)

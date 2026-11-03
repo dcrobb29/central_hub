@@ -1,5 +1,13 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Version and release notes
+
+Current version: **0.2.0 (pre-MVP; approved for deployment with verification follow-up)**.
+Formal tracking began with the historical `0.1.0` baseline; earlier commits are
+summarized without inventing historical releases.
+See [Version notes](CHANGELOG.md) for the numbering policy, commit-based history,
+pending changes, and release/migration verification requirements.
+
 ## Getting Started
 
 First, run the development server:
@@ -13,6 +21,134 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Azure App Service deployment
+
+### Numeric and US contact entry validation
+
+Apply [bill-company-name-length.sql](database/bill-company-name-length.sql) separately
+to local and Azure databases **before deploying** the longer bill company-name input.
+It widens `dbo.Bills.[Company Name]` to `nvarchar(150)` without changing existing names.
+Customer first/last names already allow 100 characters each and customer company names
+allow 150; they are not shortened to 30.
+The user has confirmed this bill migration in both environments (300 bytes,
+zero open transactions).
+
+Also apply
+[estimate-customer-name-length.sql](database/estimate-customer-name-length.sql)
+separately to local and Azure **before deploying**. It widens the customer-name
+snapshot on estimates/change documents to 201 characters, accommodating two
+100-character names and a space without truncation. Expected output:
+`CustomerNameBytes = 402`, `OpenTransactions = 0`. The user confirmed both results
+locally and in Azure on 2026-10-26; deployment does not run migrations automatically.
+
+Manually entered USD amounts and unit costs permit at most two fractional digits.
+Scientific notation is blocked in financial controls, leading zeros normalize on blur,
+and excess fractional digits produce validation errors rather than silent rounding.
+API validation also rejects excess precision. Tax rates allow four fractional digits
+between 0 and 100 inclusive. Existing markup precision is unchanged. Quantities retain
+their separate limits (four decimals on estimate/cost lines, six per template unit).
+Template quantities scale before currency totals are calculated; intermediate derived
+rates are not subjected to the two-decimal entry restriction. Contract deduction
+prices continue to come from the original contract, not client-entered prices.
+Correctly grouped US currency pastes (`$1,234.56`) normalize to plain decimals;
+ambiguous grouping and excess precision remain invalid.
+
+| Input | Entry/storage rules |
+|---|---|
+| Required numbers | Empty is invalid; explicit zero remains valid where allowed. IDs must be positive SQL integers; booleans must be actual JSON booleans. |
+| Unit costs, freight, tax amounts | Up to two decimal places, nonnegative. Zero unit prices remain valid. Existing field-specific caps still apply. |
+| Bill/invoice amounts | Up to two decimals; signed credits retained. Bills must fit the ten-character formatted amount, including sign and decimal point (positive maximum `9,999,999.99`). |
+| Tax percentages | Up to four decimals, inclusive `0-100`. Existing field-specific markup limits are unchanged. |
+| Estimate/change quantities | Positive, up to four decimals. Technical cap `900,719,925,474` keeps scaled values safe in JavaScript and SQL. |
+| Template factors | Up to six decimals; application units positive. Technical cap `9,007,199,254`. Generated line quantities must fit four decimals exactly; otherwise the whole application is blocked with a component-specific error. |
+| Calculated currency totals | Finite and within the safe scaled-integer cap `90,071,992,547,409`; stricter bill/actual-cost limits also apply. Intermediate rates retain precision. |
+| Actual costs | Quantity positive/up to four decimals; entered cost/freight/tax up to two decimals, each existing numeric field capped at `1,000,000`. Total must be positive and within the bill amount limit. |
+| Billing percentages | Up to four decimals, with existing allocation/balance checks retained. |
+| Planner hours | Up to two decimals; planned task hours `0-100,000`, custom assignment hours `0-24`. |
+| Bill/invoice dates | Real calendar dates; due date cannot precede issue date. Early paid dates and backdated issue dates remain allowed. |
+| Customer names | First/last `100` each, company `150`; estimate snapshot `201` after the migration. Personnel display names `200`, job titles `80`, member display names `150`. |
+| Text/email/settings | Trim text and enforce each field's stored length; email up to `254` characters with shared syntax checks. Optional invoice template defaults remain intact. Notes show their existing character limit. |
+
+Customer, profile, member, and invoice-settings phone inputs format US ten-digit
+numbers as `(XXX)XXX-XXXX`. Customer/invoice/bill/settings ZIP values accept five
+digits or ZIP+4; nine contiguous digits format as `XXXXX-XXXX`.
+ZIP formatting removes the hyphen at five or fewer digits and restores it at six.
+Optional blank contact fields remain allowed. Existing stored contact values are not bulk-converted;
+editing a record with a non-US/invalid contact value requires correcting it before saving.
+State selectors include US states, DC, territories and military codes. An existing
+legacy state remains a visible selected option until changed, not silently converted.
+Customer, material-name, and company-plus-bill-number duplicate warnings are advisory;
+intentional duplicates remain saveable except where existing uniqueness rules apply.
+Warnings compare the current organization's loaded records and are not a concurrency
+or database uniqueness guarantee.
+
+Focused regression checks:
+`node --test app\lib\decimal-input.test.mjs app\lib\decimal-input-component.test.mjs app\lib\validation.test.mjs app\lib\input-routes.test.mjs app\lib\customer-fields.test.mjs app\lib\estimate-status.test.mjs app\lib\project-cost-pricing.test.mjs app\lib\project-billing-pricing.test.mjs app\api\sales\estimates\recurring-validation.test.mjs`.
+Database integration tests and `sample-data.test.mjs` require a deliberately
+selected test database; do not include them in unattended non-database runs.
+
+### Release 0.2.0 manual acceptance
+
+Run against local test data first after applying the new migration. Do not use
+real customer data for boundary cases. Repeat the smoke checks in Azure after an
+approved deployment; local success does not verify Azure.
+
+1. **Entry and correction:** in estimate/catalog/bill/invoice/project-cost forms,
+   paste `$1,234.56` and confirm `1234.56`. Try `12.345`, malformed `$12,34.56`,
+   and `e`; invalid amounts cannot save. Correct the amount and save successfully.
+   Clear a required quantity/cost, verify it is blocked, then verify explicit
+   zero unit cost remains allowed (actual-cost total must still be positive).
+   Confirm inline errors do not shift estimate columns on desktop/narrow screens.
+2. **Tax/contacts regression:** `045` normalizes to `45`; `0.005` remains a valid
+   quantity; tax `8.1234` saves and `100.0001` fails. Phone digit counts remain
+   enforced. ZIPs retain leading zeros, remove the hyphen at five digits, and
+   reinsert it at six.
+3. **Bills/invoices create and edit:** due before issue is blocked; equal/later
+   due dates save. Paid before issue still saves. Negative credits and zero
+   amounts retain their intended values. Save/reopen a bill company name longer
+   than ten characters and a valid date in a leap year.
+4. **Templates and output:** with no markup/tax/freight, apply `0.005` TON per SF
+   at `$45.67/TON` to `100,000 SF`: quantity `500`, total `$22,835`. Save, reopen,
+   and compare the PDF. A component of `0.000001` TON applied to `1` unit must
+   report that component and insert nothing; applied to `100` units it must
+   produce `0.0001` TON successfully.
+5. **Long customer snapshot:** create/select a test customer with first and last
+   names of 100 characters each and no company. Save/reopen an estimate and a
+   linked change document; confirm the full 201-character name/PDF survives.
+6. **State/duplicates:** standard state choices save/reopen; an existing legacy
+   state survives an unrelated edit. Trigger customer, material-name and
+   company-plus-bill-number warnings; intentional saves still work, and a record
+   does not warn about itself when edited.
+7. **Project workflows:** add/edit an actual cost, including fractional quantity,
+   and verify billing percentage/scope selections and contract additions/
+   deductions still save with correct totals. Excess percentage precision is
+   rejected; server-resolved deduction prices remain unchanged.
+8. **Planner/personnel/settings:** custom hours `1.25` save; `1.001`/`24.01` fail
+   visibly without losing the draft. Check personnel title/name changes, profile
+   and member phone/email, invoice settings save/reopen and unsaved PDF preview,
+   optional blank template defaults, and notes counters.
+9. **Sample data (added 2026-11-03):** use two disposable local test organizations.
+   Include sample data in each and verify both have two sample bills with their
+   matching project-cost allocations. Repeat inclusion (including two tabs
+   submitting together) and confirm no duplicate set. Remove samples from one
+   organization and confirm the other's samples remain; reinclude successfully.
+   Existing tracked legacy sample bills must still clean up normally. If an
+   overlapping operation reports that sample data is busy, retry after the first
+   finishes. Do not remove production samples merely to test this fix.
+
+Sample bill internal IDs are now generated within the existing ten-character
+column and checked globally with transaction-held locks. Sample inclusion/removal
+is serialized across app instances/organizations; no new migration is needed.
+Cost links and cleanup use tracked IDs, including existing legacy IDs.
+
+The user already confirmed the original leading-zero, tax, quantity, phone/ZIP
+checks and ZIP deletion fix. The expanded pass above still needs acceptance.
+On 2026-11-03, the user approved proceeding with their commit/push and testing the
+two-organization sample-data lifecycle in Azure after deployment, because only
+one local test user is available. Both migrations are confirmed locally and in
+Azure. The deferred check and live SQL concurrency are not yet verified; other
+manual checks without reported results remain unconfirmed. Pushing to `master`
+triggers production deployment. These notes do not assert that commit/push or
+deployment has already completed.
 
 ### Organization-specific personnel roles
 

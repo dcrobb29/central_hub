@@ -295,7 +295,7 @@ CREATE TABLE [dbo].[Bills](
 	[Bill Due Date] [date] NULL,
 	[Bill Paid Date] [date] NULL,
 	[Bill Amount] [nchar](10) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
-	[Company Name] [nchar](10) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
+	[Company Name] [nvarchar](150) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
 	[Billing Address Line 1] [nchar](50) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
 	[Billing Address Line 2] [nchar](50) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
 	[Billing Address City] [nchar](50) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
@@ -509,7 +509,7 @@ GO
 CREATE TABLE [dbo].[Estimates](
 	[EstimateID] [int] IDENTITY(1,1) NOT NULL,
 	[EstimateName] [nvarchar](150) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
-	[CustomerName] [nvarchar](150) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
+	[CustomerName] [nvarchar](201) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
 	[EstimateStatus] [varchar](16) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL,
 	[CreatedAt] [datetime2](0) NOT NULL,
 	[ShowQuantities] [bit] NOT NULL,

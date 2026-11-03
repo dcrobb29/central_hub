@@ -1,4 +1,5 @@
 import { getPool, sql } from "@/app/lib/db";
+import { parseInvoiceSettings } from "./invoice-settings-input";
 
 export type TemplateStyle = "modern" | "classic" | "compact" | "minimal";
 
@@ -178,6 +179,7 @@ export async function updateOrganizationInvoiceSettings(
   organizationId: number,
   settings: Partial<OrganizationInvoiceSettings>
 ): Promise<OrganizationInvoiceSettings> {
+  settings = parseInvoiceSettings(settings);
   const pool = await getPool();
 
   const validStyles: TemplateStyle[] = ["modern", "classic", "compact", "minimal"];
@@ -186,11 +188,11 @@ export async function updateOrganizationInvoiceSettings(
     : "modern";
 
   const accentColor = typeof settings.accentColor === "string" && settings.accentColor.trim()
-    ? settings.accentColor.trim().slice(0, 16)
+    ? settings.accentColor.trim()
     : DEFAULT_INVOICE_SETTINGS.accentColor;
 
   const invoiceTitle = typeof settings.invoiceTitle === "string" && settings.invoiceTitle.trim()
-    ? settings.invoiceTitle.trim().slice(0, 64)
+    ? settings.invoiceTitle.trim()
     : DEFAULT_INVOICE_SETTINGS.invoiceTitle;
 
   const companyName = settings.companyName !== undefined ? (settings.companyName?.trim() || null) : undefined;
@@ -212,7 +214,7 @@ export async function updateOrganizationInvoiceSettings(
   const showProjectName = settings.showProjectName !== undefined ? Boolean(settings.showProjectName) : true;
   const showItemizedScopes = settings.showItemizedScopes !== undefined ? Boolean(settings.showItemizedScopes) : true;
   const nextInvoiceSequence = typeof settings.nextInvoiceSequence === "number" && settings.nextInvoiceSequence >= 1
-    ? Math.floor(settings.nextInvoiceSequence)
+    ? settings.nextInvoiceSequence
     : undefined;
 
   await pool
@@ -407,4 +409,3 @@ export async function allocateNextInvoiceNumber(
 
   return code;
 }
-

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getChangeInput, getContractChanges, saveContractChange, transitionContractChange, type ChangeContext, type ChangeInput } from "@/app/lib/contract-changes";
 import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
 import { InvalidUnitPresetError } from "@/app/lib/unit-presets";
-import { isRecord, parseEstimate } from "@/app/api/sales/estimates/route";
+import { isRecord, parseChangeEstimate } from "@/app/api/sales/estimates/route";
 import { isCalendarDate } from "@/app/lib/recurring-dates";
 import { getUnitsOfMeasurement } from "@/app/lib/units-of-measurement";
 
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
       if(!isRecord(body.input)) throw new ProjectAccessError("Enter estimate-style change details.",400);
       let input:ChangeInput;
       try {
-        const parsed=parseEstimate({...body.input,engagementType:"Project",roundingIncrement:0});
+        const parsed=parseChangeEstimate(body.input);
         const rawLines=body.input.lines;
         if(!Array.isArray(rawLines)) throw new Error("Enter change lines.");
         input={...parsed,lines:parsed.lines.map((line,index)=>{

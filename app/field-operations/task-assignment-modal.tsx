@@ -1,4 +1,6 @@
 "use client";
+import DecimalInput from "@/app/components/decimal-input";
+import { decimalValue } from "@/app/lib/decimal-input";
 
 import { useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
@@ -286,6 +288,7 @@ function AssigneeRow({
   const resource = resourceOf(assignment);
   const activeMode: AssignmentHoursMode = assignment.hoursMode ?? "Custom";
   const [customDraft, setCustomDraft] = useState(String(assignment.customHours ?? assignment.hours));
+  const [customError, setCustomError] = useState<string | null>(null);
   const remaining = resource.kind === "employee" ? task.remainingHours : task.equipmentRemainingHours;
   const fullJobTooLarge = activeMode !== "FullJob" && fullJobHours(remaining, assignment.hours) > DAILY_CAPACITY;
 
@@ -296,12 +299,14 @@ function AssigneeRow({
     void run({ action: "set-assignment-hours", assignmentId: assignment.assignmentId, hoursMode: mode, customHours });
   }
 
-  function commitCustom() {
-    const value = Number(customDraft);
-    if (customDraft.trim() === "" || !Number.isFinite(value)) {
-      setCustomDraft(String(assignment.customHours ?? assignment.hours));
+  function commitCustom(text: string) {
+    let value: number;
+    try { value = decimalValue(text, "Custom hours", 2, 0, 24); }
+    catch (error) {
+      setCustomError(error instanceof Error ? error.message : "Enter valid custom hours.");
       return;
     }
+    setCustomError(null);
     if (assignment.hoursMode === "Custom" && value === assignment.customHours) return;
     void run({ action: "set-assignment-hours", assignmentId: assignment.assignmentId, hoursMode: "Custom", customHours: value });
   }
@@ -326,12 +331,13 @@ function AssigneeRow({
             onClick={() => setMode(mode)}>{label}</button>
         ))}
         {activeMode === "Custom" && (
-          <input type="number" min="0" max="24" step="0.25" aria-label={`Custom hours for ${resource.name}`} value={customDraft} disabled={busy}
-            onChange={(event) => setCustomDraft(event.target.value)}
-            onBlur={commitCustom}
+          <DecimalInput required min="0" max="24" aria-label={`Custom hours for ${resource.name}`} value={customDraft} disabled={busy}
+            onChange={(event) => { setCustomDraft(event.target.value); setCustomError(null); }}
+            onBlur={event => commitCustom(event.target.value)}
             onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
         )}
       </div>
+      {customError && <span className="financeImportError" role="alert">{customError}</span>}
       <strong className="fieldAssigneeHours">{hoursText(assignment.hours)}</strong>
       <button type="button" className="fieldAssigneeRemove" disabled={busy} aria-label={`Remove ${resource.name} from ${task.taskName}`}
         onClick={() => void run({ action: "remove-assignment", assignmentId: assignment.assignmentId })}>×</button>
@@ -363,7 +369,7 @@ function TaskForm({
   return (
     <form className="fieldAssignTaskForm" onSubmit={submit}>
       <label>Task<input value={taskName} maxLength={150} required autoFocus onChange={(event) => setTaskName(event.target.value)} /></label>
-      <label>Estimated hrs<input type="number" min="0" max="100000" step="0.25" value={hours} required onChange={(event) => setHours(event.target.value)} /></label>
+      <label>Estimated hrs<DecimalInput min="0" max="100000" value={hours} required onChange={(event) => setHours(event.target.value)} /></label>
       <button type="submit" disabled={busy}>{submitLabel}</button>
       <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
     </form>

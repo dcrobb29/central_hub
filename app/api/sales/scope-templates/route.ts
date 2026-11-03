@@ -5,7 +5,8 @@ import {
   type ScopeTemplateComponentInput,
   type ScopeTemplateInput,
 } from "@/app/lib/scope-templates";
-import { nonNegativeNumberValue, textValue, ValidationError } from "@/app/lib/validation";
+import { describeValidationError, fieldValue, integerValue, textValue, ValidationError } from "@/app/lib/validation";
+import { currencyValue, decimalValue, MAX_DECIMAL_6 } from "@/app/lib/decimal-input";
 import type { LineType } from "@/app/lib/estimates";
 import { ProjectAccessError } from "@/app/lib/project-access-error";
 import { authorizeSalesApi } from "../authorization";
@@ -13,32 +14,29 @@ import { authorizeSalesApi } from "../authorization";
 const LINE_TYPES: LineType[] = ["Material", "Labor", "Equipment"];
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function parseScopeTemplate(body: Record<string, unknown>): ScopeTemplateInput {
-  const templateName = textValue(body.templateName, 150, true);
-  const unitName = textValue(body.unitName, 30, true);
+  const templateName = fieldValue("Template name (up to 150 characters)", () => textValue(body.templateName, 150, true));
+  const unitName = fieldValue("Template unit (up to 30 characters)", () => textValue(body.unitName, 30, true));
 
   const rawComponents = Array.isArray(body.components) ? body.components : [];
   if (rawComponents.length === 0) throw new ValidationError("A scope template needs at least one component");
 
-  const components: ScopeTemplateComponentInput[] = rawComponents.map((rawComponent) => {
+  const components: ScopeTemplateComponentInput[] = rawComponents.map((rawComponent, index) => {
     if (!isRecord(rawComponent)) throw new ValidationError("Invalid component data");
-    const description = textValue(rawComponent.description, 300, true);
+    const description = fieldValue(`Component ${index + 1} description (up to 300 characters)`, () => textValue(rawComponent.description, 300, true));
     const lineType = rawComponent.lineType;
     if (typeof lineType !== "string" || !LINE_TYPES.includes(lineType as LineType)) {
       throw new ValidationError("Each component needs a valid type (Material, Labor, or Equipment)");
     }
-    const quantityPerUnit = nonNegativeNumberValue(rawComponent.quantityPerUnit, "Quantity per unit");
-    const unitCost = nonNegativeNumberValue(rawComponent.unitCost, "Unit cost");
+    const quantityPerUnit = decimalValue(rawComponent.quantityPerUnit, "Quantity per unit", 6, 0, MAX_DECIMAL_6);
+    const unitCost = currencyValue(rawComponent.unitCost, "Unit cost");
     const componentUnitName = textValue(rawComponent.unitName, 30, false);
     const materialId = rawComponent.materialId == null || rawComponent.materialId === ""
       ? null
-      : Number(rawComponent.materialId);
-    if (materialId != null && (!Number.isInteger(materialId) || materialId < 1)) {
-      throw new ValidationError("Invalid material reference");
-    }
+      : integerValue(rawComponent.materialId, "Material");
 
     return {
       description,
@@ -75,7 +73,7 @@ export async function POST(request: NextRequest) {
   try {
     input = parseScopeTemplate(body);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid scope template data" }, { status: 400 });
+    return NextResponse.json({ error: error instanceof ValidationError ? describeValidationError(error) : error instanceof Error ? error.message : "Invalid scope template data" }, { status: 400 });
   }
 
   try {

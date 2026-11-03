@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
+import { registerHooks } from "node:module";
 import { test } from "node:test";
-import { allocateCents, billingCents, calculateBillingAllocations, selectionAmount } from "./project-billing-pricing.ts";
+
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier.startsWith("./") && !/\.[a-z]+$/.test(specifier)) return nextResolve(`${specifier}.ts`, context);
+    return nextResolve(specifier, context);
+  },
+});
+const { allocateCents, billingCents, calculateBillingAllocations, selectionAmount } = await import("./project-billing-pricing.ts");
 
 function unit() {
   return { unitId: 1, serviceVisitId: null, visitDate: null, recurrenceDate: null, status: "Upcoming", skipped: false,
@@ -23,6 +31,8 @@ test("percentages use original value rather than remaining", () => {
   assert.equal(selectionAmount(1000, 250, { kind: "Percentage", value: 25 }), 250);
   assert.equal(selectionAmount(1000, 250, { kind: "Full", value: null }), 750);
   assert.throws(() => selectionAmount(1000, 800, { kind: "Percentage", value: 25 }), /exceeds/);
+  assert.throws(() => selectionAmount(1000, 0, { kind: "Percentage", value: 8.12345 }), /four decimal/);
+  assert.equal(selectionAmount(1000, 0, { kind: "Percentage", value: 8.1234 }), 81.23);
 });
 test("parent invoice consumes the same scope balances", () => {
   const item = unit(); item.billed = 300; item.scopes[0].billed = 300;

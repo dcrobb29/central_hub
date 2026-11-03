@@ -8,7 +8,7 @@ import { insertScopesAndLines, type CreateEstimateInput, type EstimateLineInput 
 import { resolveEstimateCustomer, withLiveCustomerAddress } from "./customers";
 import { getUnitsOfMeasurement } from "./units-of-measurement";
 import { requireUnitAbbreviation } from "./unit-presets";
-import { allocateEstimateLineValues, calculateChange, type ChangeLineOperation } from "./contract-change-pricing";
+import { allocateEstimateLineValues, calculateChange, validateChangeTotals, type ChangeLineOperation } from "./contract-change-pricing";
 
 export type ChangeContext = { estimateId?: number; projectId?: number };
 export type ChangeInput = Omit<CreateEstimateInput,"lines"> & {
@@ -193,6 +193,8 @@ async function documentCustomer(tx: sql.Transaction, org: number, kind: string, 
 
 async function writeDocument(tx: sql.Transaction, org: number, kind: string, input: ChangeInput, customer: DocumentCustomer, existingId?: number) {
   const totals = calculateChange(input);
+  try { validateChangeTotals(totals); }
+  catch (error) { fail(error instanceof Error ? error.message : "Invalid change pricing.", 400); }
   const estimateId = existingId ?? (await tx.request().input("org", sql.Int, org).input("kind", sql.VarChar(16), kind)
     .input("name", sql.NVarChar(150), input.estimateName).query<{ id: number }>(`
       INSERT dbo.Estimates(OrganizationID,DocumentKind,EstimateName,EngagementType) VALUES(@org,@kind,@name,'Project');
@@ -200,7 +202,7 @@ async function writeDocument(tx: sql.Transaction, org: number, kind: string, inp
     `)).recordset[0].id;
   await tx.request().input("id", sql.Int, estimateId).input("name", sql.NVarChar(150), input.estimateName)
     .input("internal", sql.NVarChar(4000), input.internalNotes).input("customer", sql.NVarChar(4000), input.customerNotes)
-    .input("customerId", sql.Int, customer.customerId).input("customerName", sql.NVarChar(150), customer.customerName)
+    .input("customerId", sql.Int, customer.customerId).input("customerName", sql.NVarChar(201), customer.customerName)
     .input("customerAddress", sql.NVarChar(600), customer.customerAddress)
     .query(`UPDATE dbo.Estimates SET EstimateName=@name,InternalNotes=@internal,CustomerNotes=@customer,
       CustomerID=@customerId,CustomerName=@customerName,CustomerAddressSnapshot=@customerAddress WHERE EstimateID=@id`);

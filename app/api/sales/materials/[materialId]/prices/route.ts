@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { currencyValue } from "@/app/lib/decimal-input";
 import { addMaterialPrice, getMaterialPriceHistory } from "@/app/lib/materials";
 import { ProjectAccessError } from "@/app/lib/project-access-error";
 import { isoDateString, ValidationError } from "@/app/lib/validation";
@@ -29,11 +30,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   const body = await request.json().catch(() => null);
-  if (!body || typeof body !== "object") {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json({ error: "Invalid price data" }, { status: 400 });
   }
 
-  const unitCost = Number(body.unitCost);
+  let unitCost: number;
+  for (const key of ["vendorName", "notes"]) {
+    if (body[key] != null && typeof body[key] !== "string") return NextResponse.json({ error: `${key} must be text.` }, { status: 400 });
+  }
+  try {
+    unitCost = currencyValue(body.unitCost, "Unit cost");
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid unit cost" }, { status: 400 });
+  }
   const vendorName = typeof body.vendorName === "string" ? body.vendorName.trim() : "";
   const notes = typeof body.notes === "string" ? body.notes.trim() : "";
   if (!Number.isFinite(unitCost) || unitCost < 0) {

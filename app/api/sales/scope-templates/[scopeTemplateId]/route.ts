@@ -7,6 +7,7 @@ import {
 import { isRecord, parseScopeTemplate } from "../route";
 import { ProjectAccessError } from "@/app/lib/project-access-error";
 import { authorizeSalesApi } from "../../authorization";
+import { describeValidationError, ValidationError } from "@/app/lib/validation";
 
 function parseScopeTemplateId(raw: string): number | null {
   const scopeTemplateId = Number(raw);
@@ -43,7 +44,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   try {
     input = parseScopeTemplate(body);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid scope template data" }, { status: 400 });
+    return NextResponse.json({ error: error instanceof ValidationError ? describeValidationError(error) : error instanceof Error ? error.message : "Invalid scope template data" }, { status: 400 });
   }
 
   try {

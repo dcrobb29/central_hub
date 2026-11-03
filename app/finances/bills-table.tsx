@@ -1,4 +1,6 @@
 "use client";
+import ValidatedInput from "@/app/components/validated-input";
+import { sameInputText } from "@/app/lib/input-warnings";
 
 import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -69,7 +71,7 @@ const BILL_FIELD_GROUPS: { title: string; fields: BillField[] }[] = [
     { key: "billAmount", label: "Amount", required: true, type: "number" },
   ] },
   { title: "Company", fields: [
-    { key: "companyName", label: "Company Name", maxLength: 10 },
+    { key: "companyName", label: "Company Name", maxLength: 150 },
   ] },
   { title: "Billing Address", fields: [
     { key: "billingAddressLine1", label: "Address Line 1", maxLength: 50 },
@@ -155,6 +157,8 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedBill = bills.find((bill) => bill.id === selectedId);
+  const duplicateBill = bills.find(bill => bill.id !== editingBillId
+    && sameInputText(bill.companyName, billDraft.companyName) && sameInputText(bill.billNo, billDraft.billNo));
 
   const allocationsByBillId = useMemo(() => {
     const map = new Map<string, AllocationBill>();
@@ -367,6 +371,9 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
                 : "Bill number, date, and amount are required. The bill ID cannot be changed."}
             </p>
             <form onSubmit={submitBill}>
+              {duplicateBill && <p className="financeImportHint" role="status">
+                A bill with this company and bill number already exists (ID {duplicateBill.id}). Review it before saving; saving is still allowed.
+              </p>}
               <fieldset className="financeImportGroup">
                 <legend>Project assignment</legend>
                 <div className="financeImportFields">
@@ -387,8 +394,9 @@ export default function BillsTable({ bills, projectOptions, allocations }: { bil
                     {group.fields.map((field) => (
                       <label className="financeImportField" key={field.key}>
                         {field.label}{field.required ? " *" : ""}
-                        <input
+                        <ValidatedInput field={field.key}
                           type={field.type ?? "text"}
+                          min={field.key === "billDueDate" ? billDraft.billDate || undefined : undefined}
                           value={billDraft[field.key] ?? ""}
                           onChange={(event) => setBillDraft((current) => ({ ...current, [field.key]: event.target.value }))}
                           maxLength={field.maxLength}

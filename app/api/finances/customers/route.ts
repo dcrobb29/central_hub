@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { optionalCustomerId, parseCustomerDetails } from "@/app/lib/customer-fields";
 import { CustomerError, getCustomers, saveCustomer, setCustomerActive } from "@/app/lib/customers";
-import { ValidationError } from "@/app/lib/validation";
+import { describeValidationError, ValidationError } from "@/app/lib/validation";
 import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
 
 export async function GET(request: NextRequest) {
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
     if (error instanceof ValidationError) {
-      return NextResponse.json({ error: "Enter a contact name, a valid email if provided, and details within the field limits." }, { status: 400 });
+      return NextResponse.json({ error: describeValidationError(error) }, { status: 400 });
     }
     if (error instanceof CustomerError) return NextResponse.json({ error: error.message }, { status: 404 });
     console.error("Customer directory update failed", error);

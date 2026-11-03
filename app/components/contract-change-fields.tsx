@@ -1,4 +1,5 @@
 "use client";
+import DecimalInput from "./decimal-input";
 
 import type { ChangeInput, ChangeSourceLine } from "@/app/lib/contract-changes";
 import { calculateChange } from "@/app/lib/contract-change-pricing";
@@ -59,9 +60,9 @@ export default function ContractChangeFields({ input, sources, unitPresets, disa
         onChange={e => patch({ markupMode: e.target.value === "estimate" ? "estimate" : "perLine" })}>
         <option value="perLine">Markup per line</option><option value="estimate">Markup on additions</option>
       </select></label>
-      {input.markupMode === "estimate" && <label className="financeImportField">Markup %<input type="number" min={0} max={1000} step="0.01"
+      {input.markupMode === "estimate" && <label className="financeImportField">Markup %<DecimalInput min={0} max={1000}
         value={input.estimateMarkupPercent} onChange={e => patch({ estimateMarkupPercent: Number(e.target.value) })}/></label>}
-      <label className="financeImportField">Tax % on added costs<input type="number" min={0} max={100} step="0.01"
+      <label className="financeImportField">Tax % on added costs<DecimalInput places={4} min={0} max={100}
         value={input.taxPercent} onChange={e => patch({ taxPercent: Number(e.target.value) })}/></label>
     </div>
     <p>Deductions use the existing work&apos;s contract pricing. Enter the quantity removed; add replacement work on a separate Add line.</p>
@@ -84,14 +85,14 @@ export default function ContractChangeFields({ input, sources, unitPresets, disa
         <td><select aria-label={`Line ${index + 1} type`} disabled={line.operation === "Deduct"} value={line.lineType}
           onChange={e => linePatch(index, { lineType: e.target.value === "Labor" ? "Labor" : e.target.value === "Equipment" ? "Equipment" : "Material" })}>
           <option>Material</option><option>Labor</option><option>Equipment</option></select></td>
-        <td><input required type="number" min="0.0001" step="0.0001"
+        <td><DecimalInput required places={4} min="0.0001"
           max={line.operation === "Deduct" ? sources.find(source => source.lineId === line.deductLineId)?.remainingQuantity : undefined}
           aria-label={`Line ${index + 1} quantity`} value={line.quantity} onChange={e => linePatch(index, { quantity: Number(e.target.value) })}/></td>
         <td><select required aria-label={`Line ${index + 1} unit`} disabled={line.operation === "Deduct"} value={line.unitName ?? ""} onChange={e => linePatch(index, { unitName: e.target.value })}>
           <option value="">Choose unit</option>{unitPresets.map(unit => <option key={unit.abbreviation} value={unit.abbreviation}>{unit.abbreviation}</option>)}</select></td>
-        <td><input required type="number" min={0} step="0.0001" disabled={line.operation === "Deduct"} aria-label={`Line ${index + 1} unit cost`} value={line.unitCost} onChange={e => linePatch(index, { unitCost: Number(e.target.value) })}/></td>
-        <td><input type="number" min={0} step="0.0001" aria-label={`Line ${index + 1} freight`} disabled={line.operation === "Deduct"} value={line.freightAmount} onChange={e => linePatch(index, { freightAmount: Number(e.target.value) })}/></td>
-        <td><input type="number" min={0} max={1000} step="0.0001" aria-label={`Line ${index + 1} markup percent`} disabled={line.operation === "Deduct" || input.markupMode === "estimate"} value={line.lineMarkupPercent} onChange={e => linePatch(index, { lineMarkupPercent: Number(e.target.value) })}/></td>
+        <td><DecimalInput currency required min={0} disabled={line.operation === "Deduct"} aria-label={`Line ${index + 1} unit cost`} value={line.unitCost} onChange={e => linePatch(index, { unitCost: Number(e.target.value) })}/></td>
+        <td><DecimalInput currency min={0} max={1_000_000_000} aria-label={`Line ${index + 1} freight`} disabled={line.operation === "Deduct"} value={line.freightAmount} onChange={e => linePatch(index, { freightAmount: Number(e.target.value) })}/></td>
+        <td><DecimalInput places={4} min={0} max={1000} aria-label={`Line ${index + 1} markup percent`} disabled={line.operation === "Deduct" || input.markupMode === "estimate"} value={line.lineMarkupPercent} onChange={e => linePatch(index, { lineMarkupPercent: Number(e.target.value) })}/></td>
         <td><button type="button" disabled={input.lines.length === 1} aria-label={`Remove line ${index + 1}`} onClick={() => patch({ lines: input.lines.filter((_, position) => position !== index) })}>Remove</button></td>
       </tr>)}</tbody>
     </table></div>

@@ -12,7 +12,7 @@ BEGIN
     CREATE TABLE dbo.Estimates (
         EstimateID int IDENTITY(1,1) NOT NULL CONSTRAINT PK_Estimates PRIMARY KEY,
         EstimateName nvarchar(150) NOT NULL,
-        CustomerName nvarchar(150) NULL,
+        CustomerName nvarchar(201) NULL,
         EstimateStatus varchar(16) NOT NULL CONSTRAINT DF_Estimates_Status DEFAULT 'Draft',
         CreatedAt datetime2(0) NOT NULL CONSTRAINT DF_Estimates_CreatedAt DEFAULT SYSUTCDATETIME(),
         CONSTRAINT CK_Estimates_Status CHECK (EstimateStatus IN ('Draft', 'Won', 'Lost'))

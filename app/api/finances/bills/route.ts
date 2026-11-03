@@ -1,28 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
+import { zipValue } from "@/app/lib/contact-input";
 import { addBill, type BillInput } from "@/app/lib/bills";
 import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
-import { amountValue, describeValidationError, isoDateValue, optionalIsoDateValue, optionalProjectId, textValue, ValidationError } from "@/app/lib/validation";
+import { amountValue, describeValidationError, fieldValue, isoDateValue, optionalIsoDateValue, optionalProjectId, textValue, validateDueDate, ValidationError } from "@/app/lib/validation";
 import { ProjectAccessError, requireProjectSession } from "@/app/lib/project-access";
 
 // Shared by POST (create) and the [id] route's PUT (update) so both stay in lockstep.
 export function parseBillInput(body: unknown): BillInput {
-  if (!body || typeof body !== "object") {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new ValidationError("invalid");
   }
   const input = body as Record<string, unknown>;
+  const billDate = fieldValue("Bill date", () => isoDateValue(input.billDate));
+  const billDueDate = fieldValue("Due date", () => optionalIsoDateValue(input.billDueDate));
+  validateDueDate(billDate, billDueDate);
+  const text = (key: string, label: string, max: number) =>
+    fieldValue(`${label} (up to ${max} characters)`, () => textValue(input[key], max));
   return {
     projectId: optionalProjectId(input.projectId),
-    billNo: textValue(input.billNo, 10, true),
-    billDate: isoDateValue(input.billDate),
-    billDueDate: optionalIsoDateValue(input.billDueDate),
-    billPaidDate: optionalIsoDateValue(input.billPaidDate),
-    billAmount: amountValue(input.billAmount, { required: true }),
-    companyName: textValue(input.companyName, 10),
-    billingAddressLine1: textValue(input.billingAddressLine1, 50),
-    billingAddressLine2: textValue(input.billingAddressLine2, 50),
-    billingAddressCity: textValue(input.billingAddressCity, 50),
-    billingAddressState: textValue(input.billingAddressState, 50),
-    billingAddressZip: textValue(input.billingAddressZip, 10),
+    billNo: fieldValue("Bill number (up to 10 characters)", () => textValue(input.billNo, 10, true)),
+    billDate,
+    billDueDate,
+    billPaidDate: fieldValue("Paid date", () => optionalIsoDateValue(input.billPaidDate)),
+    billAmount: fieldValue("Bill amount (up to 9,999,999.99; credits may be negative)", () => amountValue(input.billAmount, { required: true })),
+    companyName: text("companyName", "Company name", 150),
+    billingAddressLine1: text("billingAddressLine1", "Address line 1", 50),
+    billingAddressLine2: text("billingAddressLine2", "Address line 2", 50),
+    billingAddressCity: text("billingAddressCity", "City", 50),
+    billingAddressState: text("billingAddressState", "State", 50),
+    billingAddressZip: fieldValue("Billing ZIP", () => zipValue(input.billingAddressZip)),
   };
 }
 

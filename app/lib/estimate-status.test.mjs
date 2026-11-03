@@ -33,7 +33,42 @@ registerHooks({
 fixture();
 const { setEstimateStatus, winEstimate } = await import("./estimates.ts");
 const { ProjectAccessError } = await import("./project-access-error.ts");
-const { PATCH } = await import("../api/sales/estimates/route.ts");
+const { PATCH, parseEstimate, parseChangeEstimate } = await import("../api/sales/estimates/route.ts");
+
+test("estimate API accepts four-decimal tax and fractional quantities but rejects fractional-cent entry", () => {
+  const input = {
+    estimateName: "Precision check", engagementType: "Project", markupMode: "perLine", groupingMode: "None",
+    scopes: [], taxPercent: 8.1234, lines: [{
+      description: "Gravel", unitName: "TON", lineType: "Material", quantity: 0.005,
+      unitCost: 45.67, freightAmount: 0, lineMarkupPercent: 0,
+    }],
+  };
+  assert.equal(parseEstimate(input).taxPercent, 8.1234);
+  assert.equal(parseEstimate(input).lines[0].quantity, 0.005);
+  assert.equal(parseEstimate({ ...input, customerName: "A".repeat(100) + " " + "B".repeat(100) }).customerName.length, 201);
+  assert.throws(() => parseEstimate({ ...input, customerName: "A".repeat(202) }), /Customer name.*201/);
+  assert.throws(() => parseEstimate({ ...input, estimateName: "A".repeat(151) }), /Estimate name.*150/);
+  for (const taxPercent of [-1, 100.0001, 8.12345, "1e1"]) {
+    assert.throws(() => parseEstimate({ ...input, taxPercent }));
+  }
+  for (const overrides of [{ unitCost: 45.671 }, { freightAmount: 1.001 }, { unitCost: "4e1" }]) {
+    assert.throws(() => parseEstimate({ ...input, lines: [{ ...input.lines[0], ...overrides }] }));
+  }
+  for (const overrides of [{ quantity: "" }, { quantity: true }, { materialId: 1.5 },
+    { unitCost: "" }, { unitCost: false }, { catalogPriceDate: "2026-02-30" },
+    { quantity: 900_000_000_000, unitCost: 900_000_000_000 }]) {
+    assert.throws(() => parseEstimate({ ...input, lines: [{ ...input.lines[0], ...overrides }] }));
+  }
+  assert.equal(parseEstimate({ ...input, lines: [{ ...input.lines[0], unitCost: "$1,234.56" }] }).lines[0].unitCost, 1234.56);
+  const deduction = parseChangeEstimate({ ...input, lines: [{
+    ...input.lines[0], operation: "Deduct", unitCost: 45.671, freightAmount: 0.1234,
+  }] });
+  assert.equal(deduction.lines[0].unitCost, 0, "deduction pricing is deferred to contract resolution");
+  assert.equal(deduction.lines[0].freightAmount, 0);
+  assert.throws(() => parseChangeEstimate({ ...input, lines: [{
+    ...input.lines[0], operation: "Add", unitCost: 45.671,
+  }] }));
+});
 
 function fixture(status = "Draft") {
   const state = {

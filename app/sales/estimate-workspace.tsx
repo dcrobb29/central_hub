@@ -1,4 +1,6 @@
 "use client";
+import DecimalInput from "@/app/components/decimal-input";
+import { scaledTemplateQuantity } from "@/app/lib/decimal-input";
 import Button from "@/app/components/button";
 import { WorkspaceHeading } from "@/app/components/workspace-ui";
 
@@ -380,7 +382,7 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
       <Fragment key={line.draftLineId}>
         <div className="estimateLineEditor">
           <input aria-label={`Line ${index + 1} description`} placeholder="Description" value={line.description} maxLength={300} onChange={(event) => updateLine(index, { description: event.target.value })} required />
-          <input aria-label={`Line ${index + 1} quantity`} type="number" min="0.0001" step="0.0001" value={line.quantity} onChange={(event) => updateLine(index, { quantity: asNumber(event.target.value) })} required />
+          <DecimalInput places={4} aria-label={`Line ${index + 1} quantity`} min="0.0001" value={line.quantity} onChange={(event) => updateLine(index, { quantity: asNumber(event.target.value) })} required />
           <select aria-label={`Line ${index + 1} unit`} value={line.unitName ?? ""} onChange={(event) => updateLine(index, { unitName: event.target.value })} required>
             <option value="" disabled>Choose unit</option>
             {line.unitName && !findUnitPreset(line.unitName, unitPresets) && (
@@ -390,9 +392,9 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
               <option key={preset.abbreviation} value={preset.abbreviation} title={preset.unitName}>{preset.abbreviation}</option>
             ))}
           </select>
-          <input aria-label={`Line ${index + 1} unit cost`} type="number" min="0" step="0.0001" value={line.unitCost} onChange={(event) => updateLine(index, { unitCost: asNumber(event.target.value) })} required />
-          <input aria-label={`Line ${index + 1} freight`} type="number" min="0" step="0.0001" value={line.freightAmount} onChange={(event) => updateLine(index, { freightAmount: asNumber(event.target.value) })} />
-          <input aria-label={`Line ${index + 1} markup percent`} type="number" min="0" max="1000" step="0.01" value={line.lineMarkupPercent} disabled={markupMode === "estimate"} onChange={(event) => updateLine(index, { lineMarkupPercent: asNumber(event.target.value) })} />
+          <DecimalInput currency aria-label={`Line ${index + 1} unit cost`} min="0" value={line.unitCost} onChange={(event) => updateLine(index, { unitCost: asNumber(event.target.value) })} required />
+          <DecimalInput currency aria-label={`Line ${index + 1} freight`} min="0" max={1_000_000_000} value={line.freightAmount} onChange={(event) => updateLine(index, { freightAmount: asNumber(event.target.value) })} />
+          <DecimalInput places={4} aria-label={`Line ${index + 1} markup percent`} min="0" max="1000" value={line.lineMarkupPercent} disabled={markupMode === "estimate"} onChange={(event) => updateLine(index, { lineMarkupPercent: asNumber(event.target.value) })} />
           <button type="button" className="estimateCatalogLine" aria-label={`Pick line ${index + 1} from catalog`} title="Pick from catalog" onClick={() => void openCatalogPicker(index)}><Library size={15} /></button>
           <button type="button" className="estimateRemoveLine" aria-label={`Remove line ${index + 1}`} disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}><Trash2 size={15} /></button>
         </div>
@@ -678,10 +680,23 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
       return;
     }
     const scopeName = uniqueScopeName(selectedScopeTemplate.templateName);
-    const newLines: EstimateLineDraft[] = selectedScopeTemplate.components.map((component) => ({
+    const existingLines = lines.length === 1 && !lines[0].description.trim() && !lines[0].scopeName ? 0 : lines.length;
+    if (scopes.length >= 50 || scopeName.length > 150 || existingLines + selectedScopeTemplate.components.length > 100) {
+      setScopeTemplateError("Applying this template would exceed 100 estimate lines, 50 scopes, or the 150-character scope name limit. Adjust the estimate or template first.");
+      return;
+    }
+    let quantities: number[];
+    try {
+      quantities = selectedScopeTemplate.components.map((component, index) =>
+        scaledTemplateQuantity(component.quantityPerUnit, scopeTemplateQuantity, `Component ${index + 1} (${component.description})`));
+    } catch (error) {
+      setScopeTemplateError(error instanceof Error ? error.message : "Unable to calculate template quantities.");
+      return;
+    }
+    const newLines: EstimateLineDraft[] = selectedScopeTemplate.components.map((component, index) => ({
       ...newLine(),
       description: component.description,
-      quantity: Number((component.quantityPerUnit * scopeTemplateQuantity).toFixed(6)),
+      quantity: quantities[index],
       unitName: importedUnit(component.unitName),
       unitCost: component.unitCost,
       freightAmount: 0,
@@ -919,8 +934,8 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
                       <option value="estimate">Markup on estimate subtotal</option>
                     </select>
                   </label>
-                  {markupMode === "estimate" && <label className="financeImportField">Estimate markup %<input type="number" min="0" max="1000" step="0.01" value={estimateMarkupPercent} onChange={(event) => setEstimateMarkupPercent(asNumber(event.target.value))} /></label>}
-                  <label className="financeImportField">Tax % of cost (internal only)<input type="number" min="0" max="100" step="0.01" value={taxPercent} onChange={(event) => setTaxPercent(asNumber(event.target.value))} /></label>
+                  {markupMode === "estimate" && <label className="financeImportField">Estimate markup %<DecimalInput min="0" max="1000" value={estimateMarkupPercent} onChange={(event) => setEstimateMarkupPercent(asNumber(event.target.value))} /></label>}
+                  <label className="financeImportField">Tax % of cost (internal only)<DecimalInput places={4} min="0" max="100" value={taxPercent} onChange={(event) => setTaxPercent(asNumber(event.target.value))} /></label>
                   <label className="financeImportField">Final rounding
                     <select value={roundingIncrement} onChange={(event) => setRoundingIncrement(Number(event.target.value))}>
                       <option value={0}>No rounding</option>
@@ -1201,14 +1216,12 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
               </ol>
             </>
           ) : (
-            <>
+            <form onSubmit={event => { event.preventDefault(); applyScopeTemplate(); }}>
               <label className="financeImportField">
                 {selectedScopeTemplate.unitName} quantity *
-                <input
+                <DecimalInput places={6} required
                   autoFocus
-                  type="number"
-                  min="0.0001"
-                  step="0.0001"
+                  min="0.000001"
                   value={scopeTemplateQuantity}
                   onChange={(event) => setScopeTemplateQuantity(asNumber(event.target.value))}
                 />
@@ -1220,7 +1233,7 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
               <ol className="estimateScope">
                 {selectedScopeTemplate.components.map((component) => (
                   <li key={component.scopeTemplateComponentId}>
-                    {component.description} — {Number((component.quantityPerUnit * scopeTemplateQuantity).toFixed(6))}
+                    {component.description} — {(component.quantityPerUnit * scopeTemplateQuantity).toLocaleString("en-US", { maximumFractionDigits: 12 })}
                     {component.unitName ? ` ${component.unitName}` : ""} @ {money(component.unitCost)} ({component.lineType})
                   </li>
                 ))}
@@ -1228,9 +1241,9 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
               {scopeTemplateError && <p className="financeImportError" role="alert">{scopeTemplateError}</p>}
               <div className="financeImportActions">
                 <button type="button" className="financeImportCancel" onClick={() => setSelectedScopeTemplate(null)}>Back</button>
-                <button type="button" className="financeImportSubmit" onClick={applyScopeTemplate}>Apply template</button>
+                <button type="submit" className="financeImportSubmit">Apply template</button>
               </div>
-            </>
+            </form>
           )}
         </Modal>
       )}

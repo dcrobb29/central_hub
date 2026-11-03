@@ -1,4 +1,6 @@
 "use client";
+import ValidatedInput from "@/app/components/validated-input";
+import { similarCustomer } from "@/app/lib/input-warnings";
 
 import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -23,6 +25,7 @@ export default function CustomerDirectory({ customers, canWrite = false }: { cus
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [view, setView] = useState("cards");
   const selectedCustomer = customers.find((customer) => customer.customerId === selectedId);
+  const duplicates = draft ? customers.filter(customer => customer.customerId !== editingId && similarCustomer(draft, customer)) : [];
   const visible = useMemo(() => {
     const q = search.trim().toLocaleLowerCase();
     return customers.filter((customer) => (showArchived || customer.isActive) &&
@@ -136,6 +139,9 @@ export default function CustomerDirectory({ customers, canWrite = false }: { cus
       {error && !draft && <p className="financeImportError" role="alert">{error}</p>}
       {canWrite && draft && <Modal titleId="customerFormTitle" title={editingId === null ? "Add customer" : "Edit customer"} eyebrow="CUSTOMERS" onClose={close} closeDisabled={busy}>
         <form onSubmit={save}>
+          {duplicates.length > 0 && <p className="financeImportHint" role="status">
+            Possible duplicate: {duplicates.slice(0, 5).map(customerLabel).join("; ")}. Review the existing records; saving is still allowed.
+          </p>}
           <p className="financeImportHint">Contact name is required. Company, contact methods, and addresses are optional.</p>
           {CUSTOMER_FIELD_GROUPS.map((group) => <fieldset className="financeImportGroup" key={group.title}>
             <legend>{group.title}</legend>
@@ -145,7 +151,7 @@ export default function CustomerDirectory({ customers, canWrite = false }: { cus
             })}>Copy billing address</button>}
             <div className="financeImportFields">{group.fields.map((field) => <label className="financeImportField" key={field.key}>
               {field.label}{field.required ? " *" : ""}
-              <input type={field.type ?? "text"} value={draft[field.key]} required={field.required} maxLength={field.maxLength} disabled={busy}
+              <ValidatedInput field={field.key} type={field.type ?? "text"} value={draft[field.key]} required={field.required} maxLength={field.maxLength} disabled={busy}
                 onChange={(event) => setDraft({ ...draft, [field.key]: event.target.value })} />
             </label>)}</div>
           </fieldset>)}

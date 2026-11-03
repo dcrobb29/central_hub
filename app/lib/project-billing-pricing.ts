@@ -1,3 +1,5 @@
+import { decimalInputError } from "./decimal-input";
+
 export const SCOPE_STATUSES = ["Upcoming", "In Progress", "Complete"] as const;
 export type ScopeStatus = (typeof SCOPE_STATUSES)[number];
 export const BILLING_METHODS = ["Amount", "Percentage", "Scopes"] as const;
@@ -65,12 +67,12 @@ export function selectionAmount(original: number, billed: number, selection: Pic
   let cents: number;
   if (selection.kind === "Full") cents = remaining;
   else if (selection.kind === "Percentage") {
-    if (selection.value === null || !Number.isFinite(selection.value) || selection.value <= 0 || selection.value > 100) {
-      throw new BillingError("Enter a percentage greater than 0 and at most 100");
+    if (selection.value === null || selection.value <= 0 || decimalInputError(String(selection.value), 4, 0, 100)) {
+      throw new BillingError("Enter a percentage greater than 0 and at most 100, with up to four decimal places");
     }
     cents = Math.round(billingCents(original) * selection.value / 100);
   } else {
-    if (selection.value === null || selection.value <= 0 || Math.abs(selection.value * 100 - Math.round(selection.value * 100)) > 0.00001) {
+    if (selection.value === null || selection.value <= 0 || decimalInputError(String(selection.value), 2, 0)) {
       throw new BillingError("Enter a positive amount with at most two decimal places");
     }
     cents = billingCents(selection.value);

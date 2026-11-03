@@ -44,6 +44,7 @@ registerHooks({
         "setEmployeeActiveStatus", "deleteOrArchiveEmployee",
       ].map((name) => `export const ${name} = ${call(name)};`).join("\n"),
       "invoice-settings.ts": `
+        export const DEFAULT_INVOICE_SETTINGS = {};
         export const updateOrganizationInvoiceSettings = ${call("updateOrganizationInvoiceSettings")};
         export const getOrganizationInvoiceSettings = ${call("getOrganizationInvoiceSettings")};
         export const peekNextInvoiceNumber = ${call("peekNextInvoiceNumber")};
@@ -93,6 +94,26 @@ const invoiceParams = () => ({ params: Promise.resolve({ id: "12" }) });
 const invoiceBody = {
   invoiceDate: "2026-10-16", invoiceDueDate: "2026-11-16", invoiceAmount: "100.00",
 };
+
+test("settings APIs reject coerced booleans, IDs, email and overlength fields before mutation", async () => {
+  const cases = [
+    { action: "update-member", membershipId: 3, isActive: "false" },
+    { action: "update-member", membershipId: true, isActive: false },
+    { action: "toggle-employee-active", employeeId: 3, isActive: "false" },
+    { action: "add-member", email: "bad", displayName: "Member", accessRoleId: 2 },
+    { action: "add-member", email: "member@example.com", displayName: "x".repeat(151), accessRoleId: 2 },
+    { action: "update-invoice-settings", invoiceSettings: { companyName: "x".repeat(151) } },
+    { action: "update-invoice-settings", invoiceSettings: { showShippingAddress: "false" } },
+    { action: "update-invoice-settings", invoiceSettings: { companyEmail: "bad" } },
+  ];
+  for (const body of cases) {
+    session(["organization.manage", "members.manage", "personnel.write", "finances.write"]);
+    assert.equal((await settings.POST(request("/api/account/settings", body))).status, 400);
+    assert.deepEqual(state.calls, []);
+  }
+  session(["organization.manage"]);
+  assert.equal((await template.POST(request("/api/account/settings/invoice-template/preview", { invoiceTitle: "x".repeat(65) }))).status, 400);
+});
 
 test("settings and template routes reject anonymous, non-admin, and cross-tenant access", async () => {
   for (const permissions of [null, []]) {

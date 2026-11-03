@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (specifier === "./validation") return nextResolve(new URL("./validation.ts", import.meta.url).href, context);
+    if (specifier.startsWith("./") && !/\.[a-z]+$/.test(specifier)) return nextResolve(`${specifier}.ts`, context);
     return nextResolve(specifier, context);
   },
 });
@@ -38,8 +38,14 @@ test("unexpected costs are valid but still require a bill and positive total", (
   for (const overrides of [
     { billId: "" }, { projectId: "1" }, { estimateLineItemId: undefined },
     { quantity: 0 }, { quantity: -1 }, { quantity: 1.00001 }, { unitCost: -1 },
-    { freightAmount: 0.001 }, { taxAmount: -1 }, { taxAmount: "4.13" },
+    { unitCost: 1.005 }, { freightAmount: 0.001 }, { taxAmount: -1 }, { taxAmount: "4.13" },
     { costDate: "2026-02-30" }, { costDate: "0000-01-01" },
     { unitName: "" }, { description: "" }, { quantity: 1, unitCost: 0, freightAmount: 0, taxAmount: 0 },
   ]) assert.throws(() => parseProjectCost({ ...input, ...overrides }));
+});
+
+test("actual cost totals fit the ten-character bill amount column", () => {
+  const large = { ...input, quantity: 100, unitCost: 100_000, freightAmount: 0, taxAmount: 0 };
+  assert.throws(() => parseProjectCost(large), /bill amount limit/);
+  assert.equal(actualCostTotal(parseProjectCost({ ...large, unitCost: 99_999.99 })), 9_999_999);
 });

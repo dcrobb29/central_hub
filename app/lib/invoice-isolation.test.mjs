@@ -6,6 +6,7 @@ import nextEnv from "@next/env";
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (specifier.startsWith("./") && !/\.[a-z]+$/.test(specifier) && context.parentURL?.includes("/app/")) return nextResolve(`${specifier}.ts`, context);
     if (specifier.startsWith("@/app/lib/")) {
       return nextResolve(new URL(`./${specifier.slice("@/app/lib/".length)}.ts`, import.meta.url).href, context);
     }

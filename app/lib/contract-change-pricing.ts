@@ -1,5 +1,6 @@
 import { calculateEstimate, type EstimatePricingInput } from "./estimate-pricing";
 import { allocateCents, billingCents } from "./project-billing-pricing";
+import { assertMoneyRange } from "./decimal-input";
 
 export type ChangeLineOperation = "Add" | "Deduct";
 export function allocateEstimateLineValues(input: Omit<EstimatePricingInput, "lines"> & {
@@ -31,4 +32,9 @@ export function calculateChange(input: EstimatePricingInput & { lines: (Estimate
     quotedTotal: Math.round(lines.reduce((sum, line) => sum + line.sign * line.sellAmount, 0) * 100) / 100,
     landedCostTotal: Math.round(lines.reduce((sum, line) => sum + line.sign * line.landedCost, 0) * 100) / 100,
   };
+}
+
+export function validateChangeTotals(result: ReturnType<typeof calculateChange>): void {
+  result.lines.forEach((line, index) => assertMoneyRange([line.sellAmount, line.landedCost], `Change line ${index + 1}`));
+  assertMoneyRange([result.quotedTotal, result.landedCostTotal], "Change total");
 }

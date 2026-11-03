@@ -7,7 +7,10 @@ registerHooks({
     if (specifier.startsWith("@/app/lib/")) {
       return nextResolve(new URL(`../../../lib/${specifier.slice("@/app/lib/".length)}.ts`, import.meta.url).href, context);
     }
-    if (specifier === "next/server") return nextResolve("next/server.js", context);
+    if (specifier.startsWith(".") && !/\.[a-z]+$/.test(specifier) && context.parentURL?.includes("/app/")) {
+      return nextResolve(`${specifier}.ts`, context);
+    }
+    if (specifier === "next/server" || specifier === "next/headers") return nextResolve(`${specifier}.js`, context);
     return nextResolve(specifier, context);
   },
 });

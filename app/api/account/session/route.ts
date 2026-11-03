@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { phoneValue } from "@/app/lib/contact-input";
+import { describeValidationError, fieldValue, integerValue, textValue, ValidationError } from "@/app/lib/validation";
 import { getCurrentSession, updateProfile } from "@/app/lib/account";
 import { requireProjectSession, ProjectAccessError } from "@/app/lib/project-access";
 
@@ -24,7 +26,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request payload" }, { status: 400 });
     }
 
-    const userId = Number(body.userId);
+    const userId = integerValue(body.userId, "User");
     if (!Number.isInteger(userId) || userId < 1) {
       return NextResponse.json({ error: "Valid user ID is required" }, { status: 400 });
     }
@@ -33,14 +35,15 @@ export async function PATCH(request: NextRequest) {
     }
 
     await updateProfile(userId, {
-      displayName: typeof body.displayName === "string" ? body.displayName : undefined,
-      phone: body.phone === null || typeof body.phone === "string" ? body.phone : undefined,
+      displayName: body.displayName === undefined ? undefined : fieldValue("Display name (up to 150 characters)", () => textValue(body.displayName, 150, true)),
+      phone: body.phone === undefined ? undefined : phoneValue(body.phone),
     });
 
     const session = await getCurrentSession(currentSession.user.email);
     return NextResponse.json(session);
   } catch (error) {
     if (error instanceof ProjectAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof ValidationError) return NextResponse.json({ error: describeValidationError(error) }, { status: 400 });
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to update profile" },
       { status: 400 },

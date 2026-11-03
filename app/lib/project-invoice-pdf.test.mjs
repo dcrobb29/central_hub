@@ -5,6 +5,7 @@ import { registerHooks } from "node:module";
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (specifier.startsWith("./") && !/\.[a-z]+$/.test(specifier) && context.parentURL?.includes("/app/")) return nextResolve(`${specifier}.ts`, context);
     if (specifier.startsWith("@/app/lib/")) return nextResolve(new URL(`./${specifier.slice("@/app/lib/".length)}.ts`, import.meta.url).href, context);
     return nextResolve(specifier, context);
   },
@@ -116,4 +117,3 @@ test("compact and minimal styles render valid PDFs with correct totals",async()=
     assert.ok(text.includes("Invoice total: $125.00"));
   }
 });
-

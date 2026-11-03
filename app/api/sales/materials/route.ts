@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createMaterial, getMaterialsWithLatestPrice } from "@/app/lib/materials";
-import { isoDateString, nonNegativeNumberValue, ValidationError } from "@/app/lib/validation";
+import { isoDateString, ValidationError } from "@/app/lib/validation";
+import { currencyValue } from "@/app/lib/decimal-input";
 import { authorizeSalesApi } from "../authorization";
 
 export async function GET(request: NextRequest) {
@@ -19,10 +20,13 @@ export async function POST(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => null);
-  if (!body || typeof body !== "object") {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json({ error: "Invalid material data" }, { status: 400 });
   }
 
+  for (const key of ["materialName", "unitName", "vendorName", "notes"]) {
+    if (body[key] != null && typeof body[key] !== "string") return NextResponse.json({ error: `${key} must be text.` }, { status: 400 });
+  }
   const materialName = typeof body.materialName === "string" ? body.materialName.trim() : "";
   const unitName = typeof body.unitName === "string" ? body.unitName.trim() : "";
   const vendorName = typeof body.vendorName === "string" ? body.vendorName.trim() : "";
@@ -36,7 +40,7 @@ export async function POST(request: NextRequest) {
   let unitCost: number;
   let quotedDate: string;
   try {
-    unitCost = nonNegativeNumberValue(body.unitCost, "Unit cost");
+    unitCost = currencyValue(body.unitCost, "Unit cost");
     quotedDate = isoDateString(body.quotedDate);
   } catch (error) {
     const message = error instanceof ValidationError && error.message === "date"

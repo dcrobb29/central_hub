@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { currencyValue, decimalValue, MAX_DECIMAL_4 } from "@/app/lib/decimal-input";
+import { validateEstimateTotals } from "@/app/lib/estimate-pricing";
+import { integerValue, isoDateString } from "@/app/lib/validation";
 import { COMPLETED_PROJECT_MESSAGE, isCompletedProjectError } from "@/app/lib/project-status";
 import { InvalidUnitPresetError } from "@/app/lib/unit-presets";
 import { parseNotes } from "@/app/lib/document-notes";
@@ -33,12 +36,8 @@ export async function requireBaseEstimate(estimateId:number,organizationId:numbe
   if(!owned.recordset[0])throw new ProjectAccessError("Estimate not found.",404);
 }
 
-function numberValue(value: unknown, label: string, minimum: number, maximum = 1_000_000_000_000) {
-  const number = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(number) || number < minimum || number > maximum) {
-    throw new Error(`${label} must be between ${minimum} and ${maximum}`);
-  }
-  return number;
+function numberValue(value: unknown, label: string, minimum: number, maximum = MAX_DECIMAL_4) {
+  return decimalValue(value, label, 4, minimum, maximum);
 }
 
 function decimalPlaces(value: number, places: number) {
@@ -46,13 +45,15 @@ function decimalPlaces(value: number, places: number) {
 }
 
 export function parseEstimate(body: Record<string, unknown>): CreateEstimateInput {
+  if (body.customerName != null && typeof body.customerName !== "string") throw new Error("Customer name must be text.");
   const estimateName = typeof body.estimateName === "string" ? body.estimateName.trim() : "";
   const customerName = typeof body.customerName === "string" ? body.customerName.trim() : "";
   const customerId = optionalCustomerId(body.customerId);
   const internalNotes = parseNotes(body.internalNotes, "Internal notes");
   const customerNotes = parseNotes(body.customerNotes, "Customer notes");
   if (!estimateName) throw new Error("Enter an estimate name");
-  if (estimateName.length > 150 || customerName.length > 150) throw new Error("Name fields must be 150 characters or fewer");
+  if (estimateName.length > 150) throw new Error("Estimate name must be 150 characters or fewer.");
+  if (customerName.length > 201) throw new Error("Customer name must be 201 characters or fewer.");
   if (body.markupMode !== "perLine" && body.markupMode !== "estimate") {
     throw new Error("Choose line-level or estimate-level markup");
   }
@@ -96,33 +97,37 @@ export function parseEstimate(body: Record<string, unknown>): CreateEstimateInpu
   }
 
   const estimateMarkupPercent = numberValue(body.estimateMarkupPercent ?? 0, "Estimate markup", 0, 1000);
-  const taxPercent = numberValue(body.taxPercent ?? 0, "Tax percent", 0, 100);
+  const taxPercent = decimalValue(body.taxPercent ?? 0, "Tax percent", 4, 0, 100);
   const roundingIncrement = numberValue(body.roundingIncrement ?? 0, "Rounding option", 0, 100);
   if (![0, 1, 10, 100].includes(roundingIncrement)) throw new Error("Choose no rounding, nearest dollar, $10, or $100");
-  if (![estimateMarkupPercent, taxPercent].every((value) => decimalPlaces(value, 2))) {
-    throw new Error("Markup and tax percentages support up to two decimal places");
+  if (!decimalPlaces(estimateMarkupPercent, 2)) {
+    throw new Error("Estimate markup supports up to two decimal places");
   }
 
   const lines = body.lines.map((rawLine, index) => {
     if (!isRecord(rawLine)) throw new Error(`Line ${index + 1} is invalid`);
     const description = typeof rawLine.description === "string" ? rawLine.description.trim() : "";
     const unitName = typeof rawLine.unitName === "string" ? rawLine.unitName.trim() : "";
+    if (rawLine.unitName != null && typeof rawLine.unitName !== "string") throw new Error(`Line ${index + 1} unit must be text.`);
+    if (rawLine.scopeName != null && typeof rawLine.scopeName !== "string") throw new Error(`Line ${index + 1} scope must be text.`);
     if (!description) throw new Error(`Enter a description for line ${index + 1}`);
     if (description.length > 300 || unitName.length > 30) throw new Error(`Line ${index + 1} exceeds a field length limit`);
     const quantity = numberValue(rawLine.quantity, `Line ${index + 1} quantity`, 0.0001);
-    const unitCost = numberValue(rawLine.unitCost, `Line ${index + 1} unit cost`, 0);
-    const freightAmount = numberValue(rawLine.freightAmount ?? 0, `Line ${index + 1} freight`, 0, 1_000_000_000);
+    const unitCost = currencyValue(rawLine.unitCost, `Line ${index + 1} unit cost`);
+    const freightAmount = currencyValue(rawLine.freightAmount ?? 0, `Line ${index + 1} freight`, 0, 1_000_000_000);
     const lineMarkupPercent = numberValue(rawLine.lineMarkupPercent ?? 0, `Line ${index + 1} markup`, 0, 1000);
     if (![quantity, unitCost, freightAmount, lineMarkupPercent].every((value) => decimalPlaces(value, 4))) {
       throw new Error(`Line ${index + 1} supports up to four decimal places for quantity, cost, freight, and markup`);
     }
-    const materialId = rawLine.materialId == null ? null : numberValue(rawLine.materialId, `Line ${index + 1} material`, 1);
+    const materialId = rawLine.materialId == null ? null : integerValue(rawLine.materialId, `Line ${index + 1} material`);
     const catalogUnitCostAtEntry = rawLine.catalogUnitCostAtEntry == null
       ? null
       : numberValue(rawLine.catalogUnitCostAtEntry, `Line ${index + 1} catalog cost`, 0);
-    const catalogPriceDate = typeof rawLine.catalogPriceDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawLine.catalogPriceDate)
-      ? rawLine.catalogPriceDate
-      : null;
+    let catalogPriceDate: string | null = null;
+    if (rawLine.catalogPriceDate != null && rawLine.catalogPriceDate !== "") {
+      try { catalogPriceDate = isoDateString(rawLine.catalogPriceDate); }
+      catch { throw new Error(`Line ${index + 1}: enter a valid catalog price date.`); }
+    }
     const rawLineType = rawLine.lineType;
     const lineType: LineType =
       rawLineType === "Material" || rawLineType === "Labor" || rawLineType === "Equipment"
@@ -138,7 +143,7 @@ export function parseEstimate(body: Record<string, unknown>): CreateEstimateInpu
     };
   });
 
-  return {
+  const result: CreateEstimateInput = {
     estimateName,
     customerName: customerName || null,
     customerId,
@@ -156,6 +161,15 @@ export function parseEstimate(body: Record<string, unknown>): CreateEstimateInpu
     scopes,
     lines,
   };
+  validateEstimateTotals(result);
+  return result;
+}
+
+export function parseChangeEstimate(body: Record<string, unknown>): CreateEstimateInput {
+  // Deduction prices are resolved from the contract, never accepted as manual entry.
+  const lines = Array.isArray(body.lines) ? body.lines.map(line =>
+    isRecord(line) && line.operation === "Deduct" ? { ...line, unitCost: 0, freightAmount: 0 } : line) : body.lines;
+  return parseEstimate({ ...body, lines, engagementType: "Project", roundingIncrement: 0 });
 }
 
 export async function GET(request: NextRequest) {
@@ -201,7 +215,7 @@ export async function POST(request: NextRequest) {
       for (const [index, raw] of body.alternates.entries()) {
         if (!isRecord(raw)) throw new Error(`Alternate ${index + 1} is invalid.`);
         try {
-          const parsed = parseEstimate({ ...raw, engagementType: "Project", roundingIncrement: 0 });
+          const parsed = parseChangeEstimate(raw);
           const rawLines = raw.lines;
           if (!Array.isArray(rawLines)) throw new Error("Enter alternate lines.");
           alternates.push({ ...parsed, lines: parsed.lines.map((line, lineIndex) => {

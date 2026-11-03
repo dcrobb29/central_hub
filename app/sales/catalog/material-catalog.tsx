@@ -1,4 +1,6 @@
 "use client";
+import DecimalInput from "@/app/components/decimal-input";
+import { sameInputText } from "@/app/lib/input-warnings";
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -247,7 +249,8 @@ export default function MaterialCatalog({ materials }: { materials: MaterialWith
             <form onSubmit={submitMaterial}>
               <label className="financeImportField">Material name *<input autoFocus value={materialName} onChange={(event) => setMaterialName(event.target.value)} maxLength={200} required /></label>
               <label className="financeImportField">Unit<input placeholder="ea, ft, hr" value={unitName} onChange={(event) => setUnitName(event.target.value)} maxLength={30} /></label>
-              <label className="financeImportField">Unit cost *<input type="number" min="0" step="0.0001" value={unitCost} onChange={(event) => setUnitCost(Number(event.target.value))} required /></label>
+              {materials.some(material => sameInputText(material.materialName, materialName)) && <p className="financeImportHint" role="status">A material with this name already exists. Consider adding a price to that material; saving another is still allowed.</p>}
+              <label className="financeImportField">Unit cost *<DecimalInput currency min="0" value={unitCost} onChange={(event) => setUnitCost(Number(event.target.value))} required /></label>
               <label className="financeImportField">Quoted date *<input type="date" value={quotedDate} onChange={(event) => setQuotedDate(event.target.value)} required /></label>
               <label className="financeImportField">Vendor<input value={vendorName} onChange={(event) => setVendorName(event.target.value)} maxLength={150} /></label>
               {error && <p className="financeImportError" role="alert">{error}</p>}
@@ -268,7 +271,7 @@ export default function MaterialCatalog({ materials }: { materials: MaterialWith
             </ol>
             <form onSubmit={submitNewPrice}>
               <legend className="estimateInternalNote">Record a new price (previous prices are kept, not overwritten)</legend>
-              <label className="financeImportField">Unit cost *<input type="number" min="0" step="0.0001" value={newPriceCost} onChange={(event) => setNewPriceCost(Number(event.target.value))} required /></label>
+              <label className="financeImportField">Unit cost *<DecimalInput currency min="0" value={newPriceCost} onChange={(event) => setNewPriceCost(Number(event.target.value))} required /></label>
               <label className="financeImportField">Quoted date *<input type="date" value={newPriceDate} onChange={(event) => setNewPriceDate(event.target.value)} required /></label>
               <label className="financeImportField">Vendor<input value={newPriceVendor} onChange={(event) => setNewPriceVendor(event.target.value)} maxLength={150} /></label>
               {error && <p className="financeImportError" role="alert">{error}</p>}

@@ -88,7 +88,12 @@ test("Sample data inclusion and exclusion lifecycle", async (t) => {
   const checkInvoices = await pool.request().query("SELECT COUNT(*) AS c FROM dbo.Invoices WHERE OrganizationID = 1 AND [Invoice No] IN ('900001', '900002', '900003')");
   assert.equal(checkInvoices.recordset[0].c, 3, "Should have 3 sample invoices");
 
-  const checkBills = await pool.request().query("SELECT COUNT(*) AS c FROM dbo.Bills WHERE OrganizationID = 1 AND id IN ('SMP-B01', 'SMP-B02')");
+  const billKeys = (await pool.request().query(`
+    SELECT RecordKey FROM dbo.SampleDataRecords WHERE OrganizationID = 1 AND TableName = 'Bills'
+  `)).recordset.map(row => row.RecordKey);
+  assert.equal(billKeys.length, 2);
+  const checkBills = await pool.request().input("keys", sql.NVarChar(sql.MAX), JSON.stringify(billKeys))
+    .query("SELECT COUNT(*) AS c FROM dbo.Bills WHERE OrganizationID = 1 AND id IN (SELECT [value] FROM OPENJSON(@keys))");
   assert.equal(checkBills.recordset[0].c, 2, "Should have 2 sample bills");
 
   const checkTasks = await pool.request().query("SELECT COUNT(*) AS c FROM dbo.FieldOperationsTasks WHERE OrganizationID = 1 AND TaskName LIKE '%(Sample)%'");
@@ -118,7 +123,8 @@ test("Sample data inclusion and exclusion lifecycle", async (t) => {
   const postInv = await pool.request().query("SELECT COUNT(*) AS c FROM dbo.Invoices WHERE OrganizationID = 1 AND [Invoice No] IN ('900001', '900002', '900003')");
   assert.equal(postInv.recordset[0].c, 0, "Sample invoices should be deleted");
 
-  const postBills = await pool.request().query("SELECT COUNT(*) AS c FROM dbo.Bills WHERE OrganizationID = 1 AND id IN ('SMP-B01', 'SMP-B02')");
+  const postBills = await pool.request().input("keys", sql.NVarChar(sql.MAX), JSON.stringify(billKeys))
+    .query("SELECT COUNT(*) AS c FROM dbo.Bills WHERE OrganizationID = 1 AND id IN (SELECT [value] FROM OPENJSON(@keys))");
   assert.equal(postBills.recordset[0].c, 0, "Sample bills should be deleted");
 
   // Step 6: Repeat cycle to verify idempotency and re-run safety

@@ -90,7 +90,10 @@ export default function CustomerDirectory({ customers, canWrite = false }: { cus
           label: `${group.title}: ${field.label}`, value: selectedCustomer[field.key],
         })))} />}
       /> : <>
-      <FinanceHeading title="Customers" description="Your customer directory. Open a customer for contact information, addresses, editing, and archive tools."
+      <FinanceHeading title="Customers" description={<>
+        <p>Your customer directory. Open a customer for contact information, addresses, editing, and archive tools.</p>
+        <p>Customer changes apply to future selections, not existing invoice details. Archive customers to hide them from new assignments without deleting history.</p>
+      </>}
         action={canWrite ? <button type="button" className="financeImportButton" onClick={() => open()} disabled={busy}><Plus size={15} aria-hidden="true" />Add customer</button> : undefined} />
       <div className={styles.toolbar}>
         <div className="listStatusToggle" role="group" aria-label="Customers display">
@@ -135,7 +138,6 @@ export default function CustomerDirectory({ customers, canWrite = false }: { cus
         </table>
       </div>}
       </>}
-      <p className={styles.hint}>Customer changes apply to future selections, not existing invoice details. Archive customers to hide them from new assignments without deleting history.</p>
       {error && !draft && <p className="financeImportError" role="alert">{error}</p>}
       {canWrite && draft && <Modal titleId="customerFormTitle" title={editingId === null ? "Add customer" : "Edit customer"} eyebrow="CUSTOMERS" onClose={close} closeDisabled={busy}>
         <form onSubmit={save}>

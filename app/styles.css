@@ -1426,6 +1426,7 @@ summary.projectEstimateSummary::before { content: ""; width: 7px; height: 7px; f
 .logo {
   height: 10vh;
   width: auto;
+  margin-right: 15px;
 }
 
 .linkLogo {

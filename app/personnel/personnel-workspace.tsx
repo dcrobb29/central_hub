@@ -219,7 +219,10 @@ export default function PersonnelWorkspace({ selectedId, selectedTab, view, canW
   return (
     <section className={`${recordStyles.workspace} ${styles.workspace}`}>
       {!selectedId && <>
-      <WorkspaceHeading title="People" eyebrow="PEOPLE & REPORTING" muted className="personnelToolbar" actions={<>
+      <WorkspaceHeading title="People" eyebrow="PEOPLE & REPORTING" muted className="personnelToolbar"
+        tip={<><p>People at a glance. Open a person for reporting relationships and employee history.</p>
+          {view === "chart" && <p>Select a person to open their overview and history. Use the chart controls to zoom or fit the organization.</p>}</>}
+        actions={<>
           <button type="button" className="projectWorkspaceLink" aria-haspopup="dialog" onClick={() => setShowRoles(true)}>
             Roles ({data.roles.length})
           </button>
@@ -228,7 +231,6 @@ export default function PersonnelWorkspace({ selectedId, selectedTab, view, canW
           </button>}
       </>} />
 
-      <p className={recordStyles.intro}>People at a glance. Open a person for reporting relationships and employee history.</p>
       <div className="listViewToolbar">
         <nav className="engagementTabs" aria-label="People views">
           <Link className={`engagementTab${view === "directory" ? " engagementTabActive" : ""}`} href="/personnel" aria-current={view === "directory" ? "page" : undefined}>Directory ({data.people.length})</Link>
@@ -288,7 +290,7 @@ export default function PersonnelWorkspace({ selectedId, selectedTab, view, canW
           </div>}
         </div>
       ) : view === "chart" ? (
-        <section className={styles.chart}><p className={recordStyles.intro}>Select a person to open their overview and history. Use the chart controls to zoom or fit the organization.</p>
+        <section className={styles.chart}>
           <PersonnelChart people={data.people} roles={data.roles} personHref={personHref}
             onSelectPerson={(id) => { if (id) router.push(personHref(id)); }} /></section>
       ) : (
@@ -308,8 +310,8 @@ export default function PersonnelWorkspace({ selectedId, selectedTab, view, canW
         </>
       )}
 
-      {showRoles && <Modal titleId="personnelRolesTitle" title="Roles" eyebrow="PEOPLE & REPORTING" onClose={() => setShowRoles(false)} closeLabel="Close roles">
-        <p className={recordStyles.intro}>Roles are shared across the directory and organization chart.</p>
+      {showRoles && <Modal titleId="personnelRolesTitle" title="Roles" eyebrow="PEOPLE & REPORTING"
+        tip="Roles are shared across the directory and organization chart." onClose={() => setShowRoles(false)} closeLabel="Close roles">
         <ul className={styles.roles}>{data.roles.map((role) => <li key={role.id}>{role.name}</li>)}</ul>
         {!data.roles.length && <p>No roles defined yet. Add a role before adding people.</p>}
         {canWrite && <button type="button" className="financeImportButton" onClick={() => { setShowRoles(false); setRoleName(""); setError(null); setDialog("role"); }}>Add role</button>}

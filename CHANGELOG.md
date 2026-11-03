@@ -2,8 +2,8 @@
 
 ## Versioning policy
 
-- Current application version: **0.2.0** (pre-MVP; approved for deployment with
-  verification follow-up). Formal tracking adopted on 2026-10-24 with the historical
+- Current application version: **0.2.1** (pre-MVP; release prepared, manual
+  acceptance pending). Formal tracking adopted on 2026-10-24 with the historical
   `0.1.0` baseline. This is not a claim of MVP readiness or deployment.
 - Use `MAJOR.MINOR.PATCH`. While pre-MVP, use `0.X.Y`: increment the minor
   number for a substantial feature milestone or incompatible workflow/schema
@@ -22,6 +22,37 @@
 - Code deployment does not apply SQL migrations. Record local and Azure
   migration results separately; do not treat automated tests as live deployment
   verification.
+
+## 0.2.1 - Prepared 2026-11-03
+
+**Status:** compatible workspace usability patch; implementation and automated
+checks complete. Authenticated page and touch acceptance remain pending.
+Package and lockfile metadata are synchronized to `0.2.1`. No database migration
+required. Commit, push, tag, and deployment completion are not asserted here.
+Custom recurrence remains a separate planned feature, not part of this release.
+
+### Workspace information tips
+
+- Move recurring introductory instructions into a circled information button
+  beside workspace eyebrows for Sales, Projects & Jobs, the field planner
+  (including project schedules), Bills, Invoices, Customers, People, Files,
+  Material Catalog, and Scope Templates.
+- Include organization-chart instructions in the People tip when viewing the
+  chart; move shared-role guidance into the Roles dialog's information tip and
+  customer-history/archive guidance into the Customers tip.
+- Hover or keyboard focus previews instructions. Click/tap pins the tip;
+  clicking again, clicking outside, or Escape dismisses it. Tips float without
+  shifting the page, fit narrow viewports, and remain above scrollable dialogs.
+  Escape dismisses an open tip before its enclosing modal.
+- Keep errors, empty-state guidance, read-only warnings, form instructions, and
+  project-specific scheduling context visible. No database migration required.
+- Isolated browser checks of the actual shared components passed for hover,
+  focus, pinning/toggling, outside dismissal, Escape, modal Escape ordering,
+  desktop layout stability, and narrow-screen bounds. Authenticated page
+  acceptance remains pending.
+- Non-database regression suite: 223 passed, one existing skip, no failures.
+  Type-check and production build passed; targeted lint had no errors and one
+  existing unused-import warning in the estimate workspace.
 
 ## 0.2.0 - Prepared 2026-10-24
 

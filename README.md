@@ -2,13 +2,57 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Version and release notes
 
-Current version: **0.2.0 (pre-MVP; approved for deployment with verification follow-up)**.
+Current version: **0.2.1 (pre-MVP; release prepared, manual acceptance pending)**.
 Formal tracking began with the historical `0.1.0` baseline; earlier commits are
 summarized without inventing historical releases.
 See [Version notes](CHANGELOG.md) for the numbering policy, commit-based history,
 pending changes, and release/migration verification requirements.
 
+### 0.2.1 - Workspace information tips (2026-11-03)
+
+- Replace always-visible workspace introductions with circled information
+  buttons beside the eyebrow to conserve space without removing instructions.
+- Cover Sales, Projects & Jobs, field planning/project schedules, Bills,
+  Invoices, Customers, People, Files, Material Catalog, and Scope Templates.
+  Include chart guidance, Roles-dialog help, and customer-history/archive notes.
+- Hover or keyboard focus previews a tip; click/tap pins it. Click again,
+  click outside, or Escape dismisses it without shifting the workspace layout.
+  Inside a modal, Escape closes the tip first.
+- Keep errors, empty-state help, read-only warnings, form instructions, and
+  project-specific scheduling notices visible.
+- No new database migration or recurrence changes. Custom recurrence is planned
+  as a separate feature milestone; it is not included in 0.2.1.
+- Verification: 223 non-database tests passed, one existing skip, no failures;
+  type-check and production build passed. Targeted lint had no errors and one
+  existing unused-import warning. Isolated desktop/narrow-screen browser
+  interaction checks passed; authenticated page and touch acceptance remain
+  pending. Commit, push, tag, and deployment completion are not asserted here.
+
+See [Workspace information tips](#workspace-information-tips) for interaction
+details and the manual acceptance checks.
+
 ## Getting Started
+
+### Workspace information tips
+
+Recurring workspace introductions are available from the circled information
+button beside the eyebrow rather than always occupying page space. Hover or
+focus the button to preview; click/tap to pin it. Click again, click outside, or
+press Escape to dismiss it. When a tip is open inside a modal, Escape dismisses
+the tip first.
+
+This applies to Sales, Projects & Jobs, the field planner/project schedules,
+Bills, Invoices, Customers, People, Files, Material Catalog, and Scope Templates.
+The People chart tip includes chart controls; the Roles dialog has its own tip.
+Customer selection/history and archive guidance is in the Customers tip.
+Errors, empty-state help, read-only warnings, and contextual form guidance remain
+visible.
+
+For manual acceptance, check these pages on desktop and a narrow/touch viewport:
+instructions should be hidden initially, reveal on hover/focus or click/tap,
+stay visible while pinned, dismiss with outside click/Escape, and never shift
+the list or cover content through a clipped dialog. Confirm the existing search,
+action buttons and project-specific scheduling notice still work.
 
 First, run the development server:
 

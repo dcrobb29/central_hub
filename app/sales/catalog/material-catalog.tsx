@@ -10,6 +10,7 @@ import type { MaterialPriceEntry, MaterialWithLatestPrice } from "@/app/lib/mate
 import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
 import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
 import Modal from "@/app/components/modal";
+import { WorkspaceHeading } from "@/app/components/workspace-ui";
 
 type Column = TableColumn<MaterialWithLatestPrice>;
 
@@ -168,11 +169,9 @@ export default function MaterialCatalog({ materials }: { materials: MaterialWith
 
   return (
     <section className="salesWorkspace" ref={filterControlRoot}>
-      <header className="salesToolbar">
-        <div>
-          <p className="salesEyebrow">SALES</p>
-          <h1>Material Catalog</h1>
-        </div>
+      <WorkspaceHeading title="Material Catalog" eyebrow="SALES" className="salesToolbar"
+        tip="Prices are recorded over time, never overwritten, so you can see how old the last quote is when pulling an item into an estimate."
+        actions={<>
         <label className="invoiceSearchLabel">
           Search materials
           <input
@@ -190,9 +189,7 @@ export default function MaterialCatalog({ materials }: { materials: MaterialWith
             Add material
           </button>
         </div>
-      </header>
-
-      <p className="salesWorkflowNote">Prices are recorded over time, never overwritten, so you can see how old the last quote is when pulling an item into an estimate.</p>
+      </>} />
       {error && !isAdding && !historyMaterialId && <p className="financeImportError" role="alert">{error}</p>}
 
       <div className="invoiceTableTools">

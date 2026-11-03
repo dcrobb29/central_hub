@@ -191,11 +191,11 @@ export default function FileExplorer({ canWrite }: { canWrite: boolean }) {
       </details>
       <div className={styles.preview}><FileViewer key={selectedFile.path} file={selectedFile} /></div>
     </> : <>
-      <WorkspaceHeading title="Files" eyebrow="FILES & DOCUMENTS" actions={<>
+      <WorkspaceHeading title="Files" eyebrow="FILES & DOCUMENTS"
+        tip="Files at a glance. Open folders to browse, or preview a file before downloading." actions={<>
           <button type="button" className="projectWorkspaceLink" disabled={busy || !canWrite} aria-haspopup="dialog" onClick={() => { setFolderName(""); setFolderError(null); setShowFolderForm(true); }}><Plus size={15} aria-hidden="true" />New folder</button>
           <Button className="financeImportButton" disabled={busy || !canWrite} aria-haspopup="dialog" onClick={() => setShowImport(true)}><Upload size={15} aria-hidden="true" />Import</Button>
       </>} />
-      <p className={recordStyles.intro}>Files at a glance. Open folders to browse, or preview a file before downloading.</p>
       <div className={styles.toolbar}>
         <nav className={styles.breadcrumb} aria-label="Folder location">
           <button type="button" className="projectWorkspaceLink" disabled={busy} onClick={() => navigate("")} aria-current={!currentPath ? "location" : undefined}>Home</button>

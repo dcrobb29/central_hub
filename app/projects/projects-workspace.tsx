@@ -9,6 +9,7 @@ import ProjectBillingModal from "./project-billing-modal";
 import { ArrowUpRight, ReceiptText } from "lucide-react";
 import Link from "next/link";
 import styles from "@/app/components/record-workspace.module.css";
+import { WorkspaceHeading } from "@/app/components/workspace-ui";
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
@@ -61,13 +62,8 @@ export default function ProjectsWorkspace({ projects, customers, initialProjectI
 
   return (
     <div className={`projectsWorkspace ${styles.workspace}`}>
-      <header className={styles.heading}>
-        <div>
-          <p className="salesEyebrow">PROJECTS &amp; JOBS</p>
-          <h1>Project management</h1>
-        </div>
-        <p>Jobs at a glance. Open a project for scope, costs, files, and scheduling.</p>
-      </header>
+      <WorkspaceHeading title="Project management" eyebrow="PROJECTS & JOBS" className={styles.heading}
+        tip="Jobs at a glance. Open a project for scope, costs, files, and scheduling." />
 
       <div className="listViewToolbar">
         <div className="engagementTabs" role="tablist" aria-label="Project type">

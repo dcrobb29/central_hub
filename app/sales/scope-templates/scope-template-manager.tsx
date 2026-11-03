@@ -15,6 +15,7 @@ import type { MaterialWithLatestPrice } from "@/app/lib/materials";
 import { useFilterableTable, type TableColumn } from "@/app/lib/use-filterable-table";
 import { FilterableTableHeaderCell } from "@/app/components/filterable-table-header-cell";
 import Modal from "@/app/components/modal";
+import { WorkspaceHeading } from "@/app/components/workspace-ui";
 
 type Column = TableColumn<ScopeTemplateSummary>;
 
@@ -194,11 +195,12 @@ export default function ScopeTemplateManager({
 
   return (
     <section className="salesWorkspace" ref={filterControlRoot}>
-      <header className="salesToolbar">
-        <div>
-          <p className="salesEyebrow">SALES</p>
-          <h1>Scope Templates</h1>
-        </div>
+      <WorkspaceHeading title="Scope Templates" eyebrow="SALES" className="salesToolbar" tip={<>
+        A scope template is a preset bundle of material, labor, and equipment lines that scale together off one top-level
+        quantity — e.g. a &quot;Pavers&quot; template with gravel, sand, pavers, and labor all ratioed per SF. Applying a
+        template from an estimate stamps in a scope and its pre-scaled lines once; after that, those lines are ordinary,
+        freely editable estimate lines with no ongoing link back to this template.
+      </>} actions={<>
         <label className="invoiceSearchLabel">
           Search templates
           <input
@@ -216,14 +218,7 @@ export default function ScopeTemplateManager({
             Add scope template
           </button>
         </div>
-      </header>
-
-      <p className="salesWorkflowNote">
-        A scope template is a preset bundle of material, labor, and equipment lines that scale together off one top-level
-        quantity — e.g. a &quot;Pavers&quot; template with gravel, sand, pavers, and labor all ratioed per SF. Applying a
-        template from an estimate stamps in a scope and its pre-scaled lines once; after that, those lines are ordinary,
-        freely editable estimate lines with no ongoing link back to this template.
-      </p>
+      </>} />
       {error && !isAdding && <p className="financeImportError" role="alert">{error}</p>}
 
       <div className="invoiceTableTools">

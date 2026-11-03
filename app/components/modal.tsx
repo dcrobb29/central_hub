@@ -2,6 +2,8 @@
 
 import { useEffect } from "react";
 import type { ReactNode } from "react";
+import WorkspaceTip from "./workspace-tip";
+import workspaceStyles from "./workspace-ui.module.css";
 
 // Tracks every currently-mounted Modal (outermost first) so that when
 // modals are nested (e.g. the catalog picker opened from inside the new
@@ -26,6 +28,7 @@ export default function Modal({
   titleId,
   title,
   eyebrow,
+  tip,
   onClose,
   closeDisabled = false,
   closeLabel = "Close",
@@ -35,6 +38,7 @@ export default function Modal({
   titleId: string;
   title: ReactNode;
   eyebrow?: ReactNode;
+  tip?: ReactNode;
   onClose: () => void;
   closeDisabled?: boolean;
   closeLabel?: string;
@@ -60,7 +64,8 @@ export default function Modal({
       <section className={`financeImportDialog${className ? ` ${className}` : ""}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="financeImportDialogHeader">
           <div>
-            {eyebrow && <p className="financeImportEyebrow">{eyebrow}</p>}
+            {eyebrow && <div className={workspaceStyles.eyebrowRow}><p className="financeImportEyebrow">{eyebrow}</p>
+              {tip && <WorkspaceTip label={typeof eyebrow === "string" ? eyebrow : "Dialog"}>{tip}</WorkspaceTip>}</div>}
             <h2 id={titleId}>{title}</h2>
           </div>
           <button type="button" className="financeImportClose" onClick={onClose} aria-label={closeLabel} disabled={closeDisabled}>×</button>

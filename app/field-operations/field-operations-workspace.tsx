@@ -10,6 +10,7 @@ import type { Person } from "@/app/lib/personnel";
 import { capacityLabel, dayCapacityLabel, resourceCapacity, visitLaborHours, DAILY_CAPACITY, WEEKLY_CAPACITY, type ResourceKind } from "@/app/lib/field-capacity";
 import TaskAssignmentModal from "./task-assignment-modal";
 import Modal from "@/app/components/modal";
+import { WorkspaceHeading } from "@/app/components/workspace-ui";
 import styles from "./field-operations-workspace.module.css";
 
 type DragPayload =
@@ -221,22 +222,17 @@ export default function FieldOperationsWorkspace({
 
   return (
     <section className={`fieldOperationsWorkspace ${styles.workspace}`}>
-      <header className="fieldOperationsHeader">
-        <div>
-          <p className="salesEyebrow">FIELD OPERATIONS</p>
-          <h1>{projectId ? "Project schedule" : "Weekly field planner"}</h1>
-          <p>Jobs at a glance. Open assignments for crew, equipment, and task details.</p>
-          {projectId && <p>This board shows only this project. Availability includes all Active jobs in your organization. <Link href="/field-operations">Open company field planner</Link></p>}
-        </div>
-        <div className={styles.actions}>
+      <WorkspaceHeading title={projectId ? "Project schedule" : "Weekly field planner"} eyebrow="FIELD OPERATIONS"
+        tip="Jobs at a glance. Open assignments for crew, equipment, and task details."
+        className="fieldOperationsHeader" actions={<div className={styles.actions}>
           <button type="button" className="financeImportButton" aria-expanded={showScheduling} aria-controls="fieldSchedulingPanel"
             disabled={!canEdit} onClick={() => { if (!showScheduling) setSelectedDate(availabilityDate); setShowScheduling((current) => !current); }}>
             <Plus size={15} aria-hidden="true" /> Schedule job
           </button>
           <button type="button" className="projectWorkspaceLink" aria-haspopup="dialog"
             onClick={() => setShowAvailability((current) => !current)}>Availability</button>
-        </div>
-      </header>
+        </div>} />
+      {projectId && <p>This board shows only this project. Availability includes all Active jobs in your organization. <Link href="/field-operations">Open company field planner</Link></p>}
 
       <div className={styles.toolbar}>
         <div className="fieldWeekNavigation" aria-label="Choose week">

@@ -7,11 +7,8 @@ import type { TableColumn, useFilterableTable } from "@/app/lib/use-filterable-t
 import recordStyles from "@/app/components/record-workspace.module.css";
 import styles from "./finance-workspace.module.css";
 
-export function FinanceHeading({ title, description, action }: { title: string; description: string; action?: ReactNode }) {
-  return <>
-    <WorkspaceHeading title={title} eyebrow="FINANCES" actions={action} />
-    <p className={recordStyles.intro}>{description}</p>
-  </>;
+export function FinanceHeading({ title, description, action }: { title: string; description: ReactNode; action?: ReactNode }) {
+  return <WorkspaceHeading title={title} eyebrow="FINANCES" actions={action} tip={description} />;
 }
 
 export default function FinanceCollection<T>({ title, description, action, columns, controls, count, itemLabel, cards, children }: {

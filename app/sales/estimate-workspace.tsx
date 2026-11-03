@@ -754,7 +754,9 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
         loadingEdit={loadingEditEstimateId === selectedEstimate.estimateId}
         onEdit={() => void openEditForm(selectedEstimate)} onPdf={() => openPrintPdfPopup(selectedEstimate)}
         onWin={() => void openWinDialog(selectedEstimate)} onDelete={() => openDeleteDialog(selectedEstimate)} /> : <>
-      <WorkspaceHeading title="Sales & Estimates" eyebrow="SALES" className={recordStyles.heading} actions={<div className={styles.headerActions}>
+      <WorkspaceHeading title="Sales & Estimates" eyebrow="SALES"
+        tip="Open an estimate for scope, pricing, notes, and alternates. Mark it won when approved to carry it into Projects & Jobs."
+        className={recordStyles.heading} actions={<div className={styles.headerActions}>
         <details className={styles.libraries}>
           <summary><Library size={15} aria-hidden="true" /> Libraries</summary>
           <nav aria-label="Estimate libraries">
@@ -816,7 +818,6 @@ export default function EstimateWorkspace({ estimates, unitPresets, canEdit = tr
         </ListViewControls>
       </div>
 
-      <p className={recordStyles.intro}>Open an estimate for scope, pricing, notes, and alternates. Mark it won when approved to carry it into Projects &amp; Jobs.</p>
       <div className="invoiceTableTools">
         <label className="invoiceSearchLabel">
           Search estimates

@@ -4,13 +4,15 @@ import type { MouseEventHandler, ReactNode, Ref } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import Modal from "./modal";
 import styles from "./workspace-ui.module.css";
+import WorkspaceTip from "./workspace-tip";
 
-export function WorkspaceHeading({ title, eyebrow, actions, className = "", muted = false, headingRef, focusable = false }: {
-  title: ReactNode; eyebrow: string; actions?: ReactNode; className?: string; muted?: boolean;
+export function WorkspaceHeading({ title, eyebrow, actions, tip, className = "", muted = false, headingRef, focusable = false }: {
+  title: ReactNode; eyebrow: string; actions?: ReactNode; tip?: ReactNode; className?: string; muted?: boolean;
   headingRef?: Ref<HTMLHeadingElement>; focusable?: boolean;
 }) {
   return <header className={`${styles.heading} ${className}`}>
-    <div><p className={`${styles.eyebrow}${muted ? ` ${styles.mutedEyebrow}` : ""}`}>{eyebrow}</p>
+    <div><div className={styles.eyebrowRow}><p className={`${styles.eyebrow}${muted ? ` ${styles.mutedEyebrow}` : ""}`}>{eyebrow}</p>
+      {tip && <WorkspaceTip label={eyebrow}>{tip}</WorkspaceTip>}</div>
       <h1 ref={headingRef} tabIndex={focusable ? -1 : undefined}>{title}</h1></div>
     {actions && <div className={styles.actions}>{actions}</div>}
   </header>;
